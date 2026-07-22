@@ -75,8 +75,14 @@
       <Unit>
         <Filename Value="src\main.pas"/>
         <IsPartOfProject Value="True"/>
-        <ComponentName Value="Form1"/>
+        <ComponentName Value="frmMain"/>
+        <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\uzipeditor.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="uZipEditor"/>
       </Unit>
     </Units>
   </ProjectOptions>

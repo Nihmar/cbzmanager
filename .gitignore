@@ -1,0 +1,80 @@
+# ─── Free Pascal / Lazarus ───────────────────────────────────────────────────
+
+# Compiled units
+*.ppu
+*.ppw
+*.ppa
+
+# Object files
+*.o
+*.or
+*.obj
+
+# Static libraries produced by the linker
+*.a
+*.so
+*.dylib
+*.dll
+
+# Executables
+*.exe
+*.app           # macOS application bundles
+
+# Debug / symbol files
+*.dbg
+*.gdb
+*.dSYM/
+
+# Linker scripts and map files
+*.link
+*.map
+*.rst           # resource string tables
+*.res           # compiled resources (intermediate)
+*.rsj           # resource string JSON (fpc >= 3.x)
+
+# Cross-compilation stamps / target directories
+lib/
+units/
+bin/
+
+# ─── Lazarus IDE ─────────────────────────────────────────────────────────────
+
+# Session / local layout (machine-specific)
+*.lps
+
+# Compiled Lazarus package state
+*.compiled
+
+# Backup files created by the IDE
+*.bak
+*.~*
+*~
+
+# ─── Common editors & OSes ───────────────────────────────────────────────────
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+.directory
+
+# VS Code
+.vscode/
+
+# JetBrains IDEs
+.idea/
+
+# ─── Project-specific suggestions (uncomment as needed) ──────────────────────
+
+# Ignore all output binaries in a dedicated directory
+# build/
+
+# Ignore locally generated config overrides
+# config.local.cfg

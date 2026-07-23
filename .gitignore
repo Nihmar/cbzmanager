@@ -1,5 +1,7 @@
 # ─── Free Pascal / Lazarus ───────────────────────────────────────────────────
 
+AGENTS.md
+
 # Compiled units
 *.ppu
 *.ppw

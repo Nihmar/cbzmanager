@@ -1,8 +1,58 @@
 object frmMain: TfrmMain
   Left = 368
-  Height = 240
-  Top = 250
-  Width = 320
+  Height = 600
+  Top = 100
+  Width = 900
   Caption = 'CBZ Manager'
   LCLVersion = '4.8.0.0'
+
+  object PanelTop: TPanel
+    Left = 0
+    Top = 0
+    Width = 900
+    Height = 40
+    Align = alTop
+    BevelOuter = bvNone
+    BorderSpacing.Around = 4
+
+    object EditDir: TEdit
+      Left = 0
+      Top = 0
+      Width = 796
+      Height = 32
+      Align = alClient
+      ReadOnly = True
+      TabOrder = 0
+    end
+
+    object BtnBrowse: TButton
+      Left = 800
+      Top = 0
+      Width = 100
+      Height = 32
+      Align = alRight
+      Caption = 'Browse...'
+      TabOrder = 1
+      OnClick = BtnBrowseClick
+    end
+
+  end
+
+  object FlowPanel: TFlowPanel
+    Left = 0
+    Top = 40
+    Width = 900
+    Height = 560
+    Align = alClient
+    AutoWrap = True
+    BevelOuter = bvNone
+    TabOrder = 2
+  end
+
+  object SelectDialog: TSelectDirectoryDialog
+    Title = 'Select folder with CBZ files'
+    Left = 40
+    Top = 72
+  end
+
 end

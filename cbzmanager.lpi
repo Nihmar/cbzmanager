@@ -25,12 +25,12 @@
           <Target>
             <Filename Value="bin\release\$(TargetCPU)-$(TargetOS)\cbzmanager"/>
           </Target>
-          <SearchPaths>
-            <IncludeFiles Value="$(ProjOutDir)"/>
-            <Libraries Value="lib"/>
-            <OtherUnitFiles Value="src"/>
-            <UnitOutputDirectory Value="obj\release\$(TargetCPU)-$(TargetOS)"/>
-          </SearchPaths>
+        <SearchPaths>
+          <IncludeFiles Value="$(ProjOutDir)"/>
+          <Libraries Value="lib"/>
+          <OtherUnitFiles Value="src;$(LazarusDir)lcl/units/$(TargetCPU)-$(TargetOS)/qt6"/>
+          <UnitOutputDirectory Value="obj\release\$(TargetCPU)-$(TargetOS)"/>
+        </SearchPaths>
           <CodeGeneration>
             <SmartLinkUnit Value="True"/>
             <TargetCPU Value="x86_64"/>
@@ -95,7 +95,7 @@
     <SearchPaths>
       <IncludeFiles Value="$(ProjOutDir)"/>
       <Libraries Value="lib"/>
-      <OtherUnitFiles Value="src"/>
+      <OtherUnitFiles Value="src;$(LazarusDir)lcl/units/$(TargetCPU)-$(TargetOS)/qt6"/>
       <UnitOutputDirectory Value="obj\debug\$(TargetCPU)-$(TargetOS)"/>
     </SearchPaths>
     <Parsing>

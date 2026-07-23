@@ -5,12 +5,13 @@ object frmMain: TfrmMain
   Width = 900
   Caption = 'CBZ Manager'
   LCLVersion = '4.8.0.0'
+  OnResize = FormResize
 
   object PanelTop: TPanel
     Left = 0
     Top = 0
     Width = 900
-    Height = 40
+    Height = 60
     Align = alTop
     BevelOuter = bvNone
     BorderSpacing.Around = 4
@@ -18,35 +19,62 @@ object frmMain: TfrmMain
     object EditDir: TEdit
       Left = 0
       Top = 0
-      Width = 796
-      Height = 32
+      Width = 700
+      Height = 28
       Align = alClient
       ReadOnly = True
       TabOrder = 0
     end
 
     object BtnBrowse: TButton
-      Left = 800
+      Left = 704
       Top = 0
       Width = 100
-      Height = 32
+      Height = 28
       Align = alRight
       Caption = 'Browse...'
       TabOrder = 1
       OnClick = BtnBrowseClick
     end
 
+    object SliderZoom: TTrackBar
+      Left = 808
+      Top = 0
+      Width = 92
+      Height = 28
+      Align = alRight
+      Max = 300
+      Min = 80
+      Position = 150
+      Frequency = 10
+      TabOrder = 2
+      ThumbLength = 14
+      TickStyle = tsAuto
+      OnChange = SliderZoomChange
+    end
+
   end
 
-  object FlowPanel: TFlowPanel
+  object ScrollBox: TScrollBox
     Left = 0
-    Top = 40
+    Top = 60
     Width = 900
-    Height = 560
+    Height = 540
     Align = alClient
-    AutoWrap = True
-    BevelOuter = bvNone
-    TabOrder = 2
+    BorderStyle = bsNone
+    TabOrder = 3
+
+    object FlowPanel: TFlowPanel
+      Left = 0
+      Top = 0
+      Width = 900
+      Height = 540
+      Align = alTop
+      AutoWrap = True
+      BevelOuter = bvNone
+      BorderSpacing.Around = 4
+    end
+
   end
 
   object SelectDialog: TSelectDirectoryDialog

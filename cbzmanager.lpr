@@ -10,19 +10,24 @@ uses
   athreads,
   {$ENDIF}
   Interfaces, // this includes the LCL widgetset
-  Forms, main, uZipEditor
-  { you can add units after this };
+  Forms,
+  main,
+  { you can add units after this }
+  uZipEditor,
+  uWebP,
+  uImgUtil,
+  uLog;
 
-{$R *.res}
+  {$R *.res}
 
 begin
-  RequireDerivedFormResource:=True;
-  Application.Scaled:=True;
-  {$PUSH}{$WARN 5044 OFF}
-  Application.MainFormOnTaskbar:=True;
+  RequireDerivedFormResource := True;
+  Application.Scaled := True;
+  {$PUSH}
+  {$WARN 5044 OFF}
+  Application.MainFormOnTaskbar := True;
   {$POP}
   Application.Initialize;
   Application.CreateForm(TfrmMain, frmMain);
   Application.Run;
 end.
-

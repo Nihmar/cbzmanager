@@ -6,12 +6,12 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls,
-  ComCtrls, Generics.Collections;
+  ComCtrls, Generics.Collections, Math, IntfGraphics;
 
 const
   THUMB_SPACING = 4;
-  LABEL_HEIGHT  = 24;
-  CHECKBOX_H    = 20;
+  LABEL_HEIGHT = 24;
+  CHECKBOX_H = 20;
 
 type
   TThumbPanel = class(TPanel)
@@ -19,32 +19,34 @@ type
     FCheckBox: TCheckBox;
     FImage: TImage;
     FLabel: TLabel;
-    FSelected: Boolean;
+    FSelected: boolean;
     procedure DoCheck(Sender: TObject);
   protected
     procedure Paint; override;
   public
     constructor Create(AOwner: TComponent); override;
-    procedure SetSelected(AValue: Boolean);
-    procedure SetThumbSize(AW, AH: Integer);
+    procedure SetSelected(AValue: boolean);
+    procedure SetThumbSize(AW, AH: integer);
     property ThumbCheckBox: TCheckBox read FCheckBox;
     property ThumbImage: TImage read FImage;
     property ThumbLabel: TLabel read FLabel;
-    property Selected: Boolean read FSelected;
+    property Selected: boolean read FSelected;
   end;
 
   TLoadedItem = record
     Name: string;
-    Bitmap: TBitmap;
+    Image: TLazIntfImage;
   end;
   TLoadedItems = array of TLoadedItem;
+
+  { TLoadThread }
 
   TLoadThread = class(TThread)
   private
     FDir: string;
     FFileNames: TStringList;
     FItems: TLoadedItems;
-    FCount: Integer;
+    FCount: integer;
     procedure SyncAddThumbs;
   protected
     procedure Execute; override;
@@ -66,21 +68,22 @@ type
     ZoomScroll: TTrackBar;
     procedure BtnBrowseClick(Sender: TObject);
     procedure FormCreate(Sender: TObject);
+    procedure FormDestroy(Sender: TObject);
     procedure FormResize(Sender: TObject);
     procedure ZoomScrollChange(Sender: TObject);
   private
-    FSelected: array of Boolean;
-    FLastClicked: Integer;
+    FSelected: array of boolean;
+    FLastClicked: integer;
     FLoadThread: TLoadThread;
-    FThumbW: Integer;
-    FThumbH: Integer;
-    FFirstPages: specialize TObjectList<TBitmap>;
+    FThumbW: integer;
+    FThumbH: integer;
+    FFirstPages: specialize TObjectList<TLazIntfImage>;
     procedure ThreadTerminated(Sender: TObject);
     procedure ClearThumbnails;
     procedure LoadDirectory(const ADir: string);
     procedure ThumbMouseDown(Sender: TObject; Button: TMouseButton;
-      Shift: TShiftState; X, Y: Integer);
-    procedure SelectRange(AFrom, ATo: Integer);
+      Shift: TShiftState; X, Y: integer);
+    procedure SelectRange(AFrom, ATo: integer);
     procedure LayoutFlowPanel;
   end;
 
@@ -90,8 +93,36 @@ var
 implementation
 
 uses
-  uZipEditor;
+  uZipEditor, uImgUtil, uLog;
 
+{ SOLO MAIN THREAD: IntfToBitmap e Canvas toccano il widgetset. }
+function MakeThumb(Src: TLazIntfImage; W, H: integer): TBitmap;
+var
+  F: double;
+  DW, DH: integer;
+  Full: TBitmap;
+begin
+  Result := TBitmap.Create;
+  Result.PixelFormat := pf24bit;
+  Result.SetSize(W, H);
+  Result.Canvas.Brush.Color := clWindow;
+  Result.Canvas.FillRect(0, 0, W, H);
+  if (Src = nil) or (Src.Width <= 0) or (Src.Height <= 0) then Exit;
+
+  Full := IntfToBitmap(Src);
+  if Full = nil then Exit;
+  try
+    F := Min(W / Full.Width, H / Full.Height);
+    DW := Max(1, Round(Full.Width * F));
+    DH := Max(1, Round(Full.Height * F));
+    Result.Canvas.AntialiasingMode := amOn;
+    Result.Canvas.StretchDraw(
+      Rect((W - DW) div 2, (H - DH) div 2, (W - DW) div 2 + DW,
+      (H - DH) div 2 + DH), Full);
+  finally
+    Full.Free;
+  end;
+end;
 {$R *.lfm}
 
 { TThumbPanel }
@@ -127,7 +158,7 @@ begin
   FLabel.WordWrap := True;
 end;
 
-procedure TThumbPanel.SetThumbSize(AW, AH: Integer);
+procedure TThumbPanel.SetThumbSize(AW, AH: integer);
 begin
   Width := AW;
   Height := AH;
@@ -135,7 +166,7 @@ end;
 
 procedure TThumbPanel.DoCheck(Sender: TObject);
 var
-  Idx: Integer;
+  Idx: integer;
 begin
   Idx := Tag;
   if (Idx >= 0) and (Idx <= High(frmMain.FSelected)) then
@@ -146,7 +177,7 @@ begin
   end;
 end;
 
-procedure TThumbPanel.SetSelected(AValue: Boolean);
+procedure TThumbPanel.SetSelected(AValue: boolean);
 begin
   if FSelected = AValue then Exit;
   FSelected := AValue;
@@ -193,12 +224,13 @@ var
   Dir: string;
   SearchRec: TSearchRec;
   FileNames: TStringList;
-  i, j: Integer;
+  i, j: integer;
   FilePath: string;
-  Bmp: TBitmap;
+  Img: TLazIntfImage;
   Batch: TLoadedItems;
-  BatchCount: Integer;
+  BatchCount: integer;
 begin
+  try
   Dir := IncludeTrailingPathDelimiter(FDir);
 
   FileNames := TStringList.Create;
@@ -211,6 +243,7 @@ begin
       FindClose(SearchRec);
     end;
     FileNames.Sort;
+    Log('Thread: %d file .cbz trovati in %s', [FileNames.Count, Dir]);
 
     BatchCount := 0;
     SetLength(Batch, 0);
@@ -220,17 +253,24 @@ begin
       if Terminated then Exit;
 
       FilePath := Dir + FileNames[i];
-      Bmp := nil;
+      Img := nil;
       try
-        Bmp := GetFirstImageAsBitmap(FilePath);
+        Img := GetFirstImageAsIntfImage(FilePath);
       except
-        Bmp := nil;
+        on E: Exception do
+        begin
+          Log('Thread: eccezione su %s: %s: %s',
+            [FileNames[i], E.ClassName, E.Message]);
+          Img := nil;
+        end;
       end;
 
       Inc(BatchCount);
       SetLength(Batch, BatchCount);
       Batch[BatchCount - 1].Name := FileNames[i];
-      Batch[BatchCount - 1].Bitmap := Bmp;
+      Batch[BatchCount - 1].Image := Img;
+      Log('Thread: %d/%d elaborato, batch=%d',
+        [i + 1, FileNames.Count, BatchCount]);
 
       if BatchCount >= 4 then
       begin
@@ -239,7 +279,9 @@ begin
         FFileNames.Clear;
         for j := 0 to BatchCount - 1 do
           FFileNames.Add(Batch[j].Name);
+        Log('Thread: Synchronize batch di %d...', [FCount]);
         TThread.Synchronize(nil, @SyncAddThumbs);
+        Log('Thread: Synchronize rientrato');
         BatchCount := 0;
         SetLength(Batch, 0);
       end;
@@ -257,65 +299,78 @@ begin
   finally
     FileNames.Free;
   end;
+  Log('Thread: terminato regolarmente');
+  except
+    on E: Exception do
+      Log('Thread: ECCEZIONE NON GESTITA %s: %s', [E.ClassName, E.Message]);
+  end;
 end;
 
 procedure TLoadThread.SyncAddThumbs;
 var
-  i, Idx: Integer;
-  Thumb: TThumbPanel;
-  LIndexFP, LIndexIL: Integer;
+  i, Idx, ILIdx: integer;
+  Thumb: TBitmap;
+  It: TListItem;
 begin
-  if Terminated then Exit;
-  // Idx := Length(frmMain.FThumbs);
-  for i := 0 to FCount - 1 do
+  if Terminated then
   begin
-    if Terminated then Exit;
-
-    LIndexFP := frmMain.FFirstPages.Add(FItems[i].Bitmap);
-    LIndexIL := frmMain.ILFilesFirstPages.Add(frmMain.FFirstPages[LIndexFP], nil);
-    frmMain.LVFiles.AddItem(FFileNames[i], nil);
-    frmMain.LVFiles.Items[frmMain.LVFiles.Items.Count - 1].ImageIndex := LIndexIL;
-
-    {
-    Thumb := TThumbPanel.Create(frmMain);
-    Thumb.Parent := frmMain.FlowPanel;
-    Thumb.HandleNeeded;
-    Thumb.Tag := Idx;
-    Thumb.SetThumbSize(frmMain.FThumbW, frmMain.FThumbH);
-    Thumb.OnMouseDown := @frmMain.ThumbMouseDown;
-    Thumb.ThumbImage.OnMouseDown := @frmMain.ThumbMouseDown;
-    Thumb.ThumbLabel.OnMouseDown := @frmMain.ThumbMouseDown;
-
-    SetLength(frmMain.FThumbs, Idx + 1);
-    SetLength(frmMain.FSelected, Idx + 1);
-    frmMain.FThumbs[Idx] := Thumb;
-    frmMain.FSelected[Idx] := False;
-
-    if FItems[i].Bitmap <> nil then
-    begin
-      Thumb.ThumbImage.Picture.Bitmap := FItems[i].Bitmap;
-      FItems[i].Bitmap.Free;
-    end;
-
-    Thumb.ThumbLabel.Caption := FFileNames[i];
-    Inc(Idx);
-    }
+    { nessuno prendera' in carico le immagini del batch: evita il leak }
+    for i := 0 to FCount - 1 do
+      FItems[i].Image.Free;
+    Exit;
   end;
-  frmMain.LayoutFlowPanel;
+  frmMain.LVFiles.BeginUpdate;
+  try
+    for i := 0 to FCount - 1 do
+    begin
+      Idx := frmMain.FFirstPages.Add(FItems[i].Image);   // originale, anche se nil
+      Thumb := MakeThumb(FItems[i].Image, frmMain.ILFilesFirstPages.Width,
+        frmMain.ILFilesFirstPages.Height);
+      try
+        ILIdx := frmMain.ILFilesFirstPages.Add(Thumb, nil);
+      finally
+        Thumb.Free;
+      end;
+      It := frmMain.LVFiles.Items.Add;
+      It.Caption := FFileNames[i];
+      It.ImageIndex := ILIdx;
+      Log('Sync: %s img=%s listIdx=%d ilIdx=%d',
+        [FFileNames[i], BoolToStr(FItems[i].Image <> nil, 'si', 'NO'),
+        Idx, ILIdx]);
+    end;
+  finally
+    frmMain.LVFiles.EndUpdate;
+  end;
+  Log('Sync: LVFiles.Items.Count=%d ImageList.Count=%d',
+    [frmMain.LVFiles.Items.Count, frmMain.ILFilesFirstPages.Count]);
 end;
 
 { TfrmMain }
 
 procedure TfrmMain.FormCreate(Sender: TObject);
 begin
-  Caption := 'CBZ Manager';
+  Caption := 'CBZ Manager'; 
+  FFirstPages := specialize TObjectList<TLazIntfImage>.Create(True);
   FLastClicked := -1;
   FLoadThread := nil;
   FThumbW := 150;
   FThumbH := 180;
+  ILFilesFirstPages.Width := 128;
+  ILFilesFirstPages.Height := 160;
+  LVFiles.ViewStyle := vsIcon;
+  LVFiles.LargeImages := ILFilesFirstPages;
+  ZoomScroll.Min := 48;
+  ZoomScroll.Max := 320;
+  ZoomScroll.Position := 128;
+  Log('=== Avvio, log in %s ===', [LogFileName]);
+  Log('exe dir: %s', [ExtractFilePath(ParamStr(0))]);
   if ParamCount > 0 then
     LoadDirectory(ParamStr(1));
-  FFirstPages := specialize TObjectList<TBitmap>.Create(True);
+end;
+
+procedure TfrmMain.FormDestroy(Sender: TObject);
+begin
+  FFirstPages.Free;
 end;
 
 procedure TfrmMain.FormResize(Sender: TObject);
@@ -325,17 +380,31 @@ end;
 
 procedure TfrmMain.ZoomScrollChange(Sender: TObject);
 var
-  LBitmap: TBitmap;
+  i, Sz: integer;
+  Thumb: TBitmap;
 begin
+  Sz := Max(16, ZoomScroll.Position);
   LVFiles.BeginUpdate;
-  ILFilesFirstPages.Clear;
-  ILFilesFirstPages.Height := ZoomScroll.Position;
-  ILFilesFirstPages.Width := ZoomScroll.Position;
-  for LBitmap in FFirstPages do
+  try
+    LVFiles.LargeImages := nil;
+    // niente ridisegni con indici temporaneamente invalidi
+    ILFilesFirstPages.Clear;
+    ILFilesFirstPages.Width := Sz;
+    ILFilesFirstPages.Height := Round(Sz * 1.25);
+    for i := 0 to FFirstPages.Count - 1 do
     begin
-      ILFilesFirstPages.Add(LBitmap, nil);
+      Thumb := MakeThumb(FFirstPages[i], ILFilesFirstPages.Width,
+        ILFilesFirstPages.Height);
+      try
+        ILFilesFirstPages.Add(Thumb, nil);
+      finally
+        Thumb.Free;
+      end;
     end;
-  LVFiles.EndUpdate;
+    LVFiles.LargeImages := ILFilesFirstPages;
+  finally
+    LVFiles.EndUpdate;
+  end;
   LVFiles.Invalidate;
 end;
 
@@ -361,9 +430,9 @@ begin
 end;
 
 procedure TfrmMain.ThumbMouseDown(Sender: TObject; Button: TMouseButton;
-  Shift: TShiftState; X, Y: Integer);
+  Shift: TShiftState; X, Y: integer);
 var
-  Idx: Integer;
+  Idx: integer;
 begin
   if Button <> mbLeft then Exit;
   if not (Sender is TControl) then Exit;
@@ -386,12 +455,20 @@ begin
   FLastClicked := Idx;
 end;
 
-procedure TfrmMain.SelectRange(AFrom, ATo: Integer);
+procedure TfrmMain.SelectRange(AFrom, ATo: integer);
 var
-  i, lo, hi: Integer;
+  i, lo, hi: integer;
 begin
-  if AFrom < ATo then begin lo := AFrom; hi := ATo; end
-  else begin lo := ATo; hi := AFrom; end;
+  if AFrom < ATo then
+  begin
+    lo := AFrom;
+    hi := ATo;
+  end
+  else
+  begin
+    lo := ATo;
+    hi := AFrom;
+  end;
   for i := lo to hi do
   begin
     FSelected[i] := True;
@@ -400,6 +477,7 @@ end;
 
 procedure TfrmMain.LoadDirectory(const ADir: string);
 begin
+  Log('LoadDirectory: %s', [ADir]);
   ClearThumbnails;
   FLoadThread := TLoadThread.Create(ADir);
   FLoadThread.OnTerminate := @ThreadTerminated;

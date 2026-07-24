@@ -84,6 +84,21 @@
         <IsPartOfProject Value="True"/>
         <UnitName Value="uZipEditor"/>
       </Unit>
+      <Unit>
+        <Filename Value="src\uwebp.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="uWebP"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\ulog.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="uLog"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\uimgutil.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="uImgUtil"/>
+      </Unit>
     </Units>
   </ProjectOptions>
   <CompilerOptions>

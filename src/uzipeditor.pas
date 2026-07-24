@@ -5,76 +5,26 @@ unit uZipEditor;
 interface
 
 uses
-  Classes, SysUtils, Graphics;
+  Classes, SysUtils, IntfGraphics;
 
-function GetFirstImageAsBitmap(const FileName: string): TBitmap;
-function GetImageCount(const FileName: string): Integer;
+{ Prima pagina del CBZ come TLazIntfImage (sola memoria, nessuna GDI):
+  invocabile da thread secondari. nil se il file non contiene immagini
+  leggibili. Il chiamante e' proprietario dell'oggetto restituito. }
+function GetFirstImageAsIntfImage(const FileName: string): TLazIntfImage;
+function GetImageCount(const FileName: string): integer;
 function GetImageFileNames(const FileName: string): TStringArray;
-function IsValidCBZ(const FileName: string): Boolean;
+function IsValidCBZ(const FileName: string): boolean;
 
 implementation
 
 uses
-  Zipper,
-  FPImage, FPReadJPEG, FPReadPNG, FPReadBMP, FPReadGIF,
-  FileUtil, uWebP;
+  Zipper, FileUtil, uImgUtil, uWebP, uLog;
 
-function IsImageExt(const Ext: string): Boolean;
+function IsImageExt(const Ext: string): boolean;
 begin
-  Result := SameText(Ext, '.png') or SameText(Ext, '.jpg')
-    or SameText(Ext, '.jpeg') or SameText(Ext, '.bmp')
-    or SameText(Ext, '.gif') or SameText(Ext, '.webp');
-end;
-
-// Load an image from a file path (extracted ZIP entry) into a TBitmap
-// using FPImage readers. Returns nil on failure.
-function StreamToBitmap(Stream: TStream; const Ext: string): TBitmap;
-var
-  ReaderClass: TFPCustomImageReaderClass;
-  Reader: TFPCustomImageReader;
-  MemImg: TFPMemoryImage;
-  x, y: Integer;
-  SrcColor: TFPColor;
-begin
-  Result := nil;
-  ReaderClass := nil;
-
-  if SameText(Ext, '.jpg') or SameText(Ext, '.jpeg') then
-    ReaderClass := TFPReaderJPEG
-  else if SameText(Ext, '.png') then
-    ReaderClass := TFPReaderPNG
-  else if SameText(Ext, '.bmp') then
-    ReaderClass := TFPReaderBMP
-  else if SameText(Ext, '.gif') then
-    ReaderClass := TFPReaderGIF;
-
-  if ReaderClass = nil then Exit;
-
-  Reader := ReaderClass.Create;
-  try
-    MemImg := TFPMemoryImage.Create(0, 0);
-    try
-      Stream.Position := 0;
-      MemImg.LoadFromStream(Stream, Reader);
-      Result := TBitmap.Create;
-      Result.PixelFormat := pf24bit;
-      Result.SetSize(MemImg.Width, MemImg.Height);
-      for y := 0 to MemImg.Height - 1 do
-        for x := 0 to MemImg.Width - 1 do
-        begin
-          SrcColor := MemImg.Colors[x, y];
-          Result.Canvas.Pixels[x, y] := RGBToColor(
-            SrcColor.Red shr 8,
-            SrcColor.Green shr 8,
-            SrcColor.Blue shr 8
-          );
-        end;
-    finally
-      MemImg.Free;
-    end;
-  finally
-    Reader.Free;
-  end;
+  Result := SameText(Ext, '.png') or SameText(Ext, '.jpg') or
+    SameText(Ext, '.jpeg') or SameText(Ext, '.bmp') or SameText(Ext, '.gif') or
+    SameText(Ext, '.webp');
 end;
 
 function ExtractEntryToStream(const FileName, EntryName: string): TMemoryStream;
@@ -84,8 +34,7 @@ var
   TempFile: string;
 begin
   Result := nil;
-  TempDir := SysUtils.GetTempDir + 'cbz_'
-    + IntToHex(Random(MaxInt), 8);
+  TempDir := SysUtils.GetTempDir + 'cbz_' + IntToHex(Random(MaxInt), 8);
   CreateDir(TempDir);
 
   UnZipper := TUnZipper.Create;
@@ -101,7 +50,10 @@ begin
       Result := TMemoryStream.Create;
       Result.LoadFromFile(TempFile);
       Result.Position := 0;
-    end;
+      Log('Extract: %s -> %d byte', [EntryName, Result.Size]);
+    end
+    else
+      Log('Extract: FALLITO, %s non creato', [TempFile]);
   finally
     UnZipper.Free;
   end;
@@ -109,38 +61,54 @@ begin
   DeleteDirectory(TempDir, False);
 end;
 
-function GetFirstImageAsBitmap(const FileName: string): TBitmap;
+function GetFirstImageAsIntfImage(const FileName: string): TLazIntfImage;
 var
   Names: TStringArray;
-  i: Integer;
+  i: integer;
   Stream: TMemoryStream;
   Ext: string;
 begin
   Result := nil;
   Names := GetImageFileNames(FileName);
+  Log('GetFirstImage: %s -> %d immagini', [ExtractFileName(FileName), Length(Names)]);
   for i := 0 to Length(Names) - 1 do
   begin
     Ext := ExtractFileExt(Names[i]);
     if IsImageExt(Ext) then
     begin
       Stream := ExtractEntryToStream(FileName, Names[i]);
-      if Stream <> nil then
+      if Stream = nil then
       begin
-        if SameText(Ext, '.webp') then
-          Result := WebPToBitmap(Stream.Memory, Stream.Size)
-        else
-          Result := StreamToBitmap(Stream, Ext);
-        Stream.Free;
+        Log('GetFirstImage: stream nil per %s', [Names[i]]);
+        Break;
       end;
+      try
+        if SameText(Ext, '.webp') then
+          Result := WebPToIntfImage(Stream.Memory, Stream.Size)
+        else
+          Result := StreamToIntfImage(Stream, ReaderClassForExt(Ext));
+      except
+        on E: Exception do
+        begin
+          Log('GetFirstImage: decodifica fallita (%s): %s: %s',
+            [Ext, E.ClassName, E.Message]);
+          Result := nil;
+        end;
+      end;
+      Stream.Free;
+      if Result = nil then
+        Log('GetFirstImage: RISULTATO NIL per %s', [Names[i]])
+      else
+        Log('GetFirstImage: OK %dx%d', [Result.Width, Result.Height]);
       Break;
     end;
   end;
 end;
 
-function GetImageCount(const FileName: string): Integer;
+function GetImageCount(const FileName: string): integer;
 var
   UnZipper: TUnZipper;
-  i: Integer;
+  i: integer;
 begin
   Result := 0;
   UnZipper := TUnZipper.Create;
@@ -158,7 +126,7 @@ end;
 function GetImageFileNames(const FileName: string): TStringArray;
 var
   UnZipper: TUnZipper;
-  i, ImgCnt: Integer;
+  i, ImgCnt: integer;
 begin
   Result := nil;
   UnZipper := TUnZipper.Create;
@@ -178,10 +146,9 @@ begin
   end;
 end;
 
-function IsValidCBZ(const FileName: string): Boolean;
+function IsValidCBZ(const FileName: string): boolean;
 begin
   Result := GetImageCount(FileName) > 0;
 end;
 
 end.
-

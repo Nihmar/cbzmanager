@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls,
-  ComCtrls;
+  ComCtrls, Generics.Collections;
 
 const
   THUMB_SPACING = 4;
@@ -53,35 +53,35 @@ type
     destructor Destroy; override;
   end;
 
+  { TfrmMain }
+
   TfrmMain = class(TForm)
+    ILFilesFirstPages: TImageList;
+    LVFiles: TListView;
+    PanelBottom: TPanel;
     PanelTop: TPanel;
     EditDir: TEdit;
     BtnBrowse: TButton;
-    SliderZoom: TTrackBar;
-    ScrollBox: TScrollBox;
-    FlowPanel: TFlowPanel;
     SelectDialog: TSelectDirectoryDialog;
+    ZoomScroll: TTrackBar;
     procedure BtnBrowseClick(Sender: TObject);
     procedure FormCreate(Sender: TObject);
     procedure FormResize(Sender: TObject);
-    procedure SliderZoomChange(Sender: TObject);
+    procedure ZoomScrollChange(Sender: TObject);
   private
-    FThumbs: array of TThumbPanel;
     FSelected: array of Boolean;
     FLastClicked: Integer;
     FLoadThread: TLoadThread;
     FThumbW: Integer;
     FThumbH: Integer;
+    FFirstPages: specialize TObjectList<TBitmap>;
     procedure ThreadTerminated(Sender: TObject);
     procedure ClearThumbnails;
     procedure LoadDirectory(const ADir: string);
     procedure ThumbMouseDown(Sender: TObject; Button: TMouseButton;
       Shift: TShiftState; X, Y: Integer);
-    procedure UpdateVisual(AIndex: Integer);
-    procedure UpdateAllVisuals;
     procedure SelectRange(AFrom, ATo: Integer);
     procedure LayoutFlowPanel;
-    procedure ResizeThumbs;
   end;
 
 var
@@ -263,13 +263,20 @@ procedure TLoadThread.SyncAddThumbs;
 var
   i, Idx: Integer;
   Thumb: TThumbPanel;
+  LIndexFP, LIndexIL: Integer;
 begin
   if Terminated then Exit;
-  Idx := Length(frmMain.FThumbs);
+  // Idx := Length(frmMain.FThumbs);
   for i := 0 to FCount - 1 do
   begin
     if Terminated then Exit;
 
+    LIndexFP := frmMain.FFirstPages.Add(FItems[i].Bitmap);
+    LIndexIL := frmMain.ILFilesFirstPages.Add(frmMain.FFirstPages[LIndexFP], nil);
+    frmMain.LVFiles.AddItem(FFileNames[i], nil);
+    frmMain.LVFiles.Items[frmMain.LVFiles.Items.Count - 1].ImageIndex := LIndexIL;
+
+    {
     Thumb := TThumbPanel.Create(frmMain);
     Thumb.Parent := frmMain.FlowPanel;
     Thumb.HandleNeeded;
@@ -292,6 +299,7 @@ begin
 
     Thumb.ThumbLabel.Caption := FFileNames[i];
     Inc(Idx);
+    }
   end;
   frmMain.LayoutFlowPanel;
 end;
@@ -307,6 +315,7 @@ begin
   FThumbH := 180;
   if ParamCount > 0 then
     LoadDirectory(ParamStr(1));
+  FFirstPages := specialize TObjectList<TBitmap>.Create(True);
 end;
 
 procedure TfrmMain.FormResize(Sender: TObject);
@@ -314,62 +323,32 @@ begin
   LayoutFlowPanel;
 end;
 
-procedure TfrmMain.SliderZoomChange(Sender: TObject);
-begin
-  FThumbW := SliderZoom.Position;
-  FThumbH := Round(FThumbW * 1.2);
-  ResizeThumbs;
-  LayoutFlowPanel;
-end;
-
-procedure TfrmMain.ResizeThumbs;
+procedure TfrmMain.ZoomScrollChange(Sender: TObject);
 var
-  i: Integer;
+  LBitmap: TBitmap;
 begin
-  for i := 0 to High(FThumbs) do
-    FThumbs[i].SetThumbSize(FThumbW, FThumbH);
+  LVFiles.BeginUpdate;
+  ILFilesFirstPages.Clear;
+  ILFilesFirstPages.Height := ZoomScroll.Position;
+  ILFilesFirstPages.Width := ZoomScroll.Position;
+  for LBitmap in FFirstPages do
+    begin
+      ILFilesFirstPages.Add(LBitmap, nil);
+    end;
+  LVFiles.EndUpdate;
+  LVFiles.Invalidate;
 end;
 
 procedure TfrmMain.LayoutFlowPanel;
-var
-  CellW, CellH, Cols, Rows: Integer;
-  NewH: Integer;
 begin
-  if FlowPanel.ControlCount = 0 then
-  begin
-    FlowPanel.Height := ScrollBox.ClientHeight;
-    Exit;
-  end;
-
-  CellW := FThumbW + THUMB_SPACING * 2;
-  CellH := FThumbH + THUMB_SPACING * 2;
-
-  Cols := FlowPanel.ClientWidth div CellW;
-  if Cols < 1 then Cols := 1;
-  Rows := (FlowPanel.ControlCount + Cols - 1) div Cols;
-
-  NewH := Rows * CellH;
-  if NewH < ScrollBox.ClientHeight then
-    NewH := ScrollBox.ClientHeight;
-
-  FlowPanel.Height := NewH;
-  FlowPanel.Invalidate;
 end;
 
 procedure TfrmMain.ClearThumbnails;
-var
-  i: Integer;
 begin
-  if FLoadThread <> nil then
-  begin
-    FLoadThread.Terminate;
-    FLoadThread := nil;
-  end;
-  for i := FlowPanel.ControlCount - 1 downto 0 do
-    FlowPanel.Controls[i].Free;
-  SetLength(FThumbs, 0);
-  SetLength(FSelected, 0);
-  FLastClicked := -1;
+  if FFirstPages.Count > 0 then
+    FFirstPages.Clear;
+  ILFilesFirstPages.Clear;
+  LVFiles.Clear;
 end;
 
 procedure TfrmMain.BtnBrowseClick(Sender: TObject);
@@ -399,29 +378,12 @@ begin
   else if ssCtrl in Shift then
   begin
     FSelected[Idx] := not FSelected[Idx];
-    UpdateVisual(Idx);
   end
   else
   begin
-    UpdateAllVisuals;
     FSelected[Idx] := True;
-    UpdateVisual(Idx);
   end;
   FLastClicked := Idx;
-end;
-
-procedure TfrmMain.UpdateVisual(AIndex: Integer);
-begin
-  if (AIndex < 0) or (AIndex > High(FThumbs)) then Exit;
-  FThumbs[AIndex].SetSelected(FSelected[AIndex]);
-end;
-
-procedure TfrmMain.UpdateAllVisuals;
-var
-  i: Integer;
-begin
-  for i := 0 to High(FThumbs) do
-    UpdateVisual(i);
 end;
 
 procedure TfrmMain.SelectRange(AFrom, ATo: Integer);
@@ -433,7 +395,6 @@ begin
   for i := lo to hi do
   begin
     FSelected[i] := True;
-    UpdateVisual(i);
   end;
 end;
 

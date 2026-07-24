@@ -32,6 +32,12 @@ function StreamToIntfImage(Stream: TStream;
 function FileToIntfImage(const FileName: string;
   ReaderClass: TFPCustomImageReaderClass): TLazIntfImage;
 
+{ Riduce l'immagine perche' entri in MaxW x MaxH mantenendo le proporzioni.
+  Non ingrandisce mai. Sola memoria (nessuna GDI): invocabile da thread
+  secondari. nil se Src e' nil o vuota; il chiamante e' proprietario del
+  risultato. }
+function ScaleIntfImage(Src: TLazIntfImage; MaxW, MaxH: integer): TLazIntfImage;
+
 { SOLO MAIN THREAD: crea un TBitmap a partire da una TLazIntfImage. }
 function IntfToBitmap(Src: TLazIntfImage): TBitmap;
 
@@ -77,6 +83,81 @@ begin
       (H - DH) div 2 + DH), Full);
   finally
     Full.Free;
+  end;
+end;
+
+function ScaleIntfImage(Src: TLazIntfImage; MaxW, MaxH: integer): TLazIntfImage;
+const
+  { Campioni per lato: tiene il costo entro 16 letture per pixel di
+    destinazione, indipendentemente da quanto e' grande l'originale. }
+  MaxSamples = 4;
+var
+  Desc: TRawImageDescription;
+  F: double;
+  DW, DH, x, y, ix, iy: integer;
+  sx0, sx1, sy0, sy1, StepX, StepY, N: integer;
+  R, G, B, A: cardinal;
+  C: TFPColor;
+begin
+  Result := nil;
+  if (Src = nil) or (Src.Width <= 0) or (Src.Height <= 0) then Exit;
+  if (MaxW <= 0) or (MaxH <= 0) then Exit;
+
+  F := Min(Min(MaxW / Src.Width, MaxH / Src.Height), 1.0);
+  DW := Max(1, Round(Src.Width * F));
+  DH := Max(1, Round(Src.Height * F));
+
+  Desc.Init_BPP32_B8G8R8A8_BIO_TTB(DW, DH);
+  Result := TLazIntfImage.Create(0, 0);
+  try
+    Result.DataDescription := Desc;
+    for y := 0 to DH - 1 do
+    begin
+      { Riquadro dei pixel originali che confluiscono nella riga y }
+      sy0 := (y * Src.Height) div DH;
+      sy1 := ((y + 1) * Src.Height) div DH;
+      if sy1 <= sy0 then sy1 := sy0 + 1;
+      StepY := Max(1, (sy1 - sy0 + MaxSamples - 1) div MaxSamples);
+
+      for x := 0 to DW - 1 do
+      begin
+        sx0 := (x * Src.Width) div DW;
+        sx1 := ((x + 1) * Src.Width) div DW;
+        if sx1 <= sx0 then sx1 := sx0 + 1;
+        StepX := Max(1, (sx1 - sx0 + MaxSamples - 1) div MaxSamples);
+
+        R := 0;
+        G := 0;
+        B := 0;
+        A := 0;
+        N := 0;
+        iy := sy0;
+        while iy < sy1 do
+        begin
+          ix := sx0;
+          while ix < sx1 do
+          begin
+            C := Src.Colors[ix, iy];
+            Inc(R, C.Red);
+            Inc(G, C.Green);
+            Inc(B, C.Blue);
+            Inc(A, C.Alpha);
+            Inc(N);
+            Inc(ix, StepX);
+          end;
+          Inc(iy, StepY);
+        end;
+        if N = 0 then Continue;
+
+        C.Red := R div N;
+        C.Green := G div N;
+        C.Blue := B div N;
+        C.Alpha := A div N;
+        Result.Colors[x, y] := C;
+      end;
+    end;
+  except
+    FreeAndNil(Result);
   end;
 end;
 

@@ -1,0 +1,1502 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CBZ Manager — mockup GUI</title>
+<style>
+/* ------------------------------------------------------------------
+   Palette: Fluent / Windows 11. Il mockup deve somigliare a cio' che
+   la LCL sa davvero disegnare, non a una web app.
+   ------------------------------------------------------------------ */
+:root{
+  --desk:#5c6672;
+  --chrome:#f3f3f3;
+  --chrome2:#eaeaea;
+  --client:#ffffff;
+  --line:#e2e2e2;
+  --line2:#c9c9c9;
+  --txt:#1b1b1b;
+  --txt2:#5d5d5d;
+  --txt3:#8d8d8d;
+  --accent:#005fb8;
+  --accent-h:#0a5ea8;
+  --sel:#cfe4fa;
+  --selline:#a9c9ea;
+  --ok:#0f7b0f;
+  --err:#c42b1c;
+  --stage:#9d5d00;
+  --stage-bg:#fff4ce;
+  --shadow:0 24px 64px rgba(0,0,0,.38);
+  --pop:#fbfbfb;
+  --field:#ffffff;
+  --page:#fdfdfb;
+  --ink:#2a2a2a;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --desk:#14161a; --chrome:#202020; --chrome2:#2b2b2b; --client:#1c1c1c;
+    --line:#333333; --line2:#464646; --txt:#f0f0f0; --txt2:#b4b4b4; --txt3:#8a8a8a;
+    --accent:#60cdff; --accent-h:#7fd8ff; --sel:#12395c; --selline:#2d6ca8;
+    --ok:#6ccb5f; --err:#ff99a4; --stage:#fce100; --stage-bg:#3a3000;
+    --pop:#2c2c2c; --field:#2d2d2d; --page:#e9e9e4; --ink:#2a2a2a;
+    --shadow:0 24px 64px rgba(0,0,0,.6);
+  }
+}
+:root[data-theme="dark"]{
+  --desk:#14161a; --chrome:#202020; --chrome2:#2b2b2b; --client:#1c1c1c;
+  --line:#333333; --line2:#464646; --txt:#f0f0f0; --txt2:#b4b4b4; --txt3:#8a8a8a;
+  --accent:#60cdff; --accent-h:#7fd8ff; --sel:#12395c; --selline:#2d6ca8;
+  --ok:#6ccb5f; --err:#ff99a4; --stage:#fce100; --stage-bg:#3a3000;
+  --pop:#2c2c2c; --field:#2d2d2d; --page:#e9e9e4; --ink:#2a2a2a;
+  --shadow:0 24px 64px rgba(0,0,0,.6);
+}
+:root[data-theme="light"]{
+  --desk:#5c6672; --chrome:#f3f3f3; --chrome2:#eaeaea; --client:#ffffff;
+  --line:#e2e2e2; --line2:#c9c9c9; --txt:#1b1b1b; --txt2:#5d5d5d; --txt3:#8d8d8d;
+  --accent:#005fb8; --accent-h:#0a5ea8; --sel:#cfe4fa; --selline:#a9c9ea;
+  --ok:#0f7b0f; --err:#c42b1c; --stage:#9d5d00; --stage-bg:#fff4ce;
+  --pop:#fbfbfb; --field:#ffffff; --page:#fdfdfb; --ink:#2a2a2a;
+  --shadow:0 24px 64px rgba(0,0,0,.38);
+}
+
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--desk);
+  color:var(--txt);
+  font:400 13px/1.45 "Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif;
+  padding:28px 20px 48px;
+  display:flex; flex-direction:column; align-items:center; gap:18px;
+  -webkit-font-smoothing:antialiased;
+}
+.mono{font-family:"Cascadia Mono",Consolas,"Courier New",monospace}
+
+/* ---------- intestazione del mockup ---------- */
+.sheet{width:100%;max-width:1240px;display:flex;flex-direction:column;gap:16px}
+.sheethead{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;color:#fff}
+:root[data-theme="light"] .sheethead,
+:root:not([data-theme]) .sheethead{color:#fff}
+.sheethead h1{margin:0;font-size:19px;font-weight:600;letter-spacing:-.01em}
+.sheethead p{margin:3px 0 0;font-size:12.5px;opacity:.72;max-width:62ch}
+.hintbar{
+  display:flex;gap:6px;flex-wrap:wrap;font-size:11.5px;
+}
+.hintbar kbd{
+  font:inherit;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.24);
+  color:#fff;border-radius:4px;padding:2px 7px;white-space:nowrap;
+}
+
+/* ---------- finestra applicazione ---------- */
+.win{
+  background:var(--chrome);border:1px solid var(--line2);border-radius:8px;
+  box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column;
+  height:min(80vh,820px);min-height:660px;position:relative;
+}
+.titlebar{
+  height:32px;flex:0 0 auto;display:flex;align-items:center;gap:8px;
+  padding-left:10px;background:var(--chrome);border-bottom:1px solid transparent;
+  user-select:none;
+}
+.titlebar .tt{font-size:12px;color:var(--txt2);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wbtns{display:flex;height:32px}
+.wbtn{width:46px;display:grid;place-items:center;color:var(--txt2);cursor:default}
+.wbtn:hover{background:var(--chrome2)}
+.wbtn.close:hover{background:#c42b1c;color:#fff}
+
+.menubar{
+  height:28px;flex:0 0 auto;display:flex;align-items:stretch;
+  padding:0 4px;background:var(--chrome);border-bottom:1px solid var(--line);
+  user-select:none;
+}
+.menubar button{
+  font:inherit;font-size:12.5px;color:var(--txt);background:none;border:0;
+  padding:0 11px;border-radius:4px;cursor:pointer;
+}
+.menubar button:hover,.menubar button[aria-expanded="true"]{background:var(--chrome2)}
+.menubar button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+
+.toolbar{
+  height:42px;flex:0 0 auto;display:flex;align-items:center;gap:2px;
+  padding:0 6px;background:var(--chrome);border-bottom:1px solid var(--line);
+}
+.tb{
+  display:flex;align-items:center;gap:7px;height:30px;padding:0 10px;
+  font:inherit;font-size:12.5px;color:var(--txt);background:none;border:1px solid transparent;
+  border-radius:5px;cursor:pointer;white-space:nowrap;
+}
+.tb:hover:not(:disabled){background:var(--chrome2);border-color:var(--line)}
+.tb:disabled{color:var(--txt3);cursor:default}
+.tb:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.tbsep{width:1px;height:20px;background:var(--line);margin:0 5px}
+.tb svg{flex:0 0 auto}
+
+.pathrow{
+  height:38px;flex:0 0 auto;display:flex;align-items:center;gap:6px;
+  padding:0 6px;background:var(--chrome);
+}
+.field{
+  height:26px;flex:1;min-width:0;background:var(--field);color:var(--txt);
+  border:1px solid var(--line2);border-bottom-width:2px;border-bottom-color:var(--txt3);
+  border-radius:4px;padding:0 8px;font:inherit;font-size:12.5px;
+}
+.field:focus{outline:none;border-bottom-color:var(--accent)}
+.btn{
+  height:28px;padding:0 14px;font:inherit;font-size:12.5px;color:var(--txt);
+  background:var(--chrome2);border:1px solid var(--line2);border-radius:4px;cursor:pointer;
+}
+.btn:hover:not(:disabled){background:var(--chrome)}
+.btn:disabled{color:var(--txt3);cursor:default}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+:root[data-theme="dark"] .btn.primary,
+:root:not([data-theme]) .btn.primary{color:#08334f}
+@media (prefers-color-scheme:light){:root:not([data-theme]) .btn.primary{color:#fff}}
+:root[data-theme="light"] .btn.primary{color:#fff}
+.btn.primary:hover:not(:disabled){background:var(--accent-h)}
+.btn.danger{background:var(--err);border-color:var(--err);color:#fff;font-weight:600}
+:root[data-theme="dark"] .btn.danger{color:#3b0006}
+.btn:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+
+/* ---------- area client ---------- */
+.client{flex:1;min-height:0;display:flex;padding:4px;gap:0;background:var(--chrome)}
+.pane{display:flex;flex-direction:column;min-width:0;background:var(--client);border:1px solid var(--line)}
+#paneFiles{flex:1}
+#panePreview{width:46%;flex:0 0 auto;margin-left:0}
+#panePreview[hidden]{display:none}
+
+.splitter{
+  flex:0 0 auto;width:7px;cursor:col-resize;display:grid;place-items:center;background:var(--chrome);
+}
+.splitter[hidden]{display:none}
+.splitter::after{content:"";width:2px;height:34px;border-left:2px dotted var(--line2)}
+
+.lv{flex:1;min-height:0;overflow:auto;padding:8px;align-content:flex-start;
+    display:flex;flex-wrap:wrap;gap:2px}
+.lvitem{
+  width:calc(var(--tw) + 30px);padding:6px 4px 4px;display:flex;flex-direction:column;
+  align-items:center;gap:5px;cursor:default;user-select:none;border-radius:4px;
+}
+.lvitem:hover{background:color-mix(in srgb,var(--sel) 40%,transparent)}
+.lvitem .thumb{
+  width:var(--tw);height:calc(var(--tw) * 1.25);display:grid;place-items:center;
+  position:relative;
+}
+.lvitem .thumb svg{max-width:100%;max-height:100%;display:block;box-shadow:0 1px 3px rgba(0,0,0,.18)}
+.lvitem .cap{
+  font-size:11.5px;line-height:1.3;text-align:center;padding:1px 4px;border-radius:2px;
+  max-width:100%;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+  word-break:break-word;
+}
+.lvitem.sel .cap{background:var(--sel);outline:1px solid var(--selline)}
+.lvitem.cur .cap{outline:1px dotted var(--txt2)}
+.lvitem .badge{
+  position:absolute;left:2px;top:2px;font-size:10px;padding:1px 5px;border-radius:3px;
+  background:var(--err);color:#fff;font-weight:600;
+}
+:root[data-theme="dark"] .lvitem .badge{color:#3b0006}
+.lvitem .badge.ok{background:var(--ok);color:#fff}
+:root[data-theme="dark"] .lvitem .badge.ok{color:#04300a}
+.lvitem.gone{opacity:.32}
+.lvitem.gone .thumb::after{
+  content:"";position:absolute;inset:0;
+  background:linear-gradient(to bottom right,transparent 47%,var(--err) 47%,var(--err) 53%,transparent 53%);
+}
+.lvitem.dragover{box-shadow:inset 3px 0 0 var(--accent)}
+.lvitem.dragging{opacity:.4}
+
+/* ---------- pannello anteprima ---------- */
+.phead{
+  height:30px;flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:0 4px 0 10px;
+  border-bottom:1px solid var(--line);
+}
+.phead .fname{font-size:12.5px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.phead .cnt{font-size:11.5px;color:var(--txt2);font-variant-numeric:tabular-nums}
+.iconbtn{
+  width:26px;height:24px;display:grid;place-items:center;background:none;border:1px solid transparent;
+  border-radius:4px;color:var(--txt);cursor:pointer;
+}
+.iconbtn:hover{background:var(--chrome2);border-color:var(--line)}
+.iconbtn:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+
+.ptools{
+  flex:0 0 auto;display:flex;align-items:center;gap:2px;padding:4px 6px;
+  border-bottom:1px solid var(--line);flex-wrap:wrap;
+}
+.ptools .tb{height:26px;padding:0 8px;font-size:12px}
+
+.stagebar{
+  flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:6px 10px;
+  background:var(--stage-bg);border-bottom:1px solid var(--line);font-size:12px;
+}
+.stagebar[hidden]{display:none}
+.stagebar .dot{width:8px;height:8px;border-radius:50%;background:var(--stage);flex:0 0 auto}
+.stagebar .msg{flex:1;color:var(--txt)}
+.stagebar .btn{height:24px;padding:0 10px;font-size:12px}
+
+/* ---------- barra di stato ---------- */
+.statusbar{
+  height:28px;flex:0 0 auto;display:flex;align-items:center;gap:12px;padding:0 10px;
+  background:var(--chrome);border-top:1px solid var(--line);font-size:11.5px;color:var(--txt2);
+}
+.statusbar .grow{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.prog{width:150px;height:6px;border-radius:3px;background:var(--chrome2);overflow:hidden;border:1px solid var(--line)}
+.prog[hidden]{display:none}
+.prog i{display:block;height:100%;background:var(--accent);width:0%}
+.zoomwrap{display:flex;align-items:center;gap:7px}
+input[type=range]{width:130px;accent-color:var(--accent)}
+
+/* ---------- menu a comparsa ---------- */
+.menu{
+  position:fixed;z-index:60;min-width:246px;padding:4px;background:var(--pop);
+  border:1px solid var(--line2);border-radius:7px;box-shadow:0 12px 32px rgba(0,0,0,.28);
+}
+.menu[hidden]{display:none}
+.menu .mi{
+  display:flex;align-items:center;gap:10px;height:28px;padding:0 10px;border-radius:4px;
+  font-size:12.5px;cursor:pointer;color:var(--txt);white-space:nowrap;
+}
+.menu .mi .ic{width:16px;display:grid;place-items:center;flex:0 0 auto;color:var(--txt2)}
+.menu .mi .lbl{flex:1}
+.menu .mi .sc{color:var(--txt3);font-size:11.5px}
+.menu .mi:hover{background:var(--sel)}
+.menu .mi.strong{font-weight:600}
+.menu .mi.dis{color:var(--txt3);pointer-events:none}
+.menu .mi.dis .ic{color:var(--txt3)}
+.menu .sep{height:1px;background:var(--line);margin:4px 8px}
+.menu .head{font-size:11px;color:var(--txt3);padding:5px 10px 3px;letter-spacing:.04em;text-transform:uppercase}
+
+/* ---------- dialoghi ---------- */
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.36);z-index:70;display:grid;place-items:center;padding:24px}
+.scrim[hidden]{display:none}
+.dlg{
+  width:min(680px,100%);max-height:88vh;display:flex;flex-direction:column;
+  background:var(--chrome);border:1px solid var(--line2);border-radius:8px;box-shadow:var(--shadow);
+  overflow:hidden;
+}
+.dlg.wide{width:min(880px,100%)}
+.dlghead{height:34px;flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:0 4px 0 12px;background:var(--chrome)}
+.dlghead h2{margin:0;font-size:13px;font-weight:600;flex:1}
+.dlgbody{flex:1;min-height:0;overflow:auto;padding:16px 18px;background:var(--client);display:flex;flex-direction:column;gap:14px}
+.dlgfoot{flex:0 0 auto;display:flex;align-items:center;gap:8px;justify-content:flex-end;padding:10px 14px;background:var(--chrome);border-top:1px solid var(--line)}
+.dlgfoot .left{margin-right:auto;font-size:12px;color:var(--txt2)}
+
+.grp{display:flex;flex-direction:column;gap:8px}
+.grp>.lab{font-size:12px;font-weight:600}
+.hint{font-size:11.5px;color:var(--txt2);line-height:1.5}
+.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.check{display:flex;align-items:center;gap:8px;font-size:12.5px;cursor:pointer}
+.check input{accent-color:var(--accent);width:15px;height:15px}
+.fieldset{border:1px solid var(--line);border-radius:6px;padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.fieldset>legend{font-size:11.5px;color:var(--txt2);padding:0 6px;text-transform:uppercase;letter-spacing:.04em}
+textarea.field{height:auto;min-height:92px;padding:8px;line-height:1.55;resize:vertical}
+.pill{
+  display:inline-flex;align-items:center;gap:6px;font-size:11.5px;padding:2px 9px;border-radius:999px;
+  border:1px solid var(--line2);background:var(--chrome2);color:var(--txt2);
+}
+.pill.ok{border-color:var(--ok);color:var(--ok);background:transparent}
+.pill.err{border-color:var(--err);color:var(--err);background:transparent}
+.pill.stage{border-color:var(--stage);color:var(--stage);background:transparent}
+
+table.rep{width:100%;border-collapse:collapse;font-size:12.5px}
+table.rep th{
+  text-align:left;font-weight:600;color:var(--txt2);font-size:11px;text-transform:uppercase;
+  letter-spacing:.04em;padding:6px 8px;border-bottom:1px solid var(--line2);
+}
+table.rep td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+table.rep td.num{text-align:right;font-variant-numeric:tabular-nums}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:6px}
+
+.strip{display:flex;gap:6px;overflow-x:auto;padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--chrome)}
+.strip .sp{flex:0 0 auto;width:56px;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10px;color:var(--txt2)}
+.strip .sp svg{width:56px;height:70px;display:block;border-radius:2px}
+.strip .sp.hit svg{outline:2px solid var(--err);outline-offset:1px}
+.strip .sp.hit{color:var(--err);font-weight:600}
+
+.groups{display:flex;flex-direction:column;gap:10px}
+.group{border:1px solid var(--line);border-radius:6px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.group .gh{display:flex;align-items:center;gap:10px;font-size:12.5px}
+.group .gh .gname{font-weight:600;flex:1}
+.dupes{display:flex;gap:10px;overflow-x:auto}
+.dupe{flex:0 0 auto;width:88px;display:flex;flex-direction:column;align-items:center;gap:4px;font-size:10px;color:var(--txt2);text-align:center}
+.dupe svg{width:74px;height:92px;border-radius:2px}
+.dupe span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dupe.keep svg{outline:2px solid var(--ok);outline-offset:1px}
+
+.legend{
+  font-size:12px;color:rgba(255,255,255,.8);display:flex;flex-wrap:wrap;gap:10px 22px;
+  border-top:1px solid rgba(255,255,255,.16);padding-top:14px;
+}
+.legend b{color:#fff;font-weight:600}
+
+@media (max-width:820px){
+  #panePreview{width:100%}
+  .client{flex-direction:column}
+  .splitter{width:auto;height:7px;cursor:row-resize}
+  .splitter::after{width:34px;height:2px;border-left:0;border-top:2px dotted var(--line2)}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<div class="sheet">
+  <div class="sheethead">
+    <div>
+      <h1>CBZ Manager — mockup dell'interfaccia</h1>
+      <p>Prototipo cliccabile delle operazioni del README piu' le modifiche richieste. Nessuna scrittura su disco: ogni modifica resta in memoria finche' non si preme <b>Salva modifiche</b>.</p>
+    </div>
+    <div class="hintbar">
+      <kbd>doppio click</kbd><kbd>tasto destro</kbd><kbd>Canc</kbd><kbd>Alt+↑ / Alt+↓</kbd><kbd>trascina per riordinare</kbd><kbd>Esc</kbd>
+    </div>
+  </div>
+
+  <div class="win" id="win">
+    <!-- ============ barra del titolo ============ -->
+    <div class="titlebar">
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+        <rect x="2" y="2" width="9" height="12" rx="1" fill="#005fb8"/>
+        <rect x="4.5" y="3.5" width="9" height="12" rx="1" fill="#3a96dd" stroke="#fff" stroke-width=".8"/>
+      </svg>
+      <span class="tt" id="titleText">CBZ Manager</span>
+      <div class="wbtns">
+        <div class="wbtn" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor"/></svg></div>
+        <div class="wbtn" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9" fill="none" stroke="currentColor"/></svg></div>
+        <div class="wbtn close" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10" stroke="currentColor"/></svg></div>
+      </div>
+    </div>
+
+    <!-- ============ menu ============ -->
+    <div class="menubar" id="menubar">
+      <button type="button" data-menu="mFile" aria-expanded="false">File</button>
+      <button type="button" data-menu="mArch" aria-expanded="false">Archivio</button>
+      <button type="button" data-menu="mPag"  aria-expanded="false">Pagine</button>
+      <button type="button" data-menu="mVis"  aria-expanded="false">Visualizza</button>
+    </div>
+
+    <!-- ============ toolbar ============ -->
+    <div class="toolbar">
+      <button class="tb" data-act="browse">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M1.5 4.5h4l1.2 1.5h7.8v7.5h-13z"/><path d="M1.5 4.5v-2h4l1.2 1.5"/></svg>
+        Sfoglia
+      </button>
+      <div class="tbsep"></div>
+      <button class="tb" data-act="validate">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M8 1.5l5.5 2v4.2c0 3.1-2.2 5.6-5.5 6.8C4.7 13.3 2.5 10.8 2.5 7.7V3.5z"/><path d="M5.6 7.9l1.7 1.7 3.2-3.4"/></svg>
+        Valida
+      </button>
+      <button class="tb" data-act="webp">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1.5" y="3" width="13" height="10" rx="1.2"/><path d="M1.5 10.2l3.4-3 2.6 2.3 2.7-3.2 4.3 4.4"/><circle cx="5.6" cy="6.1" r="1.1"/></svg>
+        Converti WebP
+      </button>
+      <button class="tb" data-act="merge">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M2 3h4.5l1.8 4.8H14"/><path d="M2 13h4.5l1.8-4.8"/><path d="M11.6 5.2L14 7.8l-2.4 2.6"/></svg>
+        Unisci
+      </button>
+      <button class="tb" data-act="similar">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><circle cx="6.8" cy="6.8" r="4.6"/><path d="M10.2 10.2L14 14"/><path d="M5 6.8h3.6M6.8 5v3.6"/></svg>
+        Trova simili
+      </button>
+      <div class="tbsep"></div>
+      <button class="tb" data-act="togglePreview">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1.5" y="2.5" width="13" height="11" rx="1.2"/><path d="M9 2.5v11"/></svg>
+        Anteprima
+      </button>
+    </div>
+
+    <!-- ============ percorso ============ -->
+    <div class="pathrow">
+      <input class="field mono" id="dirField" value="D:\Comics\One Piece" readonly aria-label="Cartella corrente">
+      <button class="btn" data-act="browse">Sfoglia...</button>
+    </div>
+
+    <!-- ============ client ============ -->
+    <div class="client">
+      <div class="pane" id="paneFiles">
+        <div class="lv" id="lvFiles" tabindex="0" aria-label="File CBZ nella cartella"></div>
+      </div>
+
+      <div class="splitter" id="splitter" hidden role="separator" aria-orientation="vertical"></div>
+
+      <div class="pane" id="panePreview" hidden>
+        <div class="phead">
+          <span class="fname" id="pvName">—</span>
+          <span class="cnt" id="pvCount"></span>
+          <button class="iconbtn" data-act="closePreview" title="Chiudi anteprima (Esc)" aria-label="Chiudi anteprima">
+            <svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10" stroke="currentColor"/></svg>
+          </button>
+        </div>
+
+        <div class="ptools">
+          <button class="tb" data-act="pgDelete">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M2.8 4.2h10.4M6.2 4.2V2.6h3.6v1.6M4.2 4.2l.7 9.2h6.2l.7-9.2"/></svg>
+            Elimina
+          </button>
+          <button class="tb" data-act="pgRows">Elimina righe...</button>
+          <div class="tbsep"></div>
+          <button class="tb" data-act="pgUp" title="Alt+Freccia su">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8 13V3.4M4.2 7.2L8 3.4l3.8 3.8"/></svg>
+          </button>
+          <button class="tb" data-act="pgDown" title="Alt+Freccia giu'">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8 3v9.6M4.2 8.8L8 12.6l3.8-3.8"/></svg>
+          </button>
+          <button class="tb" data-act="pgFirst">A inizio</button>
+          <button class="tb" data-act="pgLast">A fine</button>
+          <div class="tbsep"></div>
+          <button class="tb" data-act="pgSort">Ordina per nome</button>
+          <button class="tb" data-act="pgReverse">Inverti</button>
+        </div>
+
+        <div class="stagebar" id="stagebar" hidden>
+          <span class="dot"></span>
+          <span class="msg" id="stageMsg"></span>
+          <button class="btn" data-act="revert">Annulla</button>
+          <button class="btn primary" data-act="save">Salva modifiche</button>
+        </div>
+
+        <div class="lv" id="lvPages" tabindex="0" aria-label="Pagine del file aperto"></div>
+      </div>
+    </div>
+
+    <!-- ============ stato ============ -->
+    <div class="statusbar">
+      <span class="grow" id="statusMsg">Pronto</span>
+      <div class="prog" id="prog" hidden><i id="progBar"></i></div>
+      <div class="zoomwrap">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="7" cy="7" r="4.6"/><path d="M10.4 10.4L14 14"/></svg>
+        <input type="range" id="zoom" min="48" max="320" step="8" value="128" aria-label="Dimensione anteprime">
+        <span class="mono" id="zoomVal" style="width:3.2em;text-align:right">128</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span><b>Doppio click</b> su un file apre l'anteprima</span>
+    <span><b>Tasto destro</b> su file o pagina apre il menu contestuale</span>
+    <span><b>Canc</b> elimina le pagine selezionate</span>
+    <span><b>Trascina</b> una pagina per riordinarla</span>
+    <span><b>Ctrl</b> / <b>Shift</b> per la selezione multipla</span>
+  </div>
+</div>
+
+<!-- ================= menu a comparsa ================= -->
+<div class="menu" id="mFile" hidden>
+  <div class="mi" data-act="browse"><span class="ic"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M1.5 4.5h4l1.2 1.5h7.8v7.5h-13z"/></svg></span><span class="lbl">Apri cartella...</span><span class="sc">Ctrl+O</span></div>
+  <div class="mi" data-act="reload"><span class="ic"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M13.4 8a5.4 5.4 0 1 1-1.6-3.8"/><path d="M13.6 2.2v3.2h-3.2"/></svg></span><span class="lbl">Aggiorna</span><span class="sc">F5</span></div>
+  <div class="sep"></div>
+  <div class="mi dis"><span class="ic"></span><span class="lbl">Esci</span><span class="sc">Alt+F4</span></div>
+</div>
+
+<div class="menu" id="mArch" hidden>
+  <div class="head">Sui file selezionati</div>
+  <div class="mi" data-act="validate"><span class="ic"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M5.6 8.2l1.7 1.7 3.4-3.6"/><circle cx="8" cy="8" r="6.2"/></svg></span><span class="lbl">Valida</span><span class="sc">F8</span></div>
+  <div class="mi" data-act="webp"><span class="ic"></span><span class="lbl">Converti in WebP...</span></div>
+  <div class="mi" data-act="merge"><span class="ic"></span><span class="lbl">Unisci in volumi...</span></div>
+  <div class="mi" data-act="similar"><span class="ic"></span><span class="lbl">Trova pagine simili...</span></div>
+  <div class="sep"></div>
+  <div class="mi" data-act="comicinfo"><span class="ic"></span><span class="lbl">Rimuovi ComicInfo.xml</span></div>
+  <div class="mi" data-act="rowsFromFile"><span class="ic"></span><span class="lbl">Elimina righe...</span></div>
+  <div class="mi" data-act="byid"><span class="ic"></span><span class="lbl">Elimina per ID...</span></div>
+</div>
+
+<div class="menu" id="mPag" hidden>
+  <div class="mi" data-act="pgDelete"><span class="ic"></span><span class="lbl">Elimina pagine selezionate</span><span class="sc">Canc</span></div>
+  <div class="mi" data-act="pgRows"><span class="ic"></span><span class="lbl">Elimina righe...</span></div>
+  <div class="sep"></div>
+  <div class="mi" data-act="pgUp"><span class="ic"></span><span class="lbl">Sposta su</span><span class="sc">Alt+Su</span></div>
+  <div class="mi" data-act="pgDown"><span class="ic"></span><span class="lbl">Sposta giu'</span><span class="sc">Alt+Giu'</span></div>
+  <div class="mi" data-act="pgFirst"><span class="ic"></span><span class="lbl">Sposta a inizio</span></div>
+  <div class="mi" data-act="pgLast"><span class="ic"></span><span class="lbl">Sposta a fine</span></div>
+  <div class="sep"></div>
+  <div class="mi" data-act="pgSort"><span class="ic"></span><span class="lbl">Ordina per nome</span></div>
+  <div class="mi" data-act="pgReverse"><span class="ic"></span><span class="lbl">Inverti ordine</span></div>
+  <div class="sep"></div>
+  <div class="mi" data-act="save"><span class="ic"></span><span class="lbl">Salva modifiche</span><span class="sc">Ctrl+S</span></div>
+  <div class="mi" data-act="revert"><span class="ic"></span><span class="lbl">Annulla modifiche</span></div>
+</div>
+
+<div class="menu" id="mVis" hidden>
+  <div class="mi" data-act="togglePreview"><span class="ic"></span><span class="lbl">Pannello anteprima</span><span class="sc">F4</span></div>
+  <div class="sep"></div>
+  <div class="mi" data-act="zoomIn"><span class="ic"></span><span class="lbl">Ingrandisci</span><span class="sc">Ctrl++</span></div>
+  <div class="mi" data-act="zoomOut"><span class="ic"></span><span class="lbl">Riduci</span><span class="sc">Ctrl+-</span></div>
+  <div class="sep"></div>
+  <div class="mi" data-act="theme"><span class="ic"></span><span class="lbl">Tema chiaro / scuro</span></div>
+</div>
+
+<!-- menu contestuale sul file -->
+<div class="menu" id="ctxFile" hidden>
+  <div class="mi strong" data-act="openFile"><span class="ic"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="2.5" y="2.5" width="11" height="11" rx="1"/><path d="M5.4 6.4h5.2M5.4 9.2h5.2"/></svg></span><span class="lbl">Apri file</span></div>
+  <div class="sep"></div>
+  <div class="mi" data-act="comicinfo"><span class="ic"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M3.6 2.5h6L12.4 5.3v8.2h-8.8z"/><path d="M6 8.4l4 4M10 8.4l-4 4"/></svg></span><span class="lbl" id="ciLabel">Rimuovi ComicInfo.xml</span></div>
+  <div class="mi" data-act="rowsFromFile"><span class="ic"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M2.8 4.2h10.4M4.2 4.2l.7 9.2h6.2l.7-9.2M6.5 6.6v4.4M9.5 6.6v4.4"/></svg></span><span class="lbl">Elimina righe...</span></div>
+  <div class="mi" data-act="reorder"><span class="ic"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M2.5 4h11M2.5 8h7M2.5 12h9"/></svg></span><span class="lbl">Riordina pagine...</span></div>
+  <div class="sep"></div>
+  <div class="mi" data-act="validate"><span class="ic"></span><span class="lbl" id="vaLabel">Valida</span></div>
+  <div class="mi" data-act="webp"><span class="ic"></span><span class="lbl">Converti in WebP...</span></div>
+  <div class="mi" data-act="merge"><span class="ic"></span><span class="lbl">Unisci in volumi...</span></div>
+  <div class="mi" data-act="similar"><span class="ic"></span><span class="lbl">Trova pagine simili...</span></div>
+</div>
+
+<!-- menu contestuale sulla pagina -->
+<div class="menu" id="ctxPage" hidden>
+  <div class="mi strong" data-act="pgDelete"><span class="ic"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M2.8 4.2h10.4M4.2 4.2l.7 9.2h6.2l.7-9.2"/></svg></span><span class="lbl" id="pgDelLabel">Elimina pagina</span><span class="sc">Canc</span></div>
+  <div class="mi" data-act="pgRows"><span class="ic"></span><span class="lbl">Elimina righe...</span></div>
+  <div class="sep"></div>
+  <div class="mi" data-act="pgUp"><span class="ic"></span><span class="lbl">Sposta su</span><span class="sc">Alt+Su</span></div>
+  <div class="mi" data-act="pgDown"><span class="ic"></span><span class="lbl">Sposta giu'</span><span class="sc">Alt+Giu'</span></div>
+  <div class="mi" data-act="pgFirst"><span class="ic"></span><span class="lbl">Sposta a inizio</span></div>
+  <div class="mi" data-act="pgLast"><span class="ic"></span><span class="lbl">Sposta a fine</span></div>
+</div>
+
+<!-- ================= dialoghi ================= -->
+<div class="scrim" id="scrim" hidden><div id="dlgHost"></div></div>
+
+<script>
+"use strict";
+
+/* =======================================================================
+   Dati finti
+   ======================================================================= */
+const rnd = s => () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296;
+
+function mkFiles(){
+  const out = [];
+  for (let i = 1; i <= 12; i++){
+    out.push({
+      id:'f'+i,
+      name:`One Piece - ${String(i).padStart(4,'0')}.cbz`,
+      pages: 16 + (i * 3) % 7,
+      fmt: i % 4 === 0 ? 'webp' : 'jpg',
+      mb: (18 + (i * 7) % 14) + ',' + ((i*3)%10) ,
+      comicinfo: i !== 5,
+      broken: i === 9,
+      seed: 100 + i * 37
+    });
+  }
+  out.push({id:'v1',name:'One Piece V001.cbz',pages:180,fmt:'webp',mb:'214,8',comicinfo:false,broken:false,seed:9001,volume:true});
+  return out;
+}
+
+const state = {
+  files: mkFiles(),
+  selFiles: new Set(['f1']),
+  curFile: 'f1',
+  open: null,          // id del file aperto in anteprima
+  pages: [],           // {id,name,seed,gone}
+  selPages: new Set(),
+  curPage: null,
+  baseline: null,      // copia delle pagine al momento dell'apertura
+  changes: [],
+  zoom: 128,
+  ctxTarget: null
+};
+
+function mkPages(file){
+  const n = Math.min(file.pages, 24);
+  const out = [];
+  for (let i = 1; i <= n; i++){
+    out.push({
+      id: file.id + '_p' + i,
+      name: `page_${String(i).padStart(4,'0')}.${file.fmt}`,
+      seed: file.seed * 13 + i * 71,
+      gone: false
+    });
+  }
+  return out;
+}
+
+/* =======================================================================
+   Disegno delle finte pagine a fumetti
+   ======================================================================= */
+const LAYOUTS = [
+  [[0,0,1,.42],[0,.44,.48,.56],[.5,.44,.5,.56]],
+  [[0,0,.55,.5],[.57,0,.43,.5],[0,.52,1,.48]],
+  [[0,0,1,.3],[0,.32,1,.34],[0,.68,1,.32]],
+  [[0,0,.48,.48],[.5,0,.5,.48],[0,.5,.48,.5],[.5,.5,.5,.5]],
+  [[0,0,1,.62],[0,.64,.48,.36],[.5,.64,.5,.36]]
+];
+
+function pageSvg(seed, opts){
+  const o = opts || {};
+  const w = 200, h = 250, pad = 12;
+  const r = rnd(seed);
+  const lay = LAYOUTS[Math.floor(r() * LAYOUTS.length)];
+  const iw = w - pad * 2, ih = h - pad * 2 - (o.cover ? 26 : 10);
+  const top = pad + (o.cover ? 26 : 0);
+  let panels = '';
+  lay.forEach(([x, y, pw, ph], i) => {
+    const px = pad + x * iw, py = top + y * ih;
+    const pwv = pw * iw - 4, phv = ph * ih - 4;
+    const tone = 88 + Math.floor(r() * 10) * 1.2;
+    panels += `<rect x="${px.toFixed(1)}" y="${py.toFixed(1)}" width="${pwv.toFixed(1)}" height="${phv.toFixed(1)}" fill="hsl(${(seed*7)%360} 12% ${tone}%)" stroke="#2a2a2a" stroke-width="2"/>`;
+    // silhouette + fumetto
+    if (r() > .35){
+      const cx = px + pwv * (.3 + r() * .4), cy = py + phv * .72, rr = Math.min(pwv, phv) * .17;
+      panels += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${rr.toFixed(1)}" fill="hsl(${(seed*7)%360} 18% 52%)"/>`;
+    }
+    if (r() > .45 && phv > 40){
+      const bw = pwv * .5, bh = Math.min(phv * .32, 26);
+      const bx = px + (r() > .5 ? pwv - bw - 6 : 6), by = py + 6;
+      panels += `<rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="${(bh/2).toFixed(1)}" fill="#fff" stroke="#2a2a2a" stroke-width="1.4"/>`;
+      panels += `<path d="M${(bx+bw*.3).toFixed(1)} ${(by+bh).toFixed(1)} l4 6 4-6z" fill="#fff" stroke="#2a2a2a" stroke-width="1.4"/>`;
+      for (let k = 0; k < 2; k++)
+        panels += `<rect x="${(bx+7).toFixed(1)}" y="${(by+6+k*6).toFixed(1)}" width="${(bw-14-k*8).toFixed(1)}" height="2.4" rx="1.2" fill="#8b8b8b"/>`;
+    }
+  });
+  let head = '';
+  if (o.cover){
+    head = `<rect x="${pad}" y="${pad}" width="${iw}" height="20" fill="#2a2a2a"/>` +
+           `<rect x="${pad+6}" y="${pad+6}" width="${iw*.62}" height="8" rx="2" fill="#fff"/>`;
+  }
+  const label = o.label
+    ? `<text x="${w/2}" y="${h-3}" text-anchor="middle" font-family="Consolas,monospace" font-size="11" fill="#6a6a6a">${o.label}</text>`
+    : '';
+  return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" role="img" aria-label="anteprima pagina">
+    <rect width="${w}" height="${h}" fill="#fdfdfb" stroke="#c9c9c9"/>${head}${panels}${label}</svg>`;
+}
+
+/* =======================================================================
+   Utilita' DOM
+   ======================================================================= */
+const $  = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function status(msg){ $('#statusMsg').textContent = msg; }
+
+function progress(pct){
+  const p = $('#prog');
+  if (pct == null){ p.hidden = true; return; }
+  p.hidden = false;
+  $('#progBar').style.width = pct + '%';
+}
+
+function runFakeJob(label, done){
+  let v = 0;
+  status(label);
+  progress(0);
+  const t = setInterval(() => {
+    v += 9 + Math.random() * 16;
+    if (v >= 100){
+      clearInterval(t);
+      progress(null);
+      done && done();
+    } else progress(v);
+  }, 90);
+}
+
+/* =======================================================================
+   Lista file
+   ======================================================================= */
+function renderFiles(){
+  const lv = $('#lvFiles');
+  lv.style.setProperty('--tw', state.zoom + 'px');
+  lv.innerHTML = state.files.map(f => {
+    const cls = ['lvitem'];
+    if (state.selFiles.has(f.id)) cls.push('sel');
+    if (state.curFile === f.id) cls.push('cur');
+    const badge = f.broken
+      ? '<span class="badge">ZIP</span>'
+      : (f.validated ? '<span class="badge ok">OK</span>' : '');
+    return `<div class="${cls.join(' ')}" data-file="${f.id}" title="${esc(f.name)} — ${f.pages} pagine, ${f.mb} MB">
+      <div class="thumb">${badge}${pageSvg(f.seed, {cover:true})}</div>
+      <div class="cap">${esc(f.name)}</div>
+    </div>`;
+  }).join('');
+}
+
+function selectFile(id, ev){
+  if (ev && ev.shiftKey && state.curFile){
+    const ids = state.files.map(f => f.id);
+    const a = ids.indexOf(state.curFile), b = ids.indexOf(id);
+    state.selFiles = new Set(ids.slice(Math.min(a,b), Math.max(a,b)+1));
+  } else if (ev && (ev.ctrlKey || ev.metaKey)){
+    state.selFiles.has(id) ? state.selFiles.delete(id) : state.selFiles.add(id);
+    state.curFile = id;
+  } else {
+    state.selFiles = new Set([id]);
+    state.curFile = id;
+  }
+  renderFiles();
+  const n = state.selFiles.size;
+  status(n > 1 ? `${n} file selezionati` : fileById(id).name);
+}
+
+const fileById = id => state.files.find(f => f.id === id);
+const selFileList = () => state.files.filter(f => state.selFiles.has(f.id));
+
+/* =======================================================================
+   Anteprima / pagine
+   ======================================================================= */
+function openPreview(id){
+  const f = fileById(id);
+  if (!f) return;
+  if (f.broken){
+    status(`${f.name}: archivio ZIP corrotto, impossibile aprire`);
+    toast(`Impossibile aprire ${f.name}`, 'ZIP corrotto: la struttura dell\'archivio non e\' leggibile.');
+    return;
+  }
+  state.open = id;
+  state.pages = mkPages(f);
+  state.baseline = state.pages.map(p => ({...p}));
+  state.selPages = new Set();
+  state.curPage = null;
+  state.changes = [];
+  state.renumber = true;
+  $('#panePreview').hidden = false;
+  $('#splitter').hidden = false;
+  $('#pvName').textContent = f.name;
+  renderPages();
+  status(`${f.name} — ${state.pages.length} pagine caricate in memoria`);
+}
+
+function closePreview(){
+  state.open = null;
+  state.pages = [];
+  state.changes = [];
+  $('#panePreview').hidden = true;
+  $('#splitter').hidden = true;
+  status('Pronto');
+}
+
+function livePages(){ return state.pages.filter(p => !p.gone); }
+
+function renderPages(){
+  const lv = $('#lvPages');
+  lv.style.setProperty('--tw', state.zoom + 'px');
+  lv.innerHTML = state.pages.map((p, i) => {
+    const cls = ['lvitem'];
+    if (state.selPages.has(p.id)) cls.push('sel');
+    if (state.curPage === p.id) cls.push('cur');
+    if (p.gone) cls.push('gone');
+    return `<div class="${cls.join(' ')}" data-page="${p.id}" draggable="${!p.gone}" title="${esc(p.name)}">
+      <div class="thumb">${pageSvg(p.seed, {})}</div>
+      <div class="cap mono">${esc(p.name)}</div>
+    </div>`;
+  }).join('');
+  const live = livePages().length;
+  $('#pvCount').textContent = `${live} pagine`;
+  renderStage();
+}
+
+function renderStage(){
+  const bar = $('#stagebar');
+  if (!state.changes.length){ bar.hidden = true; return; }
+  bar.hidden = false;
+  const del = state.changes.filter(c => c.t === 'del').length;
+  const mov = state.changes.filter(c => c.t === 'mov').length;
+  const bits = [];
+  if (del) bits.push(`${del} eliminazion${del>1?'i':'e'}`);
+  if (mov) bits.push(`${mov} spostament${mov>1?'i':'o'}`);
+  const ren = state.renumber
+    ? ` I nomi restano invariati fino al salvataggio, poi diventano <span class="mono">page_NNNN</span>.`
+    : '';
+  $('#stageMsg').innerHTML =
+    `<b>${bits.join(' e ')}</b> in memoria — nulla e' stato scritto su <span class="mono">${esc(fileById(state.open).name)}</span>.${ren}`;
+}
+
+function stage(t, note){ state.changes.push({t, note}); }
+
+function deletePages(ids, opts){
+  const o = opts || {};
+  let n = 0;
+  ids.forEach(id => {
+    const p = state.pages.find(x => x.id === id);
+    if (p && !p.gone){ p.gone = true; n++; stage('del', p.name); }
+  });
+  if (!n) return;
+  if (o.renumber === false) state.renumber = false;
+  state.selPages.clear();
+  renderPages();
+  status(`${n} pagin${n>1?'e':'a'} eliminat${n>1?'e':'a'} — in memoria, non ancora scritte`);
+}
+
+function renumber(){
+  const f = fileById(state.open);
+  let i = 0;
+  state.pages.forEach(p => { if (!p.gone) p.name = `page_${String(++i).padStart(4,'0')}.${f.fmt}`; });
+}
+
+function movePages(delta){
+  const sel = state.pages.filter(p => state.selPages.has(p.id) && !p.gone);
+  if (!sel.length) return;
+  const order = delta > 0 ? [...sel].reverse() : sel;
+  order.forEach(p => {
+    const i = state.pages.indexOf(p), j = i + delta;
+    if (j < 0 || j >= state.pages.length) return;
+    state.pages.splice(i, 1);
+    state.pages.splice(j, 0, p);
+  });
+  stage('mov', 'sposta');
+  renderPages();
+  status('Ordine modificato in memoria');
+}
+
+function moveEdge(toStart){
+  const sel = state.pages.filter(p => state.selPages.has(p.id) && !p.gone);
+  if (!sel.length) return;
+  state.pages = state.pages.filter(p => !sel.includes(p));
+  state.pages = toStart ? [...sel, ...state.pages] : [...state.pages, ...sel];
+  stage('mov', toStart ? 'a inizio' : 'a fine');
+  renderPages();
+  status(`Pagine spostate ${toStart ? 'a inizio' : 'a fine'}`);
+}
+
+/* =======================================================================
+   Intervalli "1, 4, 7-10, 15"
+   ======================================================================= */
+function parseRanges(txt, max){
+  const res = { pages: [], bad: [], out: [] };
+  const seen = new Set();
+  String(txt).split(/[,;\n]+/).map(s => s.trim()).filter(Boolean).forEach(tok => {
+    let m;
+    if ((m = tok.match(/^(\d+)$/))){
+      add(+m[1]);
+    } else if ((m = tok.match(/^(\d+)\s*[-–]\s*(\d+)$/))){
+      const a = +m[1], b = +m[2];
+      if (a > b) { res.bad.push(tok); return; }
+      for (let i = a; i <= b; i++) add(i);
+    } else res.bad.push(tok);
+  });
+  function add(n){
+    if (n < 1 || n > max){ if (!res.out.includes(n)) res.out.push(n); return; }
+    if (!seen.has(n)){ seen.add(n); res.pages.push(n); }
+  }
+  res.pages.sort((a,b) => a-b);
+  return res;
+}
+
+/* =======================================================================
+   Dialoghi
+   ======================================================================= */
+function closeDlg(){ $('#scrim').hidden = true; $('#dlgHost').innerHTML = ''; }
+
+function showDlg(html, wire){
+  $('#dlgHost').innerHTML = html;
+  $('#scrim').hidden = false;
+  $$('#dlgHost [data-close]').forEach(b => b.onclick = closeDlg);
+  wire && wire();
+  const first = $('#dlgHost .field, #dlgHost .btn.primary');
+  first && first.focus();
+}
+
+function dlgShell(title, body, foot, wide){
+  return `<div class="dlg${wide?' wide':''}" role="dialog" aria-modal="true" aria-label="${esc(title)}">
+    <div class="dlghead"><h2>${esc(title)}</h2>
+      <button class="iconbtn" data-close aria-label="Chiudi"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10" stroke="currentColor"/></svg></button>
+    </div>
+    <div class="dlgbody">${body}</div>
+    <div class="dlgfoot">${foot}</div>
+  </div>`;
+}
+
+function toast(title, msg){
+  showDlg(dlgShell(title,
+    `<div class="hint" style="font-size:13px">${esc(msg)}</div>`,
+    `<button class="btn primary" data-close>OK</button>`));
+}
+
+/* ---------- Elimina righe (delete-pages) ---------- */
+function dlgRows(fileId, preset){
+  const f = fileById(fileId);
+  const max = state.open === fileId ? livePages().length : f.pages;
+  const pages = state.open === fileId ? livePages() : mkPages(f);
+
+  showDlg(dlgShell('Elimina righe — ' + f.name, `
+    <div class="grp">
+      <label class="lab" for="rgIn">Pagine da eliminare</label>
+      <input class="field mono" id="rgIn" placeholder="es. 1, 4, 7-10, 15" value="${esc(preset||'')}">
+      <div class="hint">Numeri singoli e/o intervalli separati da virgola. La numerazione e' 1-based sulle pagine ordinate alfabeticamente: il file ha <b>${max}</b> pagine.</div>
+    </div>
+    <div class="grp">
+      <div class="row"><span class="lab">Anteprima</span><span id="rgPills"></span></div>
+      <div class="strip" id="rgStrip"></div>
+    </div>
+    <label class="check"><input type="checkbox" id="rgRen" checked> Rinumera le pagine rimanenti in <span class="mono">page_NNNN.${f.fmt}</span></label>
+    <label class="check"><input type="checkbox" id="rgCi" ${f.comicinfo?'checked':''}> Rimuovi anche <span class="mono">ComicInfo.xml</span></label>
+  `,
+  `<span class="left" id="rgSummary">Nessuna pagina selezionata</span>
+   <button class="btn" data-close>Annulla</button>
+   <button class="btn danger" id="rgGo" disabled>Elimina</button>`), () => {
+
+    const inp = $('#rgIn'), strip = $('#rgStrip'), pills = $('#rgPills'),
+          sum = $('#rgSummary'), go = $('#rgGo');
+
+    function refresh(){
+      const r = parseRanges(inp.value, max);
+      const hit = new Set(r.pages);
+      strip.innerHTML = pages.slice(0, 40).map((p, i) => {
+        const n = i + 1;
+        return `<div class="sp ${hit.has(n)?'hit':''}">${pageSvg(p.seed,{})}<span>${n}</span></div>`;
+      }).join('') + (pages.length > 40 ? `<div class="sp"><span style="padding-top:30px">+${pages.length-40}</span></div>` : '');
+
+      const tags = [];
+      if (r.pages.length) tags.push(`<span class="pill err">${r.pages.length} da eliminare</span>`);
+      tags.push(`<span class="pill ok">${max - r.pages.length} restano</span>`);
+      if (r.bad.length) tags.push(`<span class="pill err">non valido: ${r.bad.map(esc).join(', ')}</span>`);
+      if (r.out.length) tags.push(`<span class="pill err">fuori intervallo: ${r.out.join(', ')}</span>`);
+      pills.innerHTML = tags.join(' ');
+
+      sum.textContent = r.pages.length
+        ? `Pagine ${r.pages.join(', ')}`
+        : 'Nessuna pagina selezionata';
+      go.disabled = !r.pages.length || r.bad.length > 0;
+    }
+
+    inp.oninput = refresh;
+    refresh();
+
+    go.onclick = () => {
+      const r = parseRanges(inp.value, max);
+      const renumber = $('#rgRen').checked;
+      const alsoCi = $('#rgCi').checked;
+      if (state.open !== fileId) openPreview(fileId);
+      const live = livePages();
+      const ids = r.pages.map(n => live[n-1]).filter(Boolean).map(p => p.id);
+      closeDlg();
+      deletePages(ids, {renumber});
+      if (alsoCi && f.comicinfo){ f.comicinfo = false; renderFiles(); }
+    };
+  });
+}
+
+/* ---------- Rimuovi ComicInfo.xml ---------- */
+function dlgComicInfo(){
+  const files = selFileList();
+  const withCi = files.filter(f => f.comicinfo);
+  showDlg(dlgShell('Rimuovi ComicInfo.xml', `
+    <div class="hint" style="font-size:13px">
+      L'operazione riscrive gli archivi senza la voce <span class="mono">ComicInfo.xml</span>. Le immagini non vengono ricodificate.
+    </div>
+    <div class="tablewrap"><table class="rep">
+      <thead><tr><th>File</th><th>ComicInfo.xml</th><th class="num">Pagine</th></tr></thead>
+      <tbody>${files.map(f => `<tr>
+        <td class="mono">${esc(f.name)}</td>
+        <td>${f.comicinfo ? '<span class="pill err">presente</span>' : '<span class="pill">assente</span>'}</td>
+        <td class="num">${f.pages}</td></tr>`).join('')}</tbody>
+    </table></div>
+    <label class="check"><input type="checkbox" id="ciBak"> Conserva una copia dell'originale come <span class="mono">_OLD.cbz</span></label>
+  `,
+  `<span class="left">${withCi.length} file su ${files.length} contengono la voce</span>
+   <button class="btn" data-close>Annulla</button>
+   <button class="btn primary" id="ciGo" ${withCi.length?'':'disabled'}>Rimuovi</button>`), () => {
+    $('#ciGo').onclick = () => {
+      closeDlg();
+      runFakeJob('Rimozione ComicInfo.xml...', () => {
+        withCi.forEach(f => f.comicinfo = false);
+        renderFiles();
+        status(`ComicInfo.xml rimosso da ${withCi.length} file`);
+      });
+    };
+  });
+}
+
+/* ---------- Converti in WebP ---------- */
+function dlgWebp(){
+  const files = selFileList();
+  showDlg(dlgShell('Converti in WebP', `
+    <div class="hint" style="font-size:13px">${files.length} file selezionati, ${files.reduce((a,f)=>a+f.pages,0)} pagine complessive.</div>
+
+    <fieldset class="fieldset"><legend>Codifica</legend>
+      <div class="row">
+        <label for="wqR" style="font-size:12.5px;min-width:5.5em">Qualita'</label>
+        <input type="range" id="wqR" min="30" max="100" value="75">
+        <span class="mono" id="wqV" style="min-width:2.5em;text-align:right">75</span>
+      </div>
+      <label class="check"><input type="checkbox" checked> Sostituisci l'immagine solo se il WebP risulta <b>piu' piccolo</b> dell'originale</label>
+      <label class="check"><input type="checkbox" checked> Salta le immagini gia' in formato WebP</label>
+    </fieldset>
+
+    <fieldset class="fieldset"><legend>Contenuto dell'archivio</legend>
+      <label class="check"><input type="checkbox" checked> Rimuovi <span class="mono">ComicInfo.xml</span></label>
+      <label class="check"><input type="checkbox" checked> Rinomina le pagine in <span class="mono">page_NNNN.*</span></label>
+    </fieldset>
+
+    <fieldset class="fieldset"><legend>Originale</legend>
+      <label class="check"><input type="radio" name="wbak" checked> Rinomina in <span class="mono">nomefile_OLD.cbz</span></label>
+      <label class="check"><input type="radio" name="wbak"> Elimina dopo la conversione</label>
+    </fieldset>
+  `,
+  `<span class="left">Stima: da 246 MB a ~168 MB</span>
+   <button class="btn" data-close>Annulla</button>
+   <button class="btn primary" id="wGo">Converti</button>`), () => {
+    $('#wqR').oninput = e => $('#wqV').textContent = e.target.value;
+    $('#wGo').onclick = () => {
+      closeDlg();
+      runFakeJob(`Conversione WebP di ${files.length} file...`, () => {
+        files.forEach(f => { f.fmt = 'webp'; f.comicinfo = false; });
+        renderFiles();
+        if (state.open) openPreview(state.open);
+        status(`Conversione completata: ${files.length} file, 78 MB risparmiati`);
+      });
+    };
+  });
+}
+
+/* ---------- Unisci in volumi ---------- */
+function dlgMerge(){
+  const chapters = state.files.filter(f => !f.volume);
+  showDlg(dlgShell('Unisci capitoli in volumi', `
+    <div class="grp">
+      <span class="lab">Serie riconosciuta</span>
+      <div class="row">
+        <span class="pill">schema <span class="mono">Titolo - NNNN.cbz</span></span>
+        <span class="pill ok">${chapters.length} capitoli</span>
+        <span class="pill"><span class="mono">One Piece</span></span>
+      </div>
+    </div>
+
+    <fieldset class="fieldset"><legend>Capitoli per volume</legend>
+      <div class="row">
+        <label class="check"><input type="radio" name="cpv" id="cpvAuto" checked> Calcola automaticamente</label>
+        <label class="check"><input type="radio" name="cpv" id="cpvMan"> Fissa a</label>
+        <input class="field mono" id="cpvVal" style="width:72px" value="10" disabled>
+      </div>
+      <div class="hint">Con il calcolo automatico i volumi risultano il piu' possibile uniformi: nessun volume finale con un solo capitolo.</div>
+    </fieldset>
+
+    <fieldset class="fieldset"><legend>Intervallo di capitoli</legend>
+      <div class="row">
+        <label class="check"><input type="radio" name="rng" checked> Tutti</label>
+        <label class="check"><input type="radio" name="rng"> Solo</label>
+        <input class="field mono" style="width:150px" placeholder="1-10, 12" disabled>
+      </div>
+    </fieldset>
+
+    <div class="grp">
+      <span class="lab">Volumi che verranno creati</span>
+      <div class="tablewrap"><table class="rep">
+        <thead><tr><th>Volume</th><th>Capitoli</th><th class="num">Pagine</th></tr></thead>
+        <tbody id="mgBody"></tbody>
+      </table></div>
+    </div>
+
+    <label class="check"><input type="checkbox" id="mgForce"> Sovrascrivi i volumi gia' esistenti <span class="pill err">1 conflitto: One Piece V001.cbz</span></label>
+  `,
+  `<span class="left" id="mgLeft"></span>
+   <button class="btn" data-close>Annulla</button>
+   <button class="btn primary" id="mgGo">Unisci</button>`), () => {
+    const val = $('#cpvVal');
+    $('#cpvAuto').onchange = () => { val.disabled = true; build(); };
+    $('#cpvMan').onchange  = () => { val.disabled = false; val.focus(); build(); };
+    val.oninput = build;
+
+    function build(){
+      const cpv = $('#cpvAuto').checked ? 10 : Math.max(1, parseInt(val.value) || 1);
+      const rows = [];
+      for (let i = 0; i < chapters.length; i += cpv){
+        const chunk = chapters.slice(i, i + cpv);
+        rows.push(`<tr>
+          <td class="mono">One Piece V${String(rows.length+1).padStart(3,'0')}.cbz</td>
+          <td class="mono">${chunk[0].name.slice(-8,-4)} – ${chunk[chunk.length-1].name.slice(-8,-4)}</td>
+          <td class="num">${chunk.reduce((a,f)=>a+f.pages,0)}</td></tr>`);
+      }
+      $('#mgBody').innerHTML = rows.join('');
+      $('#mgLeft').textContent = `${rows.length} volumi da ${chapters.length} capitoli`;
+    }
+    build();
+
+    $('#mgGo').onclick = () => {
+      closeDlg();
+      runFakeJob('Unione in volumi...', () => status('Volumi creati. I capitoli originali sono stati conservati.'));
+    };
+  });
+}
+
+/* ---------- Trova pagine simili ---------- */
+function dlgSimilar(){
+  const groups = [
+    {name:'Gruppo 1 — pagina di credit', d:2, items:[
+      {f:'One Piece - 0001.cbz', p:'page_0018.jpg', s:301, keep:true},
+      {f:'One Piece - 0002.cbz', p:'page_0017.jpg', s:302},
+      {f:'One Piece - 0003.cbz', p:'page_0019.jpg', s:303}]},
+    {name:'Gruppo 2 — retro di copertina', d:4, items:[
+      {f:'One Piece - 0004.cbz', p:'page_0001.jpg', s:411, keep:true},
+      {f:'One Piece - 0007.cbz', p:'page_0001.jpg', s:412}]},
+    {name:'Gruppo 3 — pagina vuota', d:0, items:[
+      {f:'One Piece - 0005.cbz', p:'page_0009.jpg', s:520, keep:true},
+      {f:'One Piece - 0006.cbz', p:'page_0011.jpg', s:521},
+      {f:'One Piece - 0008.cbz', p:'page_0004.jpg', s:522},
+      {f:'One Piece - 0011.cbz', p:'page_0007.jpg', s:523}]}
+  ];
+  showDlg(dlgShell('Trova pagine simili', `
+    <fieldset class="fieldset"><legend>Confronto</legend>
+      <div class="row">
+        <label for="simT" style="font-size:12.5px;min-width:12em">Distanza di Hamming max</label>
+        <input type="range" id="simT" min="0" max="16" value="5">
+        <span class="mono" id="simV" style="min-width:2em;text-align:right">5</span>
+      </div>
+      <div class="hint">Hash percettivo a 64 bit (difference hash). 0 = pagine identiche, valori alti allargano i gruppi e producono falsi positivi.</div>
+      <div class="row">
+        <label class="check"><input type="radio" name="simScope" checked> File selezionati (${state.selFiles.size})</label>
+        <label class="check"><input type="radio" name="simScope"> Intera cartella (${state.files.length})</label>
+      </div>
+    </fieldset>
+
+    <div class="grp">
+      <div class="row"><span class="lab">Risultati</span>
+        <span class="pill err">${groups.length} gruppi</span>
+        <span class="pill">${groups.reduce((a,g)=>a+g.items.length,0)} pagine</span>
+        <span class="pill ok">bordo verde = pagina conservata</span>
+      </div>
+      <div class="groups">${groups.map(g => `
+        <div class="group">
+          <div class="gh">
+            <label class="check"><input type="checkbox" checked></label>
+            <span class="gname">${esc(g.name)}</span>
+            <span class="pill">distanza ${g.d}</span>
+            <span class="pill">${g.items.length} pagine</span>
+          </div>
+          <div class="dupes">${g.items.map(it => `
+            <div class="dupe${it.keep?' keep':''}">
+              ${pageSvg(it.s,{})}
+              <span class="mono">${esc(it.p)}</span>
+              <span>${esc(it.f.replace('One Piece - ','cap. ').replace('.cbz',''))}</span>
+            </div>`).join('')}</div>
+        </div>`).join('')}</div>
+    </div>
+  `,
+  `<span class="left">Azione sui gruppi selezionati</span>
+   <button class="btn" data-close>Chiudi</button>
+   <button class="btn" id="simExtract">Estrai in cartella...</button>
+   <button class="btn danger" id="simDel">Elimina duplicati</button>`, true), () => {
+    $('#simT').oninput = e => $('#simV').textContent = e.target.value;
+    $('#simExtract').onclick = () => { closeDlg(); runFakeJob('Estrazione gruppi...', () => status('9 pagine estratte in D:\\Comics\\One Piece\\_similar')); };
+    $('#simDel').onclick = () => { closeDlg(); runFakeJob('Eliminazione duplicati...', () => status('6 duplicati eliminati, pagine rinumerate')); };
+  });
+}
+
+/* ---------- Valida ---------- */
+function dlgValidate(){
+  const files = selFileList().length ? selFileList() : state.files;
+  runFakeJob(`Validazione di ${files.length} file...`, () => {
+    files.forEach(f => f.validated = !f.broken);
+    renderFiles();
+    const bad = files.filter(f => f.broken);
+    showDlg(dlgShell('Esito validazione', `
+      <div class="row">
+        <span class="pill ok">${files.length - bad.length} validi</span>
+        ${bad.length ? `<span class="pill err">${bad.length} con errori</span>` : ''}
+      </div>
+      <div class="tablewrap"><table class="rep">
+        <thead><tr><th>File</th><th>Esito</th><th class="num">Immagini</th><th>Note</th></tr></thead>
+        <tbody>${files.map(f => `<tr>
+          <td class="mono">${esc(f.name)}</td>
+          <td>${f.broken ? '<span class="pill err">errore</span>' : '<span class="pill ok">valido</span>'}</td>
+          <td class="num">${f.broken ? '—' : f.pages}</td>
+          <td class="hint" style="font-size:12px">${f.broken
+            ? 'Directory centrale ZIP illeggibile'
+            : (f.comicinfo ? 'Contiene ComicInfo.xml' : '')}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+    `,
+    `<span class="left">${bad.length ? 'I file con errori restano invariati' : 'Nessun problema rilevato'}</span>
+     <button class="btn primary" data-close>Chiudi</button>`, true));
+    status(`Validazione completata: ${files.length - bad.length} validi, ${bad.length} con errori`);
+  });
+}
+
+/* ---------- Elimina per ID ---------- */
+function dlgById(){
+  showDlg(dlgShell('Elimina pagine per ID', `
+    <div class="grp">
+      <span class="lab">Elenco degli ID</span>
+      <textarea class="field mono" id="idTxt" spellcheck="false">One Piece - 0001.cbz:page_0018.jpg
+One Piece - 0002.cbz:page_0017.jpg
+One Piece - 0005.cbz:page_0009.jpg</textarea>
+      <div class="hint">Un ID per riga, nel formato <span class="mono">nomefile.cbz:nome_voce.ext</span>. Le voci non trovate vengono segnalate e ignorate.</div>
+    </div>
+    <div class="row">
+      <button class="btn" id="idLoad">Carica da CSV...</button>
+      <span class="pill" id="idCnt"></span>
+    </div>
+    <label class="check"><input type="checkbox" checked> Rinumera le pagine rimanenti in ogni archivio toccato</label>
+  `,
+  `<span class="left" id="idLeft"></span>
+   <button class="btn" data-close>Annulla</button>
+   <button class="btn danger" id="idGo">Elimina</button>`), () => {
+    const t = $('#idTxt');
+    const upd = () => {
+      const lines = t.value.split('\n').map(s => s.trim()).filter(Boolean);
+      const ok = lines.filter(l => /^.+\.cbz:.+\.\w+$/i.test(l));
+      $('#idCnt').textContent = `${ok.length} ID validi`;
+      $('#idLeft').textContent = lines.length - ok.length
+        ? `${lines.length - ok.length} righe non riconosciute` : '';
+      $('#idGo').disabled = !ok.length;
+    };
+    t.oninput = upd; upd();
+    $('#idLoad').onclick = () => status('(mockup) apertura finestra di selezione file CSV');
+    $('#idGo').onclick = () => { closeDlg(); runFakeJob('Eliminazione per ID...', () => status('3 pagine eliminate in 3 archivi, pagine rinumerate')); };
+  });
+}
+
+/* =======================================================================
+   Azioni
+   ======================================================================= */
+const actions = {
+  browse: () => status('(mockup) apertura finestra di selezione cartella'),
+  reload: () => { renderFiles(); status('Cartella riletta'); },
+  theme: () => {
+    const cur = document.documentElement.getAttribute('data-theme');
+    const dark = cur ? cur === 'dark' : matchMedia('(prefers-color-scheme:dark)').matches;
+    document.documentElement.setAttribute('data-theme', dark ? 'light' : 'dark');
+  },
+  togglePreview: () => {
+    if (state.open) closePreview();
+    else openPreview(state.curFile || state.files[0].id);
+  },
+  closePreview,
+  openFile: () => openPreview(state.ctxTarget || state.curFile),
+  reorder: () => { openPreview(state.ctxTarget || state.curFile); status('Trascina le pagine per riordinarle, oppure usa Alt+frecce'); },
+
+  validate: dlgValidate,
+  webp: dlgWebp,
+  merge: dlgMerge,
+  similar: dlgSimilar,
+  comicinfo: dlgComicInfo,
+  byid: dlgById,
+  rowsFromFile: () => dlgRows(state.ctxTarget || state.curFile),
+
+  pgRows: () => state.open && dlgRows(state.open),
+  pgDelete: () => {
+    if (!state.selPages.size) return status('Nessuna pagina selezionata');
+    deletePages([...state.selPages]);
+  },
+  pgUp:    () => movePages(-1),
+  pgDown:  () => movePages(1),
+  pgFirst: () => moveEdge(true),
+  pgLast:  () => moveEdge(false),
+  pgSort:  () => { state.pages.sort((a,b) => a.name.localeCompare(b.name)); stage('mov','ordina'); renumber(); renderPages(); status('Pagine ordinate per nome'); },
+  pgReverse: () => { state.pages.reverse(); stage('mov','inverti'); renumber(); renderPages(); status('Ordine invertito'); },
+
+  save: () => {
+    if (!state.changes.length) return;
+    const f = fileById(state.open), n = state.changes.length;
+    runFakeJob(`Riscrittura di ${f.name}...`, () => {
+      state.pages = state.pages.filter(p => !p.gone);
+      if (state.renumber) renumber();
+      f.pages = state.pages.length;
+      state.changes = [];
+      state.renumber = true;
+      state.baseline = state.pages.map(p => ({...p}));
+      renderFiles(); renderPages();
+      status(`${f.name} riscritto: ${n} modifiche applicate, ${f.pages} pagine`);
+    });
+  },
+  revert: () => {
+    state.pages = state.baseline.map(p => ({...p}));
+    state.changes = []; state.renumber = true; state.selPages.clear();
+    renderPages(); status('Modifiche annullate');
+  },
+  zoomIn:  () => setZoom(state.zoom + 32),
+  zoomOut: () => setZoom(state.zoom - 32)
+};
+
+function setZoom(v){
+  state.zoom = Math.max(48, Math.min(320, v));
+  $('#zoom').value = state.zoom;
+  $('#zoomVal').textContent = state.zoom;
+  renderFiles(); if (state.open) renderPages();
+}
+
+function doAction(name){
+  hideMenus();
+  const fn = actions[name];
+  if (fn) fn();
+}
+
+/* =======================================================================
+   Menu: apertura, posizionamento, chiusura
+   ======================================================================= */
+function hideMenus(){
+  $$('.menu').forEach(m => m.hidden = true);
+  $$('#menubar button').forEach(b => b.setAttribute('aria-expanded','false'));
+}
+
+function placeMenu(menu, x, y){
+  menu.hidden = false;
+  const r = menu.getBoundingClientRect();
+  menu.style.left = Math.min(x, innerWidth  - r.width  - 8) + 'px';
+  menu.style.top  = Math.min(y, innerHeight - r.height - 8) + 'px';
+}
+
+$('#menubar').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const m = document.getElementById(b.dataset.menu);
+  const wasOpen = !m.hidden;
+  hideMenus();
+  if (wasOpen) return;
+  const r = b.getBoundingClientRect();
+  b.setAttribute('aria-expanded','true');
+  placeMenu(m, r.left, r.bottom + 2);
+});
+
+$$('.menu').forEach(m => m.addEventListener('click', e => {
+  const mi = e.target.closest('.mi'); if (!mi || mi.classList.contains('dis')) return;
+  doAction(mi.dataset.act);
+}));
+
+document.addEventListener('mousedown', e => {
+  if (!e.target.closest('.menu') && !e.target.closest('#menubar')) hideMenus();
+});
+
+/* =======================================================================
+   Eventi lista file
+   ======================================================================= */
+const lvFiles = $('#lvFiles');
+
+lvFiles.addEventListener('mousedown', e => {
+  const it = e.target.closest('.lvitem'); if (!it) return;
+  const id = it.dataset.file;
+  if (e.button === 2){
+    if (!state.selFiles.has(id)) selectFile(id);
+    return;
+  }
+  selectFile(id, e);
+});
+
+lvFiles.addEventListener('dblclick', e => {
+  const it = e.target.closest('.lvitem'); if (!it) return;
+  openPreview(it.dataset.file);
+});
+
+lvFiles.addEventListener('contextmenu', e => {
+  const it = e.target.closest('.lvitem');
+  e.preventDefault();
+  if (!it) return;
+  state.ctxTarget = it.dataset.file;
+  const n = state.selFiles.size;
+  $('#ciLabel').textContent = n > 1 ? `Rimuovi ComicInfo.xml (${n} file)` : 'Rimuovi ComicInfo.xml';
+  $('#vaLabel').textContent = n > 1 ? `Valida (${n} file)` : 'Valida';
+  hideMenus();
+  placeMenu($('#ctxFile'), e.clientX, e.clientY);
+});
+
+/* =======================================================================
+   Eventi lista pagine
+   ======================================================================= */
+const lvPages = $('#lvPages');
+
+function selectPage(id, ev){
+  const ids = state.pages.filter(p => !p.gone).map(p => p.id);
+  if (ev && ev.shiftKey && state.curPage){
+    const a = ids.indexOf(state.curPage), b = ids.indexOf(id);
+    if (a >= 0 && b >= 0) state.selPages = new Set(ids.slice(Math.min(a,b), Math.max(a,b)+1));
+  } else if (ev && (ev.ctrlKey || ev.metaKey)){
+    state.selPages.has(id) ? state.selPages.delete(id) : state.selPages.add(id);
+    state.curPage = id;
+  } else {
+    state.selPages = new Set([id]);
+    state.curPage = id;
+  }
+  renderPages();
+  const n = state.selPages.size;
+  status(n > 1 ? `${n} pagine selezionate — Canc per eliminarle` : 'Pagina selezionata — Canc per eliminarla');
+}
+
+lvPages.addEventListener('mousedown', e => {
+  const it = e.target.closest('.lvitem'); if (!it) return;
+  const id = it.dataset.page;
+  if (e.button === 2){ if (!state.selPages.has(id)) selectPage(id); return; }
+  selectPage(id, e);
+});
+
+lvPages.addEventListener('contextmenu', e => {
+  const it = e.target.closest('.lvitem');
+  e.preventDefault();
+  if (!it) return;
+  const n = state.selPages.size;
+  $('#pgDelLabel').textContent = n > 1 ? `Elimina ${n} pagine` : 'Elimina pagina';
+  hideMenus();
+  placeMenu($('#ctxPage'), e.clientX, e.clientY);
+});
+
+/* trascinamento per il riordino */
+let dragId = null;
+lvPages.addEventListener('dragstart', e => {
+  const it = e.target.closest('.lvitem'); if (!it) return;
+  dragId = it.dataset.page;
+  it.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', dragId);
+});
+lvPages.addEventListener('dragend', () => {
+  dragId = null;
+  $$('#lvPages .lvitem').forEach(x => x.classList.remove('dragging','dragover'));
+});
+lvPages.addEventListener('dragover', e => {
+  const it = e.target.closest('.lvitem'); if (!it || !dragId) return;
+  e.preventDefault();
+  $$('#lvPages .lvitem').forEach(x => x.classList.remove('dragover'));
+  it.classList.add('dragover');
+});
+lvPages.addEventListener('drop', e => {
+  const it = e.target.closest('.lvitem'); if (!it || !dragId) return;
+  e.preventDefault();
+  const from = state.pages.findIndex(p => p.id === dragId);
+  const to   = state.pages.findIndex(p => p.id === it.dataset.page);
+  if (from < 0 || to < 0 || from === to) return;
+  const [p] = state.pages.splice(from, 1);
+  state.pages.splice(to, 0, p);
+  stage('mov', 'trascinamento');
+  renderPages();
+  status(`${p.name} spostata in posizione ${livePages().indexOf(p) + 1}`);
+});
+
+/* =======================================================================
+   Tastiera
+   ======================================================================= */
+document.addEventListener('keydown', e => {
+  if (!$('#scrim').hidden){
+    if (e.key === 'Escape') closeDlg();
+    return;
+  }
+  if (e.key === 'Escape'){
+    if (!$$('.menu').every(m => m.hidden)) hideMenus();
+    else if (state.open) closePreview();
+    return;
+  }
+  if (e.key === 'Delete' && state.open){ e.preventDefault(); actions.pgDelete(); return; }
+  if (e.altKey && e.key === 'ArrowUp'   && state.open){ e.preventDefault(); movePages(-1); return; }
+  if (e.altKey && e.key === 'ArrowDown' && state.open){ e.preventDefault(); movePages(1);  return; }
+  if (e.key === 'F4'){ e.preventDefault(); actions.togglePreview(); return; }
+  if (e.key === 'F5'){ e.preventDefault(); actions.reload(); return; }
+  if (e.key === 'F8'){ e.preventDefault(); dlgValidate(); return; }
+  if ((e.ctrlKey||e.metaKey) && e.key.toLowerCase() === 's'){ e.preventDefault(); actions.save(); return; }
+  if ((e.ctrlKey||e.metaKey) && (e.key === '+' || e.key === '=')){ e.preventDefault(); setZoom(state.zoom+32); return; }
+  if ((e.ctrlKey||e.metaKey) && e.key === '-'){ e.preventDefault(); setZoom(state.zoom-32); return; }
+});
+
+/* =======================================================================
+   Pulsanti generici, splitter, zoom
+   ======================================================================= */
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]');
+  if (!b || b.closest('.menu')) return;
+  doAction(b.dataset.act);
+});
+
+$('#zoom').addEventListener('input', e => setZoom(+e.target.value));
+
+(function splitterDrag(){
+  const sp = $('#splitter'), pv = $('#panePreview'), cl = $('.client');
+  let on = false;
+  sp.addEventListener('mousedown', e => { on = true; e.preventDefault(); });
+  addEventListener('mousemove', e => {
+    if (!on) return;
+    const r = cl.getBoundingClientRect();
+    const w = Math.max(220, Math.min(r.width - 220, r.right - e.clientX));
+    pv.style.width = w + 'px';
+  });
+  addEventListener('mouseup', () => on = false);
+})();
+
+/* =======================================================================
+   Avvio
+   ======================================================================= */
+renderFiles();
+setZoom(128);
+status(`${state.files.length} file .cbz — doppio click per aprire l'anteprima`);
+</script>
+</body>
+</html>

@@ -1,5 +1,15 @@
 unit uloaderthread;
 
+{
+  Decodifica in background con pubblicazione a lotti sul thread principale.
+
+  TThumbThread e' la base comune: i discendenti implementano Produce e per
+  ogni immagine pronta chiamano Emit; la base accumula, sincronizza e riempie
+  ListView + ImageList. Tutte le immagini vengono ridotte a CacheW x CacheH
+  prima di essere conservate, cosi' lo zoom non deve rileggere gli archivi e
+  l'occupazione di memoria resta limitata anche con centinaia di pagine.
+}
+
 {$mode ObjFPC}{$H+}
 
 interface
@@ -15,7 +25,13 @@ uses
   Controls,
   Generics.Collections;
 
-type   
+const
+  { Dimensione massima delle immagini tenute in RAM: coincide con il massimo
+    ingrandimento consentito dallo zoom. }
+  CacheW = 320;
+  CacheH = 400;
+
+type
   TLazIntfImageList = specialize TObjectList<TLazIntfImage>;
 
   TLoadedItem = record
@@ -24,30 +40,54 @@ type
   end;
   TLoadedItems = array of TLoadedItem;
 
-  { TLoadThread }
+  { TThumbThread }
 
-  TLoadThread = class(TThread)
+  TThumbThread = class(TThread)
   private
-    FAForm: TForm;
-    FDir: string;
-    FFileNames: TStringList;
+    FBatch: TLoadedItems;
+    FBatchCount: integer;
     FImages: TImageList;
-    FItems: TLoadedItems;
-    FCount: integer;
     FListView: TListView;
-    FPages: specialize TObjectList<TLazIntfImage>;
-    procedure SetImages(AValue: TImageList);
-    procedure SetListView(AValue: TListView);
-    procedure SetPages(AValue: TLazIntfImageList);
+    FPages: TLazIntfImageList;
+    procedure FreeBatch;
     procedure SyncAddThumbs;
   protected
+    { Eseguita nel thread secondario: produce le immagini chiamando Emit e
+      deve rientrare non appena Terminated diventa True. }
+    procedure Produce; virtual; abstract;
+    { Accoda un'immagine (anche nil) al lotto corrente; ne cede la proprieta'. }
+    procedure Emit(const AName: string; AImage: TLazIntfImage);
+    procedure Flush;
     procedure Execute; override;
   public
+    constructor Create;
+    property ListView: TListView read FListView write FListView;
+    property Pages: TLazIntfImageList read FPages write FPages;
+    property Images: TImageList read FImages write FImages;
+  end;
+
+  { TLoadThread: prime pagine di tutti i .cbz di una cartella }
+
+  TLoadThread = class(TThumbThread)
+  private
+    FDir: string;
+  protected
+    procedure Produce; override;
+  public
     constructor Create(const ADir: string);
-    destructor Destroy; override;
-    property ListView: TListView read FListView write SetListView;
-    property Pages: TLazIntfImageList read FPages write SetPages;
-    property Images: TImageList read FImages write SetImages;
+  end;
+
+  { TPagesThread: tutte le pagine di un singolo .cbz }
+
+  TPagesThread = class(TThumbThread)
+  private
+    FFile: string;
+    procedure HandlePage(const AName: string; AImage: TLazIntfImage;
+      var ACancel: boolean);
+  protected
+    procedure Produce; override;
+  public
+    constructor Create(const AFile: string);
   end;
 
 implementation
@@ -57,165 +97,178 @@ uses
   uimgutil,
   uzipeditor;
 
-  { TLoadThread }
+const
+  BatchSize = 4;
 
-constructor TLoadThread.Create(const ADir: string);
+  { TThumbThread }
+
+constructor TThumbThread.Create;
 begin
   inherited Create(True);
   FreeOnTerminate := True;
-  FDir := ADir;
-  FFileNames := TStringList.Create;
-  FCount := 0;
-  SetLength(FItems, 0);
+  FBatchCount := 0;
+  SetLength(FBatch, 0);
 end;
 
-destructor TLoadThread.Destroy;
-begin
-  FFileNames.Free;
-  inherited Destroy;
-end;
-
-procedure TLoadThread.Execute;
-var
-  Dir: string;
-  SearchRec: TSearchRec;
-  FileNames: TStringList;
-  i, j: integer;
-  FilePath: string;
-  Img: TLazIntfImage;
-  Batch: TLoadedItems;
-  BatchCount: integer;
+procedure TThumbThread.Execute;
 begin
   try
-    Dir := IncludeTrailingPathDelimiter(FDir);
-
-    FileNames := TStringList.Create;
     try
-      if FindFirst(Dir + '*.cbz', faAnyFile, SearchRec) = 0 then
-      begin
-        repeat
-          FileNames.Add(SearchRec.Name);
-        until FindNext(SearchRec) <> 0;
-        FindClose(SearchRec);
-      end;
-      FileNames.Sort;
-      Log('Thread: %d file .cbz trovati in %s', [FileNames.Count, Dir]);
-
-      BatchCount := 0;
-      SetLength(Batch, 0);
-
-      for i := 0 to FileNames.Count - 1 do
-      begin
-        if Terminated then Exit;
-
-        FilePath := Dir + FileNames[i];
-        Img := nil;
-        try
-          Img := GetFirstImageAsIntfImage(FilePath);
-        except
-          on E: Exception do
-          begin
-            Log('Thread: eccezione su %s: %s: %s',
-              [FileNames[i], E.ClassName, E.Message]);
-            Img := nil;
-          end;
-        end;
-
-        Inc(BatchCount);
-        SetLength(Batch, BatchCount);
-        Batch[BatchCount - 1].Name := FileNames[i];
-        Batch[BatchCount - 1].Image := Img;
-        Log('Thread: %d/%d elaborato, batch=%d',
-          [i + 1, FileNames.Count, BatchCount]);
-
-        if BatchCount >= 4 then
-        begin
-          FItems := Batch;
-          FCount := BatchCount;
-          FFileNames.Clear;
-          for j := 0 to BatchCount - 1 do
-            FFileNames.Add(Batch[j].Name);
-          Log('Thread: Synchronize batch di %d...', [FCount]);
-          TThread.Synchronize(nil, @SyncAddThumbs);
-          Log('Thread: Synchronize rientrato');
-          BatchCount := 0;
-          SetLength(Batch, 0);
-        end;
-      end;
-
-      if BatchCount > 0 then
-      begin
-        FItems := Batch;
-        FCount := BatchCount;
-        FFileNames.Clear;
-        for j := 0 to BatchCount - 1 do
-          FFileNames.Add(Batch[j].Name);
-        TThread.Synchronize(nil, @SyncAddThumbs);
-      end;
-    finally
-      FileNames.Free;
+      Produce;
+      if not Terminated then
+        Flush;
+      Log('Thread: terminato regolarmente');
+    except
+      on E: Exception do
+        Log('Thread: ECCEZIONE NON GESTITA %s: %s', [E.ClassName, E.Message]);
     end;
-    Log('Thread: terminato regolarmente');
-  except
-    on E: Exception do
-      Log('Thread: ECCEZIONE NON GESTITA %s: %s', [E.ClassName, E.Message]);
+  finally
+    { lotto mai pubblicato (interruzione o eccezione): evita il leak }
+    FreeBatch;
   end;
 end;
 
-procedure TLoadThread.SetImages(AValue: TImageList);
+procedure TThumbThread.Emit(const AName: string; AImage: TLazIntfImage);
 begin
-  if FImages = AValue then Exit;
-  FImages := AValue;
+  Inc(FBatchCount);
+  SetLength(FBatch, FBatchCount);
+  FBatch[FBatchCount - 1].Name := AName;
+  FBatch[FBatchCount - 1].Image := AImage;
+  if FBatchCount >= BatchSize then
+    Flush;
 end;
 
-procedure TLoadThread.SetListView(AValue: TListView);
+procedure TThumbThread.Flush;
 begin
-  if FListView = AValue then Exit;
-  FListView := AValue;
+  if FBatchCount = 0 then Exit;
+  { SyncAddThumbs consuma il lotto oppure lo libera se siamo Terminated }
+  TThread.Synchronize(nil, @SyncAddThumbs);
+  FBatchCount := 0;
+  SetLength(FBatch, 0);
 end;
 
-procedure TLoadThread.SetPages(AValue: TLazIntfImageList);
-begin
-  if FPages = AValue then Exit;
-  FPages := AValue;
-end;
-
-procedure TLoadThread.SyncAddThumbs;
+procedure TThumbThread.FreeBatch;
 var
-  i, Idx, ILIdx: integer;
+  i: integer;
+begin
+  for i := 0 to FBatchCount - 1 do
+    FBatch[i].Image.Free;
+  FBatchCount := 0;
+  SetLength(FBatch, 0);
+end;
+
+procedure TThumbThread.SyncAddThumbs;
+var
+  i, ILIdx: integer;
   Thumb: TBitmap;
   It: TListItem;
 begin
   if Terminated then
   begin
-    { nessuno prendera' in carico le immagini del batch: evita il leak }
-    for i := 0 to FCount - 1 do
-      FItems[i].Image.Free;
+    { nessuno prendera' in carico le immagini del lotto }
+    FreeBatch;
     Exit;
   end;
-  ListView.BeginUpdate;
+
+  FListView.BeginUpdate;
   try
-    for i := 0 to FCount - 1 do
+    for i := 0 to FBatchCount - 1 do
     begin
-      Idx := Pages.Add(FItems[i].Image);   // originale, anche se nil
-      Thumb := MakeThumb(FItems[i].Image, Images.Width, Images.Height);
+      FPages.Add(FBatch[i].Image);
+      Thumb := MakeThumb(FBatch[i].Image, FImages.Width, FImages.Height);
       try
-        ILIdx := Images.Add(Thumb, nil);
+        ILIdx := FImages.Add(Thumb, nil);
       finally
         Thumb.Free;
       end;
-      It := ListView.Items.Add;
-      It.Caption := FFileNames[i];
+      It := FListView.Items.Add;
+      It.Caption := FBatch[i].Name;
       It.ImageIndex := ILIdx;
-      Log('Sync: %s img=%s listIdx=%d ilIdx=%d',
-        [FFileNames[i], BoolToStr(FItems[i].Image <> nil, 'si', 'NO'),
-        Idx, ILIdx]);
     end;
   finally
-    ListView.EndUpdate;
+    FListView.EndUpdate;
   end;
-  Log('Sync: ListView.Items.Count=%d ImageList.Count=%d',
-    [ListView.Items.Count, Images.Count]);
+  Log('Sync: %d voci, ImageList=%d', [FListView.Items.Count, FImages.Count]);
+end;
+
+{ TLoadThread }
+
+constructor TLoadThread.Create(const ADir: string);
+begin
+  inherited Create;
+  FDir := ADir;
+end;
+
+procedure TLoadThread.Produce;
+var
+  Dir, FilePath: string;
+  SearchRec: TSearchRec;
+  Names: TStringList;
+  i: integer;
+  Img, Small: TLazIntfImage;
+begin
+  Dir := IncludeTrailingPathDelimiter(FDir);
+  Names := TStringList.Create;
+  try
+    if FindFirst(Dir + '*.cbz', faAnyFile, SearchRec) = 0 then
+    begin
+      repeat
+        Names.Add(SearchRec.Name);
+      until FindNext(SearchRec) <> 0;
+      FindClose(SearchRec);
+    end;
+    Names.Sort;
+    Log('Thread: %d file .cbz trovati in %s', [Names.Count, Dir]);
+
+    for i := 0 to Names.Count - 1 do
+    begin
+      if Terminated then Exit;
+
+      FilePath := Dir + Names[i];
+      Img := nil;
+      try
+        Img := GetFirstImageAsIntfImage(FilePath);
+      except
+        on E: Exception do
+        begin
+          Log('Thread: eccezione su %s: %s: %s',
+            [Names[i], E.ClassName, E.Message]);
+          Img := nil;
+        end;
+      end;
+
+      Small := ScaleIntfImage(Img, CacheW, CacheH);
+      Img.Free;
+      Emit(Names[i], Small);
+    end;
+  finally
+    Names.Free;
+  end;
+end;
+
+{ TPagesThread }
+
+constructor TPagesThread.Create(const AFile: string);
+begin
+  inherited Create;
+  FFile := AFile;
+end;
+
+procedure TPagesThread.Produce;
+begin
+  Log('Pages: apertura %s', [ExtractFileName(FFile)]);
+  ForEachImage(FFile, @HandlePage);
+end;
+
+procedure TPagesThread.HandlePage(const AName: string; AImage: TLazIntfImage;
+  var ACancel: boolean);
+var
+  Small: TLazIntfImage;
+begin
+  Small := ScaleIntfImage(AImage, CacheW, CacheH);
+  AImage.Free;
+  Emit(AName, Small);
+  ACancel := Terminated;
 end;
 
 end.

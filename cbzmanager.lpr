@@ -16,7 +16,7 @@ uses
   uZipEditor,
   uWebP,
   uImgUtil,
-  uLog;
+  uLog, uloaderthread;
 
   {$R *.res}
 

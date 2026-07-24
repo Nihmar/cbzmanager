@@ -99,6 +99,10 @@
         <IsPartOfProject Value="True"/>
         <UnitName Value="uImgUtil"/>
       </Unit>
+      <Unit>
+        <Filename Value="src\uloaderthread.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
     </Units>
   </ProjectOptions>
   <CompilerOptions>

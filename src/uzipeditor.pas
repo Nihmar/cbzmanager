@@ -5,7 +5,9 @@ unit uZipEditor;
 interface
 
 uses
-  Classes, SysUtils, IntfGraphics;
+  Classes,
+  SysUtils,
+  IntfGraphics;
 
 { Prima pagina del CBZ come TLazIntfImage (sola memoria, nessuna GDI):
   invocabile da thread secondari. nil se il file non contiene immagini
@@ -18,14 +20,11 @@ function IsValidCBZ(const FileName: string): boolean;
 implementation
 
 uses
-  Zipper, FileUtil, uImgUtil, uWebP, uLog;
-
-function IsImageExt(const Ext: string): boolean;
-begin
-  Result := SameText(Ext, '.png') or SameText(Ext, '.jpg') or
-    SameText(Ext, '.jpeg') or SameText(Ext, '.bmp') or SameText(Ext, '.gif') or
-    SameText(Ext, '.webp');
-end;
+  Zipper,
+  FileUtil,
+  uImgUtil,
+  uWebP,
+  uLog;
 
 function ExtractEntryToStream(const FileName, EntryName: string): TMemoryStream;
 var

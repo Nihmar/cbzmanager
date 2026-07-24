@@ -11,50 +11,36 @@ object frmMain: TfrmMain
   OnDestroy = FormDestroy
   OnResize = FormResize
   object PanelTop: TPanel
-    Left = 4
-    Height = 28
-    Top = 4
-    Width = 892
+    Left = 0
+    Height = 36
+    Top = 0
+    Width = 900
     Align = alTop
-    BorderSpacing.Around = 4
     BevelOuter = bvNone
-    ClientHeight = 28
-    ClientWidth = 892
+    ClientHeight = 36
+    ClientWidth = 900
     TabOrder = 0
     object EditDir: TEdit
-      Left = 0
+      Left = 4
       Height = 28
-      Top = 0
-      Width = 816
+      Top = 4
+      Width = 812
       Align = alClient
+      BorderSpacing.Around = 4
       ReadOnly = True
       TabOrder = 0
     end
     object BtnBrowse: TButton
-      Left = 816
+      Left = 820
       Height = 28
-      Top = 0
+      Top = 4
       Width = 76
       Align = alRight
+      BorderSpacing.Around = 4
       Caption = 'Browse...'
       TabOrder = 1
       OnClick = BtnBrowseClick
     end
-  end
-  object LVFiles: TListView
-    Left = 0
-    Height = 532
-    Top = 36
-    Width = 900
-    Align = alClient
-    Columns = <>
-    GridLines = True
-    IconOptions.AutoArrange = True
-    LargeImages = ILFilesFirstPages
-    MultiSelect = True
-    ScrollBars = ssAutoVertical
-    TabOrder = 1
-    ViewStyle = vsIcon
   end
   object PanelBottom: TPanel
     Left = 0
@@ -62,13 +48,14 @@ object frmMain: TfrmMain
     Top = 568
     Width = 900
     Align = alBottom
+    BevelOuter = bvNone
     ClientHeight = 32
     ClientWidth = 900
-    TabOrder = 2
+    TabOrder = 1
     object ZoomScroll: TTrackBar
-      Left = 752
-      Height = 30
-      Top = 1
+      Left = 749
+      Height = 24
+      Top = 4
       Width = 147
       Frequency = 8
       Max = 256
@@ -76,7 +63,47 @@ object frmMain: TfrmMain
       Position = 96
       OnChange = ZoomScrollChange
       Align = alRight
+      BorderSpacing.Around = 4
       TabOrder = 0
+      OnMouseWheel = ZoomScrollMouseWheel
+    end
+  end
+  object PanelMiddle: TPanel
+    Left = 0
+    Height = 532
+    Top = 36
+    Width = 900
+    Align = alClient
+    AutoSize = True
+    BevelOuter = bvNone
+    ClientHeight = 532
+    ClientWidth = 900
+    TabOrder = 2
+    object LVFiles: TListView
+      Left = 4
+      Height = 524
+      Top = 4
+      Width = 464
+      Align = alClient
+      BorderSpacing.Around = 4
+      Columns = <>
+      GridLines = True
+      IconOptions.AutoArrange = True
+      LargeImages = ILFilesFirstPages
+      MultiSelect = True
+      ScrollBars = ssAutoVertical
+      TabOrder = 0
+      ViewStyle = vsIcon
+    end
+    object PanelSingleFile: TPanel
+      Left = 472
+      Height = 532
+      Top = 0
+      Width = 428
+      Align = alRight
+      BevelOuter = bvNone
+      TabOrder = 1
+      Visible = False
     end
   end
   object SelectDialog: TSelectDirectoryDialog
@@ -89,5 +116,11 @@ object frmMain: TfrmMain
     Width = 96
     Left = 571
     Top = 299
+  end
+  object TimerDebounceZoom: TTimer
+    Interval = 150
+    OnTimer = TimerDebounceZoomTimer
+    Left = 752
+    Top = 200
   end
 end

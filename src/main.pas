@@ -878,7 +878,8 @@ begin
   finally
     Dlg.Free;
   end;
-  SetStatus(Format('ComicInfo.xml: %d files scanned', [n]));
+  LoadDirectory(FDir);
+  SetStatus(Format('ComicInfo.xml: %d files processed', [n]));
 end;
 
 procedure TfrmMain.MnuDeleteRowsClick(Sender: TObject);

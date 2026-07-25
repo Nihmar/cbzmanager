@@ -65,5 +65,14 @@ object dlgComicInfo: TdlgComicInfo
       ModalResult = mrOk
       TabOrder = 1
     end
+    object BtnRemove: TButton
+      Left = 384
+      Height = 30
+      Top = 44
+      Width = 80
+      Caption = 'Remove'
+      TabOrder = 2
+      OnClick = BtnRemoveClick
+    end
   end
 end

@@ -46,6 +46,7 @@ object frmMain: TfrmMain
       end
       object MnuFindSimilar: TMenuItem
         Caption = 'Find similar pages...'
+        Visible = False
         OnClick = MnuFindSimilarClick
       end
       object SepFile2: TMenuItem
@@ -192,6 +193,7 @@ object frmMain: TfrmMain
     object TbFindSimilar: TToolButton
       Left = 198
       Caption = 'Find similar'
+      Visible = False
       OnClick = MnuFindSimilarClick
     end
     object TbSep2: TToolButton
@@ -654,6 +656,7 @@ object frmMain: TfrmMain
     end
     object MnuCtxFindSimilar: TMenuItem
       Caption = 'Find similar pages...'
+      Visible = False
       OnClick = MnuFindSimilarClick
     end
   end

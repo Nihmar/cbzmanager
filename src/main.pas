@@ -167,11 +167,13 @@ type
     procedure LVPagesDragOver(Sender, Source: TObject; X, Y: integer;
       State: TDragState; var Accept: boolean);
     procedure MnuConvertWebPClick(Sender: TObject);
+    procedure ConvertThreadTerminated(Sender: TObject);
 
     procedure MnuDeleteRowsClick(Sender: TObject);
     procedure MnuExitClick(Sender: TObject);
 
     procedure MnuMergeClick(Sender: TObject);
+    procedure MergeThreadTerminated(Sender: TObject);
     procedure MnuOpenFileClick(Sender: TObject);
     procedure MnuPageDeleteClick(Sender: TObject);
     procedure MnuPageMoveDownClick(Sender: TObject);
@@ -245,7 +247,8 @@ uses
   udlgvalidate,
   udlgcomicinfo,
   udlgwebp,
-  udlgmerge;
+  udlgmerge,
+  uthreadservice;
 
   {$R *.lfm}
 
@@ -652,9 +655,8 @@ procedure TfrmMain.MnuConvertWebPClick(Sender: TObject);
 var
   Dlg: TdlgWebp;
   Files: TStringArray;
-  i: integer;
   Options: TConvertOptions;
-  Results: TConvertResults;
+  Thread: TConvertThread;
 begin
   if FDir = '' then
   begin
@@ -668,29 +670,45 @@ begin
   Dlg := TdlgWebp.Create(Self);
   try
     if Dlg.ShowModal <> mrOk then Exit;
-
     Options.Quality := Dlg.Quality;
     Options.ReplaceOnlyIfSmaller := Dlg.ReplaceOnlyIfSmaller;
     Options.SkipExistingWebP := Dlg.SkipExistingWebP;
     Options.RemoveComicInfo := Dlg.RemoveComicInfo;
     Options.RenumberPages := Dlg.RenumberPages;
     Options.BackupOld := Dlg.BackupOld;
-
-    Results := TConvertService.Convert(Files, FDir, Options, @UpdateProgress);
-    for i := 0 to High(Results) do
-    begin
-      if Results[i].Success then
-        SetStatus(Format('Converted %s: %d pages to WebP',
-          [Results[i].FileName, Results[i].PagesConverted]))
-      else
-        SetStatus(Format('%s: %s', [Results[i].FileName, Results[i].ErrorMsg]));
-    end;
-    LoadDirectory(FDir);
   finally
     Dlg.Free;
   end;
-  SetStatus(Format('WebP conversion complete: %d files', [Length(Files)]));
+
+  { Run conversion in background thread }
+  SetStatus('WebP conversion started...');
+  StatusProgress.Visible := True;
+  TbConvertWebP.Enabled := False;
+  MnuConvertWebP.Enabled := False;
+  Thread := TConvertThread.Create(Files, FDir, Options, @UpdateProgress);
+  Thread.OnTerminate := @ConvertThreadTerminated;
+  Thread.Start;
+end;
+
+procedure TfrmMain.ConvertThreadTerminated(Sender: TObject);
+var
+  Thread: TConvertThread;
+  i: integer;
+begin
+  Thread := Sender as TConvertThread;
+  for i := 0 to High(Thread.Result) do
+  begin
+    if Thread.Result[i].Success then
+      SetStatus(Format('Converted %s: %d pages to WebP',
+        [Thread.Result[i].FileName, Thread.Result[i].PagesConverted]))
+    else
+      SetStatus(Format('%s: %s', [Thread.Result[i].FileName, Thread.Result[i].ErrorMsg]));
+  end;
+  LoadDirectory(FDir);
   StatusProgress.Visible := False;
+  TbConvertWebP.Enabled := True;
+  MnuConvertWebP.Enabled := True;
+  SetStatus(Format('WebP conversion complete: %d files', [Length(Thread.Result)]));
 end;
 
 procedure TfrmMain.MnuMergeClick(Sender: TObject);
@@ -698,8 +716,8 @@ var
   Dlg: TdlgMerge;
   Files: TStringArray;
   Options: TMergeOptions;
-  Res: TMergeResult;
   SeriesName: string;
+  Thread: TMergeThread;
 begin
   if FDir = '' then
   begin
@@ -728,17 +746,33 @@ begin
       Options.ChaptersPerVolume := 0;  { auto-calculate }
     Options.Force := Dlg.CbForce.Checked;
     Options.Delete := Dlg.CbDelete.Checked;
-
-    Res := TMergeService.Merge(Files, FDir, Options, @UpdateProgress);
-    if Res.Success then
-      SetStatus(Format('Merge complete: %d volumes created', [Res.VolumesCreated]))
-    else
-      SetStatus(Format('Merge failed: %s', [Res.ErrorMsg]));
-    LoadDirectory(FDir);
-    StatusProgress.Visible := False;
   finally
     Dlg.Free;
   end;
+
+  { Run merge in background thread }
+  SetStatus('Merge started...');
+  StatusProgress.Visible := True;
+  TbMerge.Enabled := False;
+  MnuMerge.Enabled := False;
+  Thread := TMergeThread.Create(Files, FDir, Options, @UpdateProgress);
+  Thread.OnTerminate := @MergeThreadTerminated;
+  Thread.Start;
+end;
+
+procedure TfrmMain.MergeThreadTerminated(Sender: TObject);
+var
+  Thread: TMergeThread;
+begin
+  Thread := Sender as TMergeThread;
+  if Thread.Result.Success then
+    SetStatus(Format('Merge complete: %d volumes created', [Thread.Result.VolumesCreated]))
+  else
+    SetStatus(Format('Merge failed: %s', [Thread.Result.ErrorMsg]));
+  LoadDirectory(FDir);
+  StatusProgress.Visible := False;
+  TbMerge.Enabled := True;
+  MnuMerge.Enabled := True;
 end;
 
 

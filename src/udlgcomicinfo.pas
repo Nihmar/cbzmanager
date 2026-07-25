@@ -30,26 +30,10 @@ type
 implementation
 
 uses
-  uZipEditor,
+  uservicecomicinfo,
   uLog;
 
 {$R *.lfm}
-
-function HasComicInfoEntry(const AFileName: string): boolean;
-var
-  Entries: TZipEntries;
-  i: integer;
-begin
-  Result := False;
-  Entries := CollectZipEntries(AFileName);
-  try
-    for i := 0 to High(Entries) do
-      if SameText(Entries[i].Name, 'ComicInfo.xml') then
-        Exit(True);
-  finally
-    FreeZipEntries(Entries);
-  end;
-end;
 
 { TdlgComicInfo }
 
@@ -63,31 +47,31 @@ procedure TdlgComicInfo.ScanFiles(const AFiles: TStringArray;
 var
   i: integer;
   It: TListItem;
-  FullPath: string;
+  Results: TComicInfoResults;
 begin
   FDir := ADir;
   FFiles := AFiles;
+  Results := TComicInfoService.Scan(AFiles, ADir);
   LVFiles.BeginUpdate;
   try
     LVFiles.Items.Clear;
-    for i := 0 to High(AFiles) do
+    for i := 0 to High(Results) do
     begin
-      FullPath := IncludeTrailingPathDelimiter(ADir) + AFiles[i];
       It := LVFiles.Items.Add;
-      It.Caption := AFiles[i];
-      try
-        if HasComicInfoEntry(FullPath) then
-        begin
-          It.SubItems.Add('Present');
-          It.Checked := True;
-        end
-        else
-        begin
-          It.SubItems.Add('Absent');
-          It.Checked := False;
-        end;
-      except
+      It.Caption := Results[i].FileName;
+      if Results[i].Error <> '' then
+      begin
         It.SubItems.Add('Error');
+        It.Checked := False;
+      end
+      else if Results[i].HasComicInfo then
+      begin
+        It.SubItems.Add('Present');
+        It.Checked := True;
+      end
+      else
+      begin
+        It.SubItems.Add('Absent');
         It.Checked := False;
       end;
     end;
@@ -99,68 +83,28 @@ end;
 procedure TdlgComicInfo.BtnRemoveClick(Sender: TObject);
 var
   i, Removed: integer;
-  FileName, OldFile, FullPath: string;
-  Entries: TZipEntries;
-  j, k: integer;
+  ToRemove: TStringArray;
+  Results: TComicInfoResults;
 begin
-  Removed := 0;
+  { Collect checked files }
+  ToRemove := nil;
   for i := 0 to LVFiles.Items.Count - 1 do
-  begin
-    if not LVFiles.Items[i].Checked then Continue;
-    FileName := LVFiles.Items[i].Caption;
-    FullPath := IncludeTrailingPathDelimiter(FDir) + FileName;
-
-    { Read all entries, filter out ComicInfo.xml, write back }
-    Entries := CollectZipEntries(FullPath);
-    try
-      { Count how many entries after removing ComicInfo.xml }
-      k := 0;
-      for j := 0 to High(Entries) do
-        if not SameText(Entries[j].Name, 'ComicInfo.xml') then
-          Inc(k);
-
-      if k = Length(Entries) then
-        Continue; { no ComicInfo.xml found }
-
-      { Backup original }
-      if CbBackup.Checked then
-      begin
-        OldFile := ChangeFileExt(FullPath, '') + '_OLD.cbz';
-        if FileExists(OldFile) then DeleteFile(OldFile);
-        RenameFile(FullPath, OldFile);
-      end;
-
-      { Write new CBZ without ComicInfo.xml }
-      k := 0;
-      for j := 0 to High(Entries) do
-      begin
-        if SameText(Entries[j].Name, 'ComicInfo.xml') then
-        begin
-          Entries[j].Data.Free;
-          Entries[j].Data := nil;
-          Continue;
-        end;
-        if j <> k then
-        begin
-          Entries[k] := Entries[j];
-          Entries[j].Data := nil;
-        end;
-        Inc(k);
-      end;
-      SetLength(Entries, k);
-
-      WriteZipFromEntries(FullPath, Entries);
-      { Free the streams — no longer needed }
-      for j := 0 to High(Entries) do
-        Entries[j].Data.Free;
-      Entries := nil;
-      Inc(Removed);
-    finally
-      if Entries <> nil then
-        FreeZipEntries(Entries);
+    if LVFiles.Items[i].Checked then
+    begin
+      SetLength(ToRemove, Length(ToRemove) + 1);
+      ToRemove[High(ToRemove)] := LVFiles.Items[i].Caption;
     end;
-  end;
 
+  if Length(ToRemove) = 0 then Exit;
+
+  Results := TComicInfoService.Remove(ToRemove, FDir, CbBackup.Checked);
+  Removed := 0;
+  for i := 0 to High(Results) do
+    if Results[i].Removed then
+      Inc(Removed);
+
+  { Refresh scan results }
+  ScanFiles(FFiles, FDir);
   if Removed > 0 then
     ModalResult := mrOk;
 end;

@@ -29,16 +29,21 @@ type
     PanelBottom: TPanel;
     PanelTop: TPanel;
     procedure CbManualCPVChange(Sender: TObject);
+    procedure EditCPVChange(Sender: TObject);
     procedure FormCreate(Sender: TObject);
   private
     FFiles: TStringArray;
     FDir: string;
+    procedure RefreshVolumeColumn;
   public
     procedure LoadChapters(const AFiles: TStringArray; const ADir: string;
       const ASeriesName: string);
   end;
 
 implementation
+
+uses
+  uservicemerge;
 
 {$R *.lfm}
 
@@ -55,6 +60,29 @@ end;
 procedure TdlgMerge.CbManualCPVChange(Sender: TObject);
 begin
   EditCPV.Enabled := CbManualCPV.Checked;
+  if CbManualCPV.Checked then
+    RefreshVolumeColumn;
+end;
+
+procedure TdlgMerge.EditCPVChange(Sender: TObject);
+begin
+  if CbManualCPV.Checked then
+    RefreshVolumeColumn;
+end;
+
+procedure TdlgMerge.RefreshVolumeColumn;
+var
+  i, CPV: integer;
+begin
+  CPV := EditCPV.Value;
+  if CPV < 1 then CPV := 1;
+  LVFiles.BeginUpdate;
+  try
+    for i := 0 to LVFiles.Items.Count - 1 do
+      LVFiles.Items[i].SubItems[1] := Format('Vol.%d', [(i div CPV) + 1]);
+  finally
+    LVFiles.EndUpdate;
+  end;
 end;
 
 procedure TdlgMerge.LoadChapters(const AFiles: TStringArray;
@@ -62,11 +90,20 @@ procedure TdlgMerge.LoadChapters(const AFiles: TStringArray;
 var
   i: integer;
   It: TListItem;
+  AutoCPV: integer;
 begin
   FFiles := AFiles;
   FDir := ADir;
   EditSeries.Text := ASeriesName;
   EditChapterEnd.Value := Length(AFiles);
+
+  { Auto-calculate CPV from existing volumes }
+  AutoCPV := TMergeService.CalculateChaptersPerVolume(AFiles, ASeriesName);
+  if AutoCPV >= 1 then
+    EditCPV.Value := AutoCPV
+  else
+    EditCPV.Value := 7;
+
   LVFiles.BeginUpdate;
   try
     LVFiles.Items.Clear;
@@ -75,7 +112,7 @@ begin
       It := LVFiles.Items.Add;
       It.Caption := IntToStr(i + 1);
       It.SubItems.Add(ChangeFileExt(AFiles[i], ''));
-      It.SubItems.Add(Format('Vol.%d', [(i div 7) + 1]));
+      It.SubItems.Add(Format('Vol.%d', [(i div EditCPV.Value) + 1]));
     end;
   finally
     LVFiles.EndUpdate;

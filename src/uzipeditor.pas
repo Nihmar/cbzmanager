@@ -44,6 +44,21 @@ function GetImageCount(const FileName: string): integer;
 function GetImageFileNames(const FileName: string): TStringArray;
 function IsValidCBZ(const FileName: string): boolean;
 
+type
+  { Per-image validation result. }
+  TImageCheck = record
+    EntryName: string;
+    Valid: boolean;
+    ErrorMsg: string;
+  end;
+  TImageChecks = array of TImageCheck;
+
+{ Deep-validate a CBZ: tries to decode every image entry.
+  Returns the number of readable images and an array of per-entry results.
+  Non-image entries (ComicInfo.xml etc.) are skipped, not reported. }
+function ValidateCBZImages(const FileName: string;
+  out ImageResults: TImageChecks): integer;
+
 { Legge TUTTE le entry di un CBZ in memoria (senza decodificare le immagini).
   Il chiamante diventa proprietario degli stream e deve liberarli. }
 function CollectZipEntries(const FileName: string): TZipEntries;
@@ -51,6 +66,11 @@ function CollectZipEntries(const FileName: string): TZipEntries;
 { Scrive un file ZIP su disco a partire da un array di entry in memoria.
   Usa il metodo "stored" (0) — non ricompressione. }
 procedure WriteZipFromEntries(const FileName: string;
+  const Entries: TZipEntries);
+
+{ Same as WriteZipFromEntries but uses DEFLATE compression (method 8)
+  instead of stored. Produces smaller output, matching Python reference. }
+procedure WriteZipFromEntriesDeflated(const FileName: string;
   const Entries: TZipEntries);
 
 { Libera gli stream contenuti in un array TZipEntries. }
@@ -215,15 +235,20 @@ var
   i: integer;
 begin
   Result := 0;
-  UnZipper := TUnZipper.Create;
   try
-    UnZipper.FileName := FileName;
-    UnZipper.Examine;
-    for i := 0 to UnZipper.Entries.Count - 1 do
-      if IsImageExt(ExtractFileExt(UnZipper.Entries[i].ArchiveFileName)) then
-        Inc(Result);
-  finally
-    UnZipper.Free;
+    UnZipper := TUnZipper.Create;
+    try
+      UnZipper.FileName := FileName;
+      UnZipper.Examine;
+      for i := 0 to UnZipper.Entries.Count - 1 do
+        if IsImageExt(ExtractFileExt(UnZipper.Entries[i].ArchiveFileName)) then
+          Inc(Result);
+    finally
+      UnZipper.Free;
+    end;
+  except
+    { Invalid or empty ZIP — return 0 }
+    Result := 0;
   end;
 end;
 
@@ -233,26 +258,91 @@ var
   i, ImgCnt: integer;
 begin
   Result := nil;
-  UnZipper := TUnZipper.Create;
   try
-    UnZipper.FileName := FileName;
-    UnZipper.Examine;
-    ImgCnt := 0;
-    for i := 0 to UnZipper.Entries.Count - 1 do
-      if IsImageExt(ExtractFileExt(UnZipper.Entries[i].ArchiveFileName)) then
-      begin
-        SetLength(Result, ImgCnt + 1);
-        Result[ImgCnt] := UnZipper.Entries[i].ArchiveFileName;
-        Inc(ImgCnt);
-      end;
-  finally
-    UnZipper.Free;
+    UnZipper := TUnZipper.Create;
+    try
+      UnZipper.FileName := FileName;
+      UnZipper.Examine;
+      ImgCnt := 0;
+      for i := 0 to UnZipper.Entries.Count - 1 do
+        if IsImageExt(ExtractFileExt(UnZipper.Entries[i].ArchiveFileName)) then
+        begin
+          SetLength(Result, ImgCnt + 1);
+          Result[ImgCnt] := UnZipper.Entries[i].ArchiveFileName;
+          Inc(ImgCnt);
+        end;
+    finally
+      UnZipper.Free;
+    end;
+  except
+    { Invalid or empty ZIP — return nil }
+    Result := nil;
   end;
 end;
 
 function IsValidCBZ(const FileName: string): boolean;
 begin
   Result := GetImageCount(FileName) > 0;
+end;
+
+{ TImageValidator }
+
+type
+  TImageValidator = class
+  private
+    FResults: TImageChecks;
+    FValidCount: integer;
+    procedure CheckImage(const AName: string; AImage: TLazIntfImage;
+      var ACancel: boolean);
+  end;
+
+procedure TImageValidator.CheckImage(const AName: string;
+  AImage: TLazIntfImage; var ACancel: boolean);
+var
+  n: integer;
+begin
+  n := Length(FResults);
+  SetLength(FResults, n + 1);
+  FResults[n].EntryName := AName;
+  if AImage <> nil then
+  begin
+    FResults[n].Valid := True;
+    FResults[n].ErrorMsg := '';
+    Inc(FValidCount);
+  end
+  else
+  begin
+    FResults[n].Valid := False;
+    FResults[n].ErrorMsg := 'Image decode failed';
+  end;
+end;
+
+function ValidateCBZImages(const FileName: string;
+  out ImageResults: TImageChecks): integer;
+var
+  Validator: TImageValidator;
+begin
+  Validator := TImageValidator.Create;
+  try
+    Validator.FResults := nil;
+    Validator.FValidCount := 0;
+    try
+      ForEachImage(FileName, @Validator.CheckImage);
+    except
+      on E: Exception do
+      begin
+        { File-level error: return it as a single pseudo-entry }
+        SetLength(Validator.FResults, 1);
+        Validator.FResults[0].EntryName := ExtractFileName(FileName);
+        Validator.FResults[0].Valid := False;
+        Validator.FResults[0].ErrorMsg := E.Message;
+      end;
+    end;
+    ImageResults := Validator.FResults;
+    Result := Validator.FValidCount;
+  finally
+    Validator.Free;
+  end;
 end;
 
 { TZipCollector: cattura tutte le entry in RAM }
@@ -314,6 +404,31 @@ begin
   for i := 0 to High(Entries) do
     Entries[i].Data.Free;
   Entries := nil;
+end;
+
+procedure WriteZipFromEntriesDeflated(const FileName: string;
+  const Entries: TZipEntries);
+var
+  ZW: TZipper;
+  ZEntries: TZipFileEntries;
+  i: integer;
+begin
+  ZW := TZipper.Create;
+  try
+    ZEntries := TZipFileEntries.Create(TZipFileEntry);
+    try
+      for i := 0 to High(Entries) do
+      begin
+        Entries[i].Data.Position := 0;
+        ZEntries.AddFileEntry(Entries[i].Data, Entries[i].Name);
+      end;
+      ZW.ZipFiles(FileName, ZEntries);
+    finally
+      ZEntries.Free;
+    end;
+  finally
+    ZW.Free;
+  end;
 end;
 
 { Scrive un file ZIP con metodo stored (0). Formato:

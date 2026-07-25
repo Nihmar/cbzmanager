@@ -202,8 +202,6 @@ type
     procedure ZoomScrollMouseWheel(Sender: TObject; Shift: TShiftState;
       WheelDelta: integer; MousePos: TPoint; var Handled: boolean);
   private
-    FSelected: array of boolean;
-    FLastClicked: integer;
     FDir: string;
     FLoadThread: TLoadThread;
     FPagesThread: TPagesThread;
@@ -220,6 +218,10 @@ type
     procedure ThreadTerminated(Sender: TObject);
     procedure PagesThreadTerminated(Sender: TObject);
     procedure ClearThumbnails;
+    procedure SetStatus(const AMsg: string);
+    procedure UpdateStageBar;
+    procedure AddChange(AKind: TChangeKind; const APageName: string);
+    procedure FreePageImages;
     procedure LoadDirectory(const ADir: string);
     procedure OpenPreview(AItem: TListItem);
     procedure ClearPreview;
@@ -227,14 +229,11 @@ type
     procedure RenderPages;
     procedure RebuildThumbs(ALV: TListView; AIL: TImageList;
       APages: TLazIntfImageList; ASize: integer);
-    procedure ThumbMouseDown(Sender: TObject; Button: TMouseButton;
-      Shift: TShiftState; X, Y: integer);
-    procedure SelectRange(AFrom, ATo: integer);
-    procedure LayoutFlowPanel;
-    procedure SetStatus(const AMsg: string);
-    procedure UpdateStageBar;
-    procedure AddChange(AKind: TChangeKind; const APageName: string);
-    procedure FreePageImages;
+    { Collect file names from LvFiles. When AAll=True returns every file;
+      otherwise returns selected files, or all files if none selected. }
+    function GetFileList(AAll: boolean = False): TStringArray;
+    { Progress callback for service operations: updates StatusProgress + LblStatus }
+    procedure UpdateProgress(APercent: integer; const AMsg: string);
   end;
 
 var
@@ -247,6 +246,8 @@ uses
   uImgUtil,
   uLog,
   uZipEditor,
+  userviceconvert,
+  uservicemerge,
   udlgrows,
   udlgvalidate,
   udlgcomicinfo,
@@ -264,7 +265,6 @@ begin
   Caption := 'CBZ Manager';
   FFirstPages := TLazIntfImageList.Create(True);
   FPagePreviews := TLazIntfImageList.Create(True);
-  FLastClicked := -1;
   FLoadThread := nil;
   FPagesThread := nil;
   FPages := nil;
@@ -362,7 +362,6 @@ end;
 
 procedure TfrmMain.FormResize(Sender: TObject);
 begin
-  LayoutFlowPanel;
 end;
 
 procedure TfrmMain.SetStatus(const AMsg: string);
@@ -502,10 +501,6 @@ begin
     ZoomScroll.Position := ZoomScroll.Position - ZoomScroll.Frequency;
 end;
 
-procedure TfrmMain.LayoutFlowPanel;
-begin
-end;
-
 procedure TfrmMain.ClearThumbnails;
 begin
   if FLoadThread <> nil then
@@ -637,7 +632,6 @@ end;
 procedure TfrmMain.MnuValidateClick(Sender: TObject);
 var
   Files: TStringArray;
-  i, n: integer;
   Dlg: TdlgValidate;
 begin
   if FDir = '' then
@@ -646,16 +640,8 @@ begin
     Exit;
   end;
   { Collect files to validate: selected or all }
-  n := 0;
-  SetLength(Files, LVFiles.Items.Count);
-  for i := 0 to LVFiles.Items.Count - 1 do
-    if (LVFiles.SelCount = 0) or LVFiles.Items[i].Selected then
-    begin
-      Files[n] := LVFiles.Items[i].Caption;
-      Inc(n);
-    end;
-  SetLength(Files, n);
-  if n = 0 then
+  Files := GetFileList;
+  if Length(Files) = 0 then
   begin
     SetStatus('No CBZ files in folder');
     Exit;
@@ -667,17 +653,16 @@ begin
   finally
     Dlg.Free;
   end;
-  SetStatus(Format('Validation complete: %d files', [n]));
+  SetStatus(Format('Validation complete: %d files', [Length(Files)]));
 end;
 
 procedure TfrmMain.MnuConvertWebPClick(Sender: TObject);
 var
   Dlg: TdlgWebp;
   Files: TStringArray;
-  i, n, NewCount: integer;
-  NewEntries: TZipEntries;
-  OldFile: string;
-  FullPath: string;
+  i: integer;
+  Options: TConvertOptions;
+  Results: TConvertResults;
 begin
   if FDir = '' then
   begin
@@ -685,56 +670,45 @@ begin
     Exit;
   end;
   { Collect files }
-  n := 0;
-  SetLength(Files, LVFiles.Items.Count);
-  for i := 0 to LVFiles.Items.Count - 1 do
-    if (LVFiles.SelCount = 0) or LVFiles.Items[i].Selected then
-    begin
-      Files[n] := LVFiles.Items[i].Caption;
-      Inc(n);
-    end;
-  SetLength(Files, n);
-  if n = 0 then Exit;
+  Files := GetFileList;
+  if Length(Files) = 0 then Exit;
 
   Dlg := TdlgWebp.Create(Self);
   try
     if Dlg.ShowModal <> mrOk then Exit;
 
-    for i := 0 to High(Files) do
+    Options.Quality := Dlg.Quality;
+    Options.ReplaceOnlyIfSmaller := Dlg.ReplaceOnlyIfSmaller;
+    Options.SkipExistingWebP := Dlg.SkipExistingWebP;
+    Options.RemoveComicInfo := Dlg.RemoveComicInfo;
+    Options.RenumberPages := Dlg.RenumberPages;
+    Options.BackupOld := Dlg.BackupOld;
+    Options.UseDeflated := Dlg.UseDeflated;
+
+    Results := TConvertService.Convert(Files, FDir, Options, @UpdateProgress);
+    for i := 0 to High(Results) do
     begin
-      FullPath := IncludeTrailingPathDelimiter(FDir) + Files[i];
-      NewEntries := ConvertCBZToWebP(FullPath, Dlg.Quality,
-        Dlg.ReplaceOnlyIfSmaller, Dlg.SkipExistingWebP, NewCount);
-      if NewCount > 0 then
-      begin
-        { Write new CBZ }
-        OldFile := ChangeFileExt(FullPath, '') + '_OLD.cbz';
-        if Dlg.BackupOld then
-        begin
-          if FileExists(OldFile) then DeleteFile(OldFile);
-          RenameFile(FullPath, OldFile);
-        end;
-        WriteZipFromEntries(FullPath, NewEntries);
-        SetStatus(Format('Converted %s: %d pages to WebP', [Files[i], NewCount]));
-      end
+      if Results[i].Success then
+        SetStatus(Format('Converted %s: %d pages to WebP',
+          [Results[i].FileName, Results[i].PagesConverted]))
       else
-        SetStatus(Format('%s: no convertible images found', [Files[i]]));
-      FreeZipEntries(NewEntries);
+        SetStatus(Format('%s: %s', [Results[i].FileName, Results[i].ErrorMsg]));
     end;
+    LoadDirectory(FDir);
   finally
     Dlg.Free;
   end;
-  SetStatus(Format('WebP conversion complete: %d files', [n]));
+  SetStatus(Format('WebP conversion complete: %d files', [Length(Files)]));
+  StatusProgress.Visible := False;
 end;
 
 procedure TfrmMain.MnuMergeClick(Sender: TObject);
 var
   Dlg: TdlgMerge;
-  Files, ChBatch, Batch: TStringArray;
-  i, n, ChStart, ChEnd, CPV, VolNum, ChNum: integer;
-  SeriesName, VolName, FullPath, BaseName: string;
-  VolEntries: TZipEntries;
-  TotalCreated: integer;
+  Files: TStringArray;
+  Options: TMergeOptions;
+  Res: TMergeResult;
+  SeriesName: string;
 begin
   if FDir = '' then
   begin
@@ -742,27 +716,11 @@ begin
     Exit;
   end;
   { Collect all CBZ files }
-  n := 0;
-  SetLength(Files, LVFiles.Items.Count);
-  for i := 0 to LVFiles.Items.Count - 1 do
-  begin
-    Files[n] := LVFiles.Items[i].Caption;
-    Inc(n);
-  end;
-  SetLength(Files, n);
-  if n = 0 then Exit;
+  Files := GetFileList(True);
+  if Length(Files) = 0 then Exit;
 
-  { Extract series name from first matching "Title - NNNN" pattern }
-  SeriesName := '';
-  for i := 0 to High(Files) do
-  begin
-    n := LastDelimiter(' -', ChangeFileExt(Files[i], ''));
-    if n > 0 then
-    begin
-      SeriesName := Trim(Copy(ChangeFileExt(Files[i], ''), 1, n - 1));
-      Break;
-    end;
-  end;
+  { Auto-detect series name }
+  SeriesName := TMergeService.DetectSeriesName(Files);
   if SeriesName = '' then SeriesName := 'Unknown';
 
   Dlg := TdlgMerge.Create(Self);
@@ -770,68 +728,22 @@ begin
     Dlg.LoadChapters(Files, FDir, SeriesName);
     if Dlg.ShowModal <> mrOk then Exit;
 
-    ChStart := Dlg.EditChapterStart.Value;
-    ChEnd := Dlg.EditChapterEnd.Value;
+    Options.SeriesName := Dlg.EditSeries.Text;
+    Options.ChapterStart := Dlg.EditChapterStart.Value;
+    Options.ChapterEnd := Dlg.EditChapterEnd.Value;
     if Dlg.CbManualCPV.Checked then
-      CPV := Dlg.EditCPV.Value
+      Options.ChaptersPerVolume := Dlg.EditCPV.Value
     else
-      CPV := 7;
+      Options.ChaptersPerVolume := 0;  { auto-calculate }
+    Options.Force := Dlg.CbForce.Checked;
 
-    { Build chapter batch from files matching "Title - NNNN" in range }
-    ChBatch := nil;
-    for i := 0 to High(Files) do
-    begin
-      BaseName := ChangeFileExt(Files[i], '');
-      n := LastDelimiter(' -', BaseName);
-      if n > 0 then
-      begin
-        ChNum := StrToIntDef(Trim(Copy(BaseName, n + 1, MaxInt)), 0);
-        if (ChNum >= ChStart) and (ChNum <= ChEnd) then
-        begin
-          SetLength(ChBatch, Length(ChBatch) + 1);
-          ChBatch[High(ChBatch)] := Files[i];
-        end;
-      end;
-    end;
-
-    if Length(ChBatch) = 0 then
-    begin
-      SetStatus('No matching chapter files found');
-      Exit;
-    end;
-
-    { Group chapters by CPV and merge each group }
-    TotalCreated := 0;
-    VolNum := 1;
-    i := 0;
-    while i < Length(ChBatch) do
-    begin
-      { Build batch of CPV chapters for this volume }
-      Batch := nil;
-      for n := 0 to CPV - 1 do
-        if i + n < Length(ChBatch) then
-        begin
-          SetLength(Batch, Length(Batch) + 1);
-          Batch[High(Batch)] := ChBatch[i + n];
-        end;
-
-      { Merge batch into volume }
-      VolName := Format('%s V%.3d.cbz', [SeriesName, VolNum]);
-      FullPath := IncludeTrailingPathDelimiter(FDir) + VolName;
-      VolEntries := MergeIntoVolume(Batch, FDir);
-      if Length(VolEntries) > 0 then
-      begin
-        WriteZipFromEntries(FullPath, VolEntries);
-        FreeZipEntries(VolEntries);
-        Inc(TotalCreated);
-      end;
-
-      Inc(VolNum);
-      Inc(i, CPV);
-    end;
-
+    Res := TMergeService.Merge(Files, FDir, Options, @UpdateProgress);
+    if Res.Success then
+      SetStatus(Format('Merge complete: %d volumes created', [Res.VolumesCreated]))
+    else
+      SetStatus(Format('Merge failed: %s', [Res.ErrorMsg]));
     LoadDirectory(FDir);
-    SetStatus(Format('Merge complete: %d volumes created', [TotalCreated]));
+    StatusProgress.Visible := False;
   finally
     Dlg.Free;
   end;
@@ -852,7 +764,6 @@ end;
 procedure TfrmMain.MnuRemoveComicInfoClick(Sender: TObject);
 var
   Files: TStringArray;
-  i, n: integer;
   Dlg: TdlgComicInfo;
 begin
   if FDir = '' then
@@ -861,16 +772,8 @@ begin
     Exit;
   end;
   { Collect files }
-  n := 0;
-  SetLength(Files, LVFiles.Items.Count);
-  for i := 0 to LVFiles.Items.Count - 1 do
-    if (LVFiles.SelCount = 0) or LVFiles.Items[i].Selected then
-    begin
-      Files[n] := LVFiles.Items[i].Caption;
-      Inc(n);
-    end;
-  SetLength(Files, n);
-  if n = 0 then Exit;
+  Files := GetFileList;
+  if Length(Files) = 0 then Exit;
   Dlg := TdlgComicInfo.Create(Self);
   try
     Dlg.ScanFiles(Files, FDir);
@@ -879,7 +782,7 @@ begin
     Dlg.Free;
   end;
   LoadDirectory(FDir);
-  SetStatus(Format('ComicInfo.xml: %d files processed', [n]));
+  SetStatus(Format('ComicInfo.xml: %d files processed', [Length(Files)]));
 end;
 
 procedure TfrmMain.MnuDeleteRowsClick(Sender: TObject);
@@ -1070,23 +973,30 @@ end;
 
 procedure TfrmMain.MnuPageSortClick(Sender: TObject);
 var
-  i, j: integer;
-  Tmp: TPageState;
-  SortChanged: boolean;
+  i: integer;
+  SL: TStringList;
+  NewPages: TPageStates;
+  OldIdx: integer;
 begin
   if not PanelSingleFile.Visible then Exit;
-  SortChanged := False;
-  for i := 0 to High(FPages) - 1 do
-    for j := i + 1 to High(FPages) do
-      if CompareStr(FPages[i].Name, FPages[j].Name) > 0 then
-      begin
-        Tmp := FPages[i];
-        FPages[i] := FPages[j];
-        FPages[j] := Tmp;
-        SortChanged := True;
-      end;
-  if SortChanged then
-    AddChange(ckMoved, 'sort');
+  SL := TStringList.Create;
+  try
+    { Build string list: key=Name, object=original index }
+    for i := 0 to High(FPages) do
+      SL.AddObject(FPages[i].Name, TObject(PtrInt(i)));
+    SL.Sort;  { O(n log n) }
+    { Rebuild FPages in sorted order }
+    SetLength(NewPages, SL.Count);
+    for i := 0 to SL.Count - 1 do
+    begin
+      OldIdx := PtrInt(SL.Objects[i]);
+      NewPages[i] := FPages[OldIdx];
+    end;
+    FPages := NewPages;
+  finally
+    SL.Free;
+  end;
+  AddChange(ckMoved, 'sort');
   RenderPages;
   SetStatus('Pages sorted by name');
 end;
@@ -1181,6 +1091,11 @@ begin
   if Length(FChanges) = 0 then Exit;
   if FPageFile = '' then Exit;
 
+  if MessageDlg('Save changes',
+    Format('Save %d pending changes? The original will be backed up as _OLD.cbz.',
+      [Length(FChanges)]),
+    mtConfirmation, mbYesNo, 0) <> mrYes then Exit;
+
   OldFile := ChangeFileExt(FPageFile, '') + '_OLD.cbz';
   NewFile := FPageFile + '.new';
 
@@ -1263,6 +1178,9 @@ var
   i: integer;
 begin
   if Length(FChanges) = 0 then Exit;
+  if MessageDlg('Discard changes',
+    'Discard all pending changes? This cannot be undone.',
+    mtConfirmation, mbYesNo, 0) <> mrYes then Exit;
   { Restore from baseline }
   SetLength(FPages, Length(FBaseline));
   for i := 0 to High(FBaseline) do
@@ -1315,50 +1233,30 @@ end;
 
 { Thread callbacks }
 
-procedure TfrmMain.ThumbMouseDown(Sender: TObject; Button: TMouseButton;
-  Shift: TShiftState; X, Y: integer);
-var
-  Idx: integer;
-begin
-  if Button <> mbLeft then Exit;
-  if not (Sender is TControl) then Exit;
-  Idx := TControl(Sender).Parent.Tag;
-  if (Idx < 0) or (Idx > High(FSelected)) then Exit;
+{ File list helper }
 
-  if ssShift in Shift then
-  begin
-    if FLastClicked >= 0 then
-      SelectRange(FLastClicked, Idx);
-  end
-  else if ssCtrl in Shift then
-  begin
-    FSelected[Idx] := not FSelected[Idx];
-  end
-  else
-  begin
-    FSelected[Idx] := True;
-  end;
-  FLastClicked := Idx;
+function TfrmMain.GetFileList(AAll: boolean = False): TStringArray;
+var
+  i, n: integer;
+begin
+  n := 0;
+  SetLength(Result, LVFiles.Items.Count);
+  for i := 0 to LVFiles.Items.Count - 1 do
+    if AAll or (LVFiles.SelCount = 0) or LVFiles.Items[i].Selected then
+    begin
+      Result[n] := LVFiles.Items[i].Caption;
+      Inc(n);
+    end;
+  SetLength(Result, n);
 end;
 
-procedure TfrmMain.SelectRange(AFrom, ATo: integer);
-var
-  i, lo, hi: integer;
+procedure TfrmMain.UpdateProgress(APercent: integer; const AMsg: string);
 begin
-  if AFrom < ATo then
-  begin
-    lo := AFrom;
-    hi := ATo;
-  end
-  else
-  begin
-    lo := ATo;
-    hi := AFrom;
-  end;
-  for i := lo to hi do
-  begin
-    FSelected[i] := True;
-  end;
+  StatusProgress.Position := APercent;
+  StatusProgress.Visible := APercent < 100;
+  LblStatus.Caption := AMsg;
+  StatusProgress.Update;
+  Application.ProcessMessages;
 end;
 
 procedure TfrmMain.LoadDirectory(const ADir: string);

@@ -55,7 +55,7 @@ function IsImageExt(const Ext: string): boolean;
 begin
   Result := SameText(Ext, '.png') or SameText(Ext, '.jpg') or
     SameText(Ext, '.jpeg') or SameText(Ext, '.bmp') or SameText(Ext, '.gif') or
-    SameText(Ext, '.webp');
+    SameText(Ext, '.webp') or SameText(Ext, '.tiff') or SameText(Ext, '.tif');
 end;
 
 function MakeThumb(Src: TLazIntfImage; W, H: integer): TBitmap;

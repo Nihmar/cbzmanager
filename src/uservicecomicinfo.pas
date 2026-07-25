@@ -49,7 +49,7 @@ begin
       try
         Result[i].HasComicInfo := False;
         for j := 0 to High(Entries) do
-          if SameText(Entries[j].Name, 'ComicInfo.xml') then
+          if SameText(Entries[j].Name, COMICINFO_XML) then
           begin
             Result[i].HasComicInfo := True;
             Break;
@@ -93,7 +93,7 @@ begin
         { Check if ComicInfo.xml exists }
         Found := False;
         for j := 0 to High(Entries) do
-          if SameText(Entries[j].Name, 'ComicInfo.xml') then
+          if SameText(Entries[j].Name, COMICINFO_XML) then
           begin
             Found := True;
             Break;
@@ -106,7 +106,7 @@ begin
         k := 0;
         for j := 0 to High(Entries) do
         begin
-          if SameText(Entries[j].Name, 'ComicInfo.xml') then
+          if SameText(Entries[j].Name, COMICINFO_XML) then
           begin
             Entries[j].Data.Free;
             Entries[j].Data := nil;

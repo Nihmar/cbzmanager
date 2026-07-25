@@ -144,6 +144,14 @@ object dlgMerge: TdlgMerge
     ClientHeight = 44
     ClientWidth = 560
     TabOrder = 2
+    object CbDelete: TCheckBox
+      Left = 12
+      Height = 24
+      Top = 10
+      Width = 260
+      Caption = 'Permanently delete original chapters'
+      TabOrder = 0
+    end
     object BtnMerge: TButton
       Left = 388
       Height = 30
@@ -152,7 +160,7 @@ object dlgMerge: TdlgMerge
       Caption = 'Merge'
       Default = True
       ModalResult = mrOk
-      TabOrder = 0
+      TabOrder = 1
     end
     object BtnClose: TButton
       Left = 476
@@ -162,7 +170,7 @@ object dlgMerge: TdlgMerge
       Cancel = True
       Caption = 'Cancel'
       ModalResult = mrCancel
-      TabOrder = 1
+      TabOrder = 2
     end
   end
 end

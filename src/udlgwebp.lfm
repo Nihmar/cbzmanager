@@ -90,8 +90,8 @@ object dlgWebp: TdlgWebp
     Columns = 2
     ItemIndex = 0
     Items.Strings = (
-      'Crea backup (_OLD.cbz)'
-      'Elimina definitivamente')
+      'Create backup (_OLD.cbz)'
+      'Permanently delete')
     TabOrder = 5
   end
   object PanelBottom: TPanel

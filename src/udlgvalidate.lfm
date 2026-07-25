@@ -29,7 +29,7 @@ object dlgValidate: TdlgValidate
       end
       item
         Alignment = taRightJustify
-        Caption = 'Immagini'
+        Caption = 'Images'
         Width = 80
       end
       item

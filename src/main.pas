@@ -51,13 +51,13 @@ type
     MnuValidate: TMenuItem;
     MnuConvertWebP: TMenuItem;
     MnuMerge: TMenuItem;
-    MnuFindSimilar: TMenuItem;
+
     SepFile2: TMenuItem;
     MnuExit: TMenuItem;
     MnuArchive: TMenuItem;
     MnuRemoveComicInfo: TMenuItem;
     MnuDeleteRows: TMenuItem;
-    MnuDeleteByID: TMenuItem;
+
     SepArch1: TMenuItem;
     MnuReload: TMenuItem;
     MnuPages: TMenuItem;
@@ -85,7 +85,7 @@ type
     TbValidate: TToolButton;
     TbConvertWebP: TToolButton;
     TbMerge: TToolButton;
-    TbFindSimilar: TToolButton;
+
     TbSep2: TToolButton;
     TbTogglePreview: TToolButton;
     { Path row }
@@ -141,7 +141,7 @@ type
     MnuCtxValidate: TMenuItem;
     MnuCtxConvertWebP: TMenuItem;
     MnuCtxMerge: TMenuItem;
-    MnuCtxFindSimilar: TMenuItem;
+
     PMPages: TPopupMenu;
     MnuPgDelete: TMenuItem;
     MnuPgDeleteRows: TMenuItem;
@@ -167,10 +167,10 @@ type
     procedure LVPagesDragOver(Sender, Source: TObject; X, Y: integer;
       State: TDragState; var Accept: boolean);
     procedure MnuConvertWebPClick(Sender: TObject);
-    procedure MnuDeleteByIDClick(Sender: TObject);
+
     procedure MnuDeleteRowsClick(Sender: TObject);
     procedure MnuExitClick(Sender: TObject);
-    procedure MnuFindSimilarClick(Sender: TObject);
+
     procedure MnuMergeClick(Sender: TObject);
     procedure MnuOpenFileClick(Sender: TObject);
     procedure MnuPageDeleteClick(Sender: TObject);
@@ -245,9 +245,7 @@ uses
   udlgvalidate,
   udlgcomicinfo,
   udlgwebp,
-  udlgmerge,
-  udlgsimilar,
-  udlgbyid;
+  udlgmerge;
 
   {$R *.lfm}
 
@@ -299,13 +297,18 @@ end;
 
 procedure TfrmMain.FormDestroy(Sender: TObject);
 begin
-  { i thread si autodistruggono: basta impedire loro di toccare i controlli }
   if FLoadThread <> nil then
+  begin
     FLoadThread.Terminate;
+    FLoadThread.WaitFor;
+    FreeAndNil(FLoadThread);
+  end;
   if FPagesThread <> nil then
+  begin
     FPagesThread.Terminate;
-  FLoadThread := nil;
-  FPagesThread := nil;
+    FPagesThread.WaitFor;
+    FreeAndNil(FPagesThread);
+  end;
   FFirstPages.Free;
   FPagePreviews.Free;
 end;
@@ -495,7 +498,8 @@ begin
   if FLoadThread <> nil then
   begin
     FLoadThread.Terminate;
-    FLoadThread := nil;
+    FLoadThread.WaitFor;
+    FreeAndNil(FLoadThread);
   end;
   LVFiles.Clear;
   ILFilesFirstPages.Clear;
@@ -515,10 +519,9 @@ procedure TfrmMain.ClearPreview;
 begin
   if FPagesThread <> nil then
   begin
-    { FreeOnTerminate: si autodistrugge, e Terminated gli impedisce di
-      publish pages to LVPages }
     FPagesThread.Terminate;
-    FPagesThread := nil;
+    FPagesThread.WaitFor;
+    FreeAndNil(FPagesThread);
   end;
   FreePageImages;
   FPages := nil;
@@ -724,6 +727,7 @@ begin
     else
       Options.ChaptersPerVolume := 0;  { auto-calculate }
     Options.Force := Dlg.CbForce.Checked;
+    Options.Delete := Dlg.CbDelete.Checked;
 
     Res := TMergeService.Merge(Files, FDir, Options, @UpdateProgress);
     if Res.Success then
@@ -737,17 +741,6 @@ begin
   end;
 end;
 
-procedure TfrmMain.MnuFindSimilarClick(Sender: TObject);
-var
-  Dlg: TdlgSimilar;
-begin
-  Dlg := TdlgSimilar.Create(Self);
-  try
-    Dlg.ShowModal;
-  finally
-    Dlg.Free;
-  end;
-end;
 
 procedure TfrmMain.MnuRemoveComicInfoClick(Sender: TObject);
 var
@@ -777,6 +770,9 @@ procedure TfrmMain.MnuDeleteRowsClick(Sender: TObject);
 var
   Dlg: TdlgRows;
   i: integer;
+  Files: TStringArray;
+  FullPath: string;
+  Entries: TZipEntries;
 begin
   if not PanelSingleFile.Visible or (FPageFile = '') then
   begin
@@ -786,36 +782,69 @@ begin
   Dlg := TdlgRows.Create(Self);
   try
     Dlg.PageCount := Length(FPages);
+    Dlg.Directory := FDir;
     if Dlg.ShowModal = mrOk then
     begin
-      for i := 0 to High(Dlg.Selected) do
-        if Dlg.Selected[i] and (i < Length(FPages)) and not FPages[i].Gone then
+      if Dlg.CbBatchAll.Checked and (FDir <> '') then
+      begin
+        { Batch mode: process all CBZ files in directory }
+        Files := GetFileList;
+        if Length(Files) > 0 then
         begin
-          FPages[i].Gone := True;
-          AddChange(ckDeleted, FPages[i].Name);
+          StatusProgress.Visible := True;
+          try
+            for i := 0 to High(Files) do
+            begin
+              FullPath := IncludeTrailingPathDelimiter(FDir) + Files[i];
+              UpdateProgress((i * 100) div Length(Files),
+                Format('Deleting pages from %s (%d/%d)', [Files[i], i + 1, Length(Files)]));
+
+              Entries := FilterPagesFromCBZ(FullPath, Dlg.Selected, Dlg.CbRenumber.Checked);
+              try
+                if Length(Entries) > 0 then
+                begin
+                  if Dlg.CbDeletePerm.Checked then
+                  begin
+                    { Write directly, no backup }
+                    WriteZipFromEntriesDeflated(FullPath, Entries);
+                  end
+                  else
+                  begin
+                    { Write with backup via ReplaceCBZ }
+                    ReplaceCBZ(FullPath, Entries);
+                  end;
+                end;
+              finally
+                FreeZipEntries(Entries);
+              end;
+            end;
+          finally
+            StatusProgress.Visible := False;
+          end;
+          LoadDirectory(FDir);
+          SetStatus(Format('Batch delete complete: %d files processed', [Length(Files)]));
         end;
-      if Dlg.CbRenumber.Checked then
-        FRenumber := True;
-      RenderPages;
-      SetStatus(Format('%d pages deleted', [Length(FPages)]));
+      end
+      else
+      begin
+        { Single-file mode: operate on in-memory model }
+        for i := 0 to High(Dlg.Selected) do
+          if Dlg.Selected[i] and (i < Length(FPages)) and not FPages[i].Gone then
+          begin
+            FPages[i].Gone := True;
+            AddChange(ckDeleted, FPages[i].Name);
+          end;
+        if Dlg.CbRenumber.Checked then
+          FRenumber := True;
+        RenderPages;
+        SetStatus(Format('%d pages deleted', [Length(FPages)]));
+      end;
     end;
   finally
     Dlg.Free;
   end;
 end;
 
-procedure TfrmMain.MnuDeleteByIDClick(Sender: TObject);
-var
-  Dlg: TdlgByID;
-begin
-  Dlg := TdlgByID.Create(Self);
-  try
-    if Dlg.ShowModal = mrOk then
-      SetStatus('Delete by ID — logic to be completed');
-  finally
-    Dlg.Free;
-  end;
-end;
 
 procedure TfrmMain.MnuTogglePreviewClick(Sender: TObject);
 begin
@@ -1022,7 +1051,7 @@ begin
   begin
     if FPages[i].Gone then Continue;
     Ext := ExtractFileExt(FPages[i].Name);
-    FPages[i].Name := Format('page_%.4d%s', [PageNum, Ext]);
+    FPages[i].Name := FormatPageName(PageNum, 4, Ext);
     Inc(PageNum);
   end;
   AddChange(ckMoved, 'renumber');
@@ -1065,7 +1094,7 @@ begin
           begin
             PageNum := Length(OutEntries);
             PageExt := ExtractFileExt(FPages[i].Name);
-            NewName := Format('page_%.4d%s', [PageNum, PageExt]);
+            NewName := FormatPageName(PageNum, 4, PageExt);
           end
           else
             NewName := FPages[i].Name;
@@ -1080,7 +1109,12 @@ begin
     end;
 
     { Step 3: Replace file with backup }
-    ReplaceCBZ(FPageFile, OutEntries);
+    if not ReplaceCBZ(FPageFile, OutEntries) then
+    begin
+      SetStatus('Save failed — check disk space or file permissions');
+      FreeZipEntries(OutEntries);
+      Exit;
+    end;
 
     { Step 4: Update model }
     j := 0;
@@ -1092,7 +1126,7 @@ begin
         begin
           PageNum := j + 1;
           PageExt := ExtractFileExt(FPages[j].Name);
-          FPages[j].Name := Format('page_%.4d%s', [PageNum, PageExt]);
+          FPages[j].Name := FormatPageName(PageNum, 4, PageExt);
         end;
         FPages[j].OrigName := FPages[j].Name;
         Inc(j);

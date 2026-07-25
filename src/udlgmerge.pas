@@ -16,6 +16,7 @@ type
     BtnMerge: TButton;
     BtnClose: TButton;
     CbForce: TCheckBox;
+    CbDelete: TCheckBox;
     CbManualCPV: TCheckBox;
     EditSeries: TEdit;
     EditChapterStart: TSpinEdit;

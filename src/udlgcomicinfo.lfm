@@ -49,7 +49,7 @@ object dlgComicInfo: TdlgComicInfo
       Height = 24
       Top = 8
       Width = 540
-      Caption = 'Create backup (_OLD.cbz) prima di riscrivere'
+      Caption = 'Create backup (_OLD.cbz) before rewriting'
       Checked = True
       State = cbChecked
       TabOrder = 0

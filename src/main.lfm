@@ -43,11 +43,6 @@ object frmMain: TfrmMain
         Caption = 'Merge into volumes...'
         OnClick = MnuMergeClick
       end
-      object MnuFindSimilar: TMenuItem
-        Caption = 'Find similar pages...'
-        Visible = False
-        OnClick = MnuFindSimilarClick
-      end
       object SepFile2: TMenuItem
         Caption = '-'
       end
@@ -65,10 +60,6 @@ object frmMain: TfrmMain
       object MnuDeleteRows: TMenuItem
         Caption = 'Delete rows...'
         OnClick = MnuDeleteRowsClick
-      end
-      object MnuDeleteByID: TMenuItem
-        Caption = 'Delete pages by ID...'
-        OnClick = MnuDeleteByIDClick
       end
       object SepArch1: TMenuItem
         Caption = '-'
@@ -188,12 +179,6 @@ object frmMain: TfrmMain
       Left = 153
       Caption = 'Merge'
       OnClick = MnuMergeClick
-    end
-    object TbFindSimilar: TToolButton
-      Left = 198
-      Caption = 'Find similar'
-      Visible = False
-      OnClick = MnuFindSimilarClick
     end
     object TbSep2: TToolButton
       Left = 263
@@ -595,7 +580,7 @@ object frmMain: TfrmMain
     end
   end
   object SelectDialog: TSelectDirectoryDialog
-    Title = 'Seleziona cartella con file CBZ'
+    Title = 'Select CBZ directory'
     Left = 40
     Top = 80
   end
@@ -652,11 +637,6 @@ object frmMain: TfrmMain
     object MnuCtxMerge: TMenuItem
       Caption = 'Merge into volumes...'
       OnClick = MnuMergeClick
-    end
-    object MnuCtxFindSimilar: TMenuItem
-      Caption = 'Find similar pages...'
-      Visible = False
-      OnClick = MnuFindSimilarClick
     end
   end
   object PMPages: TPopupMenu

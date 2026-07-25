@@ -12,6 +12,7 @@ type
     ChapterEnd: integer;
     ChaptersPerVolume: integer;  // 0 = auto-calculate
     Force: boolean;
+    Delete: boolean;             // True=delete originals, False=rename to _OLD
   end;
 
   TMergeResult = record
@@ -198,6 +199,7 @@ begin
       finally
         FreeZipEntries(VolEntries);
       end;
+      i := Length(ChBatch);  { mark all as consumed for cleanup phase }
       Break;  { all remaining chapters appended }
     end
     else
@@ -233,6 +235,16 @@ begin
 
   Result.Success := TotalCreated > 0;
   Result.VolumesCreated := TotalCreated;
+
+  { Phase: Cleanup original chapters — rename to _OLD or delete }
+  for n := 0 to i - 1 do
+  begin
+    FullPath := IncludeTrailingPathDelimiter(ADir) + ChBatch[n];
+    if Options.Delete then
+      DeleteFile(FullPath)
+    else
+      BackupFile(FullPath);
+  end;
 end;
 
 end.

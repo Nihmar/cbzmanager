@@ -105,7 +105,6 @@ const
 constructor TThumbThread.Create;
 begin
   inherited Create(True);
-  FreeOnTerminate := True;
   FBatchCount := 0;
   SetLength(FBatch, 0);
 end;

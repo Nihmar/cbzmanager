@@ -30,6 +30,9 @@ type
   end;
   TZipEntries = array of TZipEntryData;
 
+const
+  COMICINFO_XML = 'ComicInfo.xml';
+
 { Prima pagina del CBZ come TLazIntfImage (sola memoria, nessuna GDI):
   invocabile da thread secondari. nil se il file non contiene immagini
   leggibili. Il chiamante e' proprietario dell'oggetto restituito. }
@@ -84,10 +87,23 @@ function ConvertCBZToWebP(const FileName: string; Quality: integer;
   RemoveComicInfo, RenumberPages: boolean;
   out NewEntryCount: integer): TZipEntries;
 
+{ Filter pages from a CBZ by 1-indexed position.
+  PagesToDelete: a boolean array where True = delete this page (1-indexed).
+  Removes ComicInfo.xml unconditionally, filters pages by position,
+  renumbers survivors as page_NNNN.ext, returns the new entries.
+  Caller must FreeZipEntries the result and write via WriteZipFromEntriesDeflated. }
+function FilterPagesFromCBZ(const FileName: string;
+  const PagesToDelete: array of boolean;
+  Renumber: boolean): TZipEntries;
+
+{ Format a page name with zero-padded number: page_NNNN.ext }
+function FormatPageName(PageNum, Padding: integer; const Ext: string): string;
+
 implementation
 
 uses
   Zipper,
+  Math,
   uImgUtil,
   uWebP,
   uLog;
@@ -450,6 +466,32 @@ function ConvertCBZToWebP(const FileName: string; Quality: integer;
   ReplaceOnlyIfSmaller, SkipExistingWebP,
   RemoveComicInfo, RenumberPages: boolean;
   out NewEntryCount: integer): TZipEntries;
+
+{ Copy entry from source into Result[Count], increment Count }
+procedure KeepEntry(var Result: TZipEntries; var Count: integer;
+  const AName: string; const Source: TZipEntryData);
+begin
+  Inc(Count);
+  Result[Count - 1].Name := AName;
+  Result[Count - 1].Data := TMemoryStream.Create;
+  Source.Data.Position := 0;
+  Result[Count - 1].Data.CopyFrom(Source.Data, Source.Data.Size);
+end;
+
+{ Transfer ownership of AData into Result[Count], increment Count }
+procedure AdoptEntry(var Result: TZipEntries; var Count: integer;
+  const AName: string; AData: TMemoryStream);
+begin
+  Inc(Count);
+  Result[Count - 1].Name := AName;
+  Result[Count - 1].Data := AData;
+end;
+
+function PageName(ANum: integer; const AExt: string): string;
+begin
+  Result := Format('page_%.4d%s', [ANum, AExt]);
+end;
+
 var
   AllEntries: TZipEntries;
   i, PageNum: integer;
@@ -457,7 +499,6 @@ var
   Img: TLazIntfImage;
   WebPData: TMemoryStream;
   RawStream: TMemoryStream;
-  EntryName: string;
 begin
   Result := nil;
   NewEntryCount := 0;
@@ -470,122 +511,90 @@ begin
 
     for i := 0 to High(AllEntries) do
     begin
-      Ext := ExtractFileExt(AllEntries[i].Name);
       AllEntries[i].Data.Position := 0;
+      Ext := ExtractFileExt(AllEntries[i].Name);
 
-      { Handle ComicInfo.xml: keep or skip based on option }
-      if SameText(AllEntries[i].Name, 'ComicInfo.xml') then
+      { --- ComicInfo.xml: skip or keep --- }
+      if SameText(AllEntries[i].Name, COMICINFO_XML) then
       begin
-        if RemoveComicInfo then
-          Continue;
-        { Keep ComicInfo.xml as-is }
-        EntryName := AllEntries[i].Name;
+        if RemoveComicInfo then Continue;
         if RenumberPages then
-          EntryName := Format('page_%.4d.xml', [PageNum + 1]);
-        Inc(PageNum);
-        Result[PageNum - 1].Name := EntryName;
-        Result[PageNum - 1].Data := TMemoryStream.Create;
-        Result[PageNum - 1].Data.CopyFrom(AllEntries[i].Data, AllEntries[i].Data.Size);
+          KeepEntry(Result, PageNum, PageName(PageNum + 1, '.xml'), AllEntries[i])
+        else
+          KeepEntry(Result, PageNum, AllEntries[i].Name, AllEntries[i]);
         Continue;
       end;
 
-      if IsConvertibleExt(Ext) then
+      { --- Non-convertible: keep as-is --- }
+      if not IsConvertibleExt(Ext) then
       begin
-        if SkipExistingWebP then
-        begin
-          { Keep original, optionally renumber }
-          EntryName := Format('page_%.4d%s', [PageNum + 1, Ext]);
-          if not RenumberPages then
-            EntryName := AllEntries[i].Name;
-          Inc(PageNum);
-          Result[PageNum - 1].Name := EntryName;
-          Result[PageNum - 1].Data := TMemoryStream.Create;
-          Result[PageNum - 1].Data.CopyFrom(AllEntries[i].Data, AllEntries[i].Data.Size);
-        end
+        if RenumberPages then
+          KeepEntry(Result, PageNum, PageName(PageNum + 1, Ext), AllEntries[i])
         else
-        begin
-          { Decode image }
-          RawStream := TMemoryStream.Create;
-          try
-            RawStream.CopyFrom(AllEntries[i].Data, AllEntries[i].Data.Size);
-            RawStream.Position := 0;
-            Img := StreamToIntfImage(RawStream, ReaderClassForExt(Ext));
-          finally
-            RawStream.Free;
-          end;
+          KeepEntry(Result, PageNum, AllEntries[i].Name, AllEntries[i]);
+        Continue;
+      end;
 
-          if Img <> nil then
-          begin
-            try
-              WebPData := IntfImageToWebP(Img, Quality);
-              if WebPData <> nil then
-              begin
-                try
-                  if (not ReplaceOnlyIfSmaller) or
-                     (WebPData.Size < AllEntries[i].Data.Size) then
-                  begin
-                    { Use WebP }
-                    EntryName := Format('page_%.4d.webp', [PageNum + 1]);
-                    if not RenumberPages then
-                      EntryName := AllEntries[i].Name;
-                    Inc(PageNum);
-                    Result[PageNum - 1].Name := EntryName;
-                    Result[PageNum - 1].Data := WebPData;
-                    WebPData := nil; // ownership transferred
-                  end
-                  else
-                  begin
-                    { WebP not smaller, keep original }
-                    EntryName := Format('page_%.4d%s', [PageNum + 1, Ext]);
-                    if not RenumberPages then
-                      EntryName := AllEntries[i].Name;
-                    Inc(PageNum);
-                    Result[PageNum - 1].Name := EntryName;
-                    Result[PageNum - 1].Data := TMemoryStream.Create;
-                    Result[PageNum - 1].Data.CopyFrom(AllEntries[i].Data, AllEntries[i].Data.Size);
-                  end;
-                finally
-                  WebPData.Free;
-                end;
-              end
-              else
-              begin
-                { Encoding failed, keep original }
-                EntryName := Format('page_%.4d%s', [PageNum + 1, Ext]);
-                if not RenumberPages then
-                  EntryName := AllEntries[i].Name;
-                Inc(PageNum);
-                Result[PageNum - 1].Name := EntryName;
-                Result[PageNum - 1].Data := TMemoryStream.Create;
-                Result[PageNum - 1].Data.CopyFrom(AllEntries[i].Data, AllEntries[i].Data.Size);
-              end;
-            finally
-              Img.Free;
-            end;
-          end
-          else
-          begin
-            { Decode failed, keep original }
-            EntryName := Format('page_%.4d%s', [PageNum + 1, Ext]);
-            if not RenumberPages then
-              EntryName := AllEntries[i].Name;
-            Inc(PageNum);
-            Result[PageNum - 1].Name := EntryName;
-            Result[PageNum - 1].Data := TMemoryStream.Create;
-            Result[PageNum - 1].Data.CopyFrom(AllEntries[i].Data, AllEntries[i].Data.Size);
-          end;
-        end;
+      { --- Skip existing WebP mode --- }
+      if SkipExistingWebP then
+      begin
+        if RenumberPages then
+          KeepEntry(Result, PageNum, PageName(PageNum + 1, Ext), AllEntries[i])
+        else
+          KeepEntry(Result, PageNum, AllEntries[i].Name, AllEntries[i]);
+        Continue;
+      end;
+
+      { --- Attempt WebP conversion --- }
+      RawStream := TMemoryStream.Create;
+      try
+        RawStream.CopyFrom(AllEntries[i].Data, AllEntries[i].Data.Size);
+        RawStream.Position := 0;
+        Img := StreamToIntfImage(RawStream, ReaderClassForExt(Ext));
+      finally
+        RawStream.Free;
+      end;
+
+      if Img = nil then
+      begin
+        { Decode failed, keep original }
+        if RenumberPages then
+          KeepEntry(Result, PageNum, PageName(PageNum + 1, Ext), AllEntries[i])
+        else
+          KeepEntry(Result, PageNum, AllEntries[i].Name, AllEntries[i]);
+        Continue;
+      end;
+
+      WebPData := IntfImageToWebP(Img, Quality);
+      Img.Free;
+
+      if WebPData = nil then
+      begin
+        { Encoding failed, keep original }
+        if RenumberPages then
+          KeepEntry(Result, PageNum, PageName(PageNum + 1, Ext), AllEntries[i])
+        else
+          KeepEntry(Result, PageNum, AllEntries[i].Name, AllEntries[i]);
+        Continue;
+      end;
+
+      { Decide: keep original or adopt WebP }
+      if ReplaceOnlyIfSmaller and (WebPData.Size >= AllEntries[i].Data.Size) then
+      begin
+        { WebP not smaller, discard it }
+        WebPData.Free;
+        if RenumberPages then
+          KeepEntry(Result, PageNum, PageName(PageNum + 1, Ext), AllEntries[i])
+        else
+          KeepEntry(Result, PageNum, AllEntries[i].Name, AllEntries[i]);
       end
       else
       begin
-        { Non-convertible entry (.webp, .txt, etc.) — keep as-is }
-        EntryName := AllEntries[i].Name;
+        { Use WebP }
         if RenumberPages then
-          EntryName := Format('page_%.4d%s', [PageNum + 1, Ext]);
-        Inc(PageNum);
-        Result[PageNum - 1].Name := EntryName;
-        Result[PageNum - 1].Data := TMemoryStream.Create;
-        Result[PageNum - 1].Data.CopyFrom(AllEntries[i].Data, AllEntries[i].Data.Size);
+          AdoptEntry(Result, PageNum, PageName(PageNum + 1, '.webp'), WebPData)
+        else
+          AdoptEntry(Result, PageNum, AllEntries[i].Name, WebPData);
       end;
     end;
 
@@ -615,7 +624,7 @@ begin
     SrcPath := IncludeTrailingPathDelimiter(ADir) + SourceFiles[i];
     Entries := CollectZipEntries(SrcPath);
     for j := 0 to High(Entries) do
-      if not SameText(Entries[j].Name, 'ComicInfo.xml') then
+      if not SameText(Entries[j].Name, COMICINFO_XML) then
         Inc(TotalImages);
     FreeZipEntries(Entries);
   end;
@@ -634,7 +643,7 @@ begin
     try
       for j := 0 to High(Entries) do
       begin
-        if SameText(Entries[j].Name, 'ComicInfo.xml') then
+        if SameText(Entries[j].Name, COMICINFO_XML) then
           Continue;
         Ext := ExtractFileExt(Entries[j].Name);
         Inc(PageNum);
@@ -649,6 +658,65 @@ begin
   end;
 
   SetLength(Result, PageNum);
+end;
+
+function FilterPagesFromCBZ(const FileName: string;
+  const PagesToDelete: array of boolean; Renumber: boolean): TZipEntries;
+var
+  AllEntries: TZipEntries;
+  SrcIdx, PageNum, Padding, ImgCount: integer;
+  Ext: string;
+  DeleteIdx: integer;  // 0-indexed position among image entries only
+begin
+  Result := nil;
+  AllEntries := CollectZipEntries(FileName);
+  try
+    { First pass: count image-only survivors and compute padding }
+    ImgCount := 0;
+    PageNum := 0;
+    DeleteIdx := 0;
+    for SrcIdx := 0 to High(AllEntries) do
+    begin
+      if SameText(AllEntries[SrcIdx].Name, COMICINFO_XML) then Continue;
+      Ext := LowerCase(ExtractFileExt(AllEntries[SrcIdx].Name));
+      if not IsImageExt(Ext) then Continue;
+      Inc(ImgCount);
+      if (DeleteIdx < Length(PagesToDelete)) and PagesToDelete[DeleteIdx] then
+        Continue;
+      Inc(PageNum);
+    end;
+
+    Padding := Max(3, Length(IntToStr(PageNum)));
+    SetLength(Result, PageNum);
+    PageNum := 0;
+
+    { Second pass: copy survivors }
+    DeleteIdx := 0;
+    for SrcIdx := 0 to High(AllEntries) do
+    begin
+      if SameText(AllEntries[SrcIdx].Name, COMICINFO_XML) then Continue;
+      Ext := LowerCase(ExtractFileExt(AllEntries[SrcIdx].Name));
+      if not IsImageExt(Ext) then Continue;
+      if (DeleteIdx < Length(PagesToDelete)) and PagesToDelete[DeleteIdx] then
+      begin
+        Inc(DeleteIdx);
+        Continue;
+      end;
+
+      if Renumber then
+        Inc(PageNum)
+      else
+        PageNum := DeleteIdx + 1;
+      Result[PageNum - 1].Name := FormatPageName(PageNum, Padding, Ext);
+      Result[PageNum - 1].Data := TMemoryStream.Create;
+      AllEntries[SrcIdx].Data.Position := 0;
+      Result[PageNum - 1].Data.CopyFrom(AllEntries[SrcIdx].Data,
+        AllEntries[SrcIdx].Data.Size);
+      Inc(DeleteIdx);
+    end;
+  finally
+    FreeZipEntries(AllEntries);
+  end;
 end;
 
 end.

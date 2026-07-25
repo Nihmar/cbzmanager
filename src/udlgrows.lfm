@@ -71,6 +71,22 @@ object dlgRows: TdlgRows
     TabOrder = 2
   end
   end
+  object CbBatchAll: TCheckBox
+    Left = 12
+    Height = 24
+    Top = 196
+    Width = 476
+    Caption = 'Apply to all files in directory'
+    TabOrder = 3
+  end
+  object CbDeletePerm: TCheckBox
+    Left = 12
+    Height = 24
+    Top = 224
+    Width = 476
+    Caption = 'Permanently delete (no _OLD.cbz backup)'
+    TabOrder = 4
+  end
   object PanelBottom: TPanel
     Left = 0
     Height = 48

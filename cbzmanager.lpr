@@ -17,7 +17,7 @@ uses
   uWebP,
   uImgUtil,
   uLog, uloaderthread, udlgrows, udlgvalidate, udlgcomicinfo, udlgwebp,
-  udlgmerge, udlgsimilar, udlgbyid;
+  udlgmerge;
 
   {$R *.res}
 

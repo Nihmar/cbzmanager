@@ -17,6 +17,8 @@ type
     BtnOk: TButton;
     BtnCancel: TButton;
     CbRenumber: TCheckBox;
+    CbBatchAll: TCheckBox;
+    CbDeletePerm: TCheckBox;
     EditRanges: TEdit;
     Label1: TLabel;
     Label2: TLabel;
@@ -27,11 +29,13 @@ type
     procedure FormCreate(Sender: TObject);
   private
     FPageCount: integer;
+    FDirectory: string;
     FSelected: TBooleanDynArray;
     procedure ParseRanges;
     procedure UpdatePreview;
   public
     property PageCount: integer read FPageCount write FPageCount;
+    property Directory: string read FDirectory write FDirectory;
     property Selected: TBooleanDynArray read FSelected;
   end;
 

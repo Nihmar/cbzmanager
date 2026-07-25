@@ -89,7 +89,7 @@ end;
 
 function TdlgWebp.GetBackup: boolean;
 begin
-  Result := GroupBackup.ItemIndex <> 1; // 0=Backup, 1=Elimina
+  Result := GroupBackup.ItemIndex <> 1; // 0=Backup, 1=Delete
 end;
 
 end.

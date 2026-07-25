@@ -12,7 +12,8 @@ interface
 
 uses
   Classes, SysUtils,
-  uZipEditor, uservicebase, userviceconvert, uservicemerge;
+  uZipEditor, uservicebase, userviceconvert, uservicemerge, uservicevalidate,
+  uservicecomicinfo;
 
 type
 
@@ -63,6 +64,35 @@ type
     constructor Create(const AFiles: TStringArray; const ADir: string;
       const AOptions: TMergeOptions; AOnProgress: TProgressEvent);
     property Result: TMergeResult read FResult;
+  end;
+
+  { Background CBZ validation }
+  TValidateThread = class(TServiceThread)
+  private
+    FFiles: TStringArray;
+    FDir: string;
+    FResult: TValidationResults;
+  protected
+    procedure Execute; override;
+  public
+    constructor Create(const AFiles: TStringArray; const ADir: string;
+      AOnProgress: TProgressEvent);
+    property Result: TValidationResults read FResult;
+  end;
+
+  { Background ComicInfo.xml removal }
+  TComicInfoRemoveThread = class(TServiceThread)
+  private
+    FFiles: TStringArray;
+    FDir: string;
+    FBackup: boolean;
+    FResult: TComicInfoResults;
+  protected
+    procedure Execute; override;
+  public
+    constructor Create(const AFiles: TStringArray; const ADir: string;
+      ABackup: boolean; AOnProgress: TProgressEvent);
+    property Result: TComicInfoResults read FResult;
   end;
 
 implementation
@@ -129,6 +159,37 @@ end;
 procedure TMergeThread.Execute;
 begin
   FResult := TMergeService.Merge(FFiles, FDir, FOptions, @Progress);
+end;
+
+{ TValidateThread }
+
+constructor TValidateThread.Create(const AFiles: TStringArray;
+  const ADir: string; AOnProgress: TProgressEvent);
+begin
+  inherited Create(AOnProgress);
+  FFiles := AFiles;
+  FDir := ADir;
+end;
+
+procedure TValidateThread.Execute;
+begin
+  FResult := TValidateService.ValidateDeep(FFiles, FDir);
+end;
+
+{ TComicInfoRemoveThread }
+
+constructor TComicInfoRemoveThread.Create(const AFiles: TStringArray;
+  const ADir: string; ABackup: boolean; AOnProgress: TProgressEvent);
+begin
+  inherited Create(AOnProgress);
+  FFiles := AFiles;
+  FDir := ADir;
+  FBackup := ABackup;
+end;
+
+procedure TComicInfoRemoveThread.Execute;
+begin
+  FResult := TComicInfoService.Remove(FFiles, FDir, FBackup, @Progress);
 end;
 
 end.

@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls,
-  ComCtrls, ExtCtrls;
+  ComCtrls, ExtCtrls, uservicevalidate;
 
 type
   { TdlgValidate }
@@ -17,13 +17,13 @@ type
     PanelBottom: TPanel;
     procedure FormCreate(Sender: TObject);
   public
-    procedure ValidateFiles(const AFiles: TStringArray; const ADir: string);
+    { Populate the result list from already-collected validation results. }
+    procedure ShowResults(const AResults: TValidationResults);
   end;
 
 implementation
 
 uses
-  uservicevalidate,
   uLog;
 
 {$R *.lfm}
@@ -35,44 +35,39 @@ begin
   LVResult.Clear;
 end;
 
-procedure TdlgValidate.ValidateFiles(const AFiles: TStringArray;
-  const ADir: string);
+procedure TdlgValidate.ShowResults(const AResults: TValidationResults);
 var
   i, j: integer;
   It: TListItem;
-  Results: TValidationResults;
   FirstError: string;
 begin
-  Results := TValidateService.ValidateDeep(AFiles, ADir);
   LVResult.BeginUpdate;
   try
     LVResult.Items.Clear;
-    for i := 0 to High(Results) do
+    for i := 0 to High(AResults) do
     begin
       It := LVResult.Items.Add;
-      It.Caption := Results[i].FileName;
-      if Results[i].Valid then
+      It.Caption := AResults[i].FileName;
+      if AResults[i].Valid then
       begin
         It.SubItems.Add('OK');
-        It.SubItems.Add(IntToStr(Results[i].ImageCount));
-        { Build summary: valid count out of total }
-        if Length(Results[i].ImageChecks) > Results[i].ImageCount then
+        It.SubItems.Add(IntToStr(AResults[i].ImageCount));
+        if Length(AResults[i].ImageChecks) > AResults[i].ImageCount then
           It.SubItems.Add(Format('%d/%d valid',
-            [Results[i].ImageCount, Length(Results[i].ImageChecks)]))
+            [AResults[i].ImageCount, Length(AResults[i].ImageChecks)]))
         else
           It.SubItems.Add('');
       end
       else
       begin
-        It.SubItems.Add('ERRORE');
+        It.SubItems.Add('ERROR');
         It.SubItems.Add('—');
-        { Find first per-image error for detail }
-        FirstError := Results[i].ErrorMsg;
-        for j := 0 to High(Results[i].ImageChecks) do
-          if not Results[i].ImageChecks[j].Valid then
+        FirstError := AResults[i].ErrorMsg;
+        for j := 0 to High(AResults[i].ImageChecks) do
+          if not AResults[i].ImageChecks[j].Valid then
           begin
-            FirstError := Results[i].ImageChecks[j].EntryName + ': ' +
-              Results[i].ImageChecks[j].ErrorMsg;
+            FirstError := AResults[i].ImageChecks[j].EntryName + ': ' +
+              AResults[i].ImageChecks[j].ErrorMsg;
             Break;
           end;
         It.SubItems.Add(FirstError);

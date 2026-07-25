@@ -187,6 +187,7 @@ type
     procedure MnuRemoveComicInfoClick(Sender: TObject);
     procedure MnuTogglePreviewClick(Sender: TObject);
     procedure MnuValidateClick(Sender: TObject);
+    procedure ValidateThreadTerminated(Sender: TObject);
     procedure MnuZoomInClick(Sender: TObject);
     procedure MnuZoomOutClick(Sender: TObject);
     procedure PMFilesPopup(Sender: TObject);
@@ -627,28 +628,43 @@ end;
 procedure TfrmMain.MnuValidateClick(Sender: TObject);
 var
   Files: TStringArray;
-  Dlg: TdlgValidate;
+  Thread: TValidateThread;
 begin
   if FDir = '' then
   begin
     SetStatus('Open a folder first');
     Exit;
   end;
-  { Collect files to validate: selected or all }
   Files := GetFileList;
   if Length(Files) = 0 then
   begin
     SetStatus('No CBZ files in folder');
     Exit;
   end;
+
+  SetStatus('Validating...');
+  StatusProgress.Visible := True;
+  TbValidate.Enabled := False;
+  MnuValidate.Enabled := False;
+  Thread := TValidateThread.Create(Files, FDir, @UpdateProgress);
+  Thread.OnTerminate := @ValidateThreadTerminated;
+  Thread.Start;
+end;
+
+procedure TfrmMain.ValidateThreadTerminated(Sender: TObject);
+var
+  Thread: TValidateThread;
+  Dlg: TdlgValidate;
+begin
+  Thread := Sender as TValidateThread;
   Dlg := TdlgValidate.Create(Self);
-  try
-    Dlg.ValidateFiles(Files, FDir);
-    Dlg.ShowModal;
-  finally
-    Dlg.Free;
-  end;
-  SetStatus(Format('Validation complete: %d files', [Length(Files)]));
+  Dlg.ShowResults(Thread.Result);
+  Dlg.ShowModal;
+  Dlg.Free;
+  StatusProgress.Visible := False;
+  TbValidate.Enabled := True;
+  MnuValidate.Enabled := True;
+  SetStatus(Format('Validation complete: %d files', [Length(Thread.Result)]));
 end;
 
 procedure TfrmMain.MnuConvertWebPClick(Sender: TObject);

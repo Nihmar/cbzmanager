@@ -673,18 +673,58 @@ end;
 procedure TfrmMain.MnuConvertWebPClick(Sender: TObject);
 var
   Dlg: TdlgWebp;
+  Files: TStringArray;
+  i, n, NewCount: integer;
+  NewEntries: TZipEntries;
+  OldFile: string;
+  FullPath: string;
 begin
+  if FDir = '' then
+  begin
+    SetStatus('Open a folder first');
+    Exit;
+  end;
+  { Collect files }
+  n := 0;
+  SetLength(Files, LVFiles.Items.Count);
+  for i := 0 to LVFiles.Items.Count - 1 do
+    if (LVFiles.SelCount = 0) or LVFiles.Items[i].Selected then
+    begin
+      Files[n] := LVFiles.Items[i].Caption;
+      Inc(n);
+    end;
+  SetLength(Files, n);
+  if n = 0 then Exit;
+
   Dlg := TdlgWebp.Create(Self);
   try
-    if Dlg.ShowModal = mrOk then
+    if Dlg.ShowModal <> mrOk then Exit;
+
+    for i := 0 to High(Files) do
     begin
-      SetStatus(Format(
-        'WebP conversion started (quality=%d, backup=%s) — logic pending',
-        [Dlg.Quality, BoolToStr(Dlg.BackupOld, 'Yes', 'No')]));
+      FullPath := IncludeTrailingPathDelimiter(FDir) + Files[i];
+      NewEntries := ConvertCBZToWebP(FullPath, Dlg.Quality,
+        Dlg.ReplaceOnlyIfSmaller, Dlg.SkipExistingWebP, NewCount);
+      if NewCount > 0 then
+      begin
+        { Write new CBZ }
+        OldFile := ChangeFileExt(FullPath, '') + '_OLD.cbz';
+        if Dlg.BackupOld then
+        begin
+          if FileExists(OldFile) then DeleteFile(OldFile);
+          RenameFile(FullPath, OldFile);
+        end;
+        WriteZipFromEntries(FullPath, NewEntries);
+        SetStatus(Format('Converted %s: %d pages to WebP', [Files[i], NewCount]));
+      end
+      else
+        SetStatus(Format('%s: no convertible images found', [Files[i]]));
+      FreeZipEntries(NewEntries);
     end;
   finally
     Dlg.Free;
   end;
+  SetStatus(Format('WebP conversion complete: %d files', [n]));
 end;
 
 procedure TfrmMain.MnuMergeClick(Sender: TObject);

@@ -30,6 +30,11 @@ function WebPLibraryName: string;
   Il chiamante e' proprietario della TLazIntfImage restituita. }
 function WebPToIntfImage(const Data: Pointer; DataSize: SizeInt): TLazIntfImage;
 
+{ Codifica una TLazIntfImage in formato WebP. Restituisce i bytes codificati
+  in un TMemoryStream (proprieta' del chiamante). nil se la codifica fallisce.
+  Quality: 0..100 (default 75). Richiede libwebp con encode support. }
+function IntfImageToWebP(const Img: TLazIntfImage; Quality: integer = 75): TMemoryStream;
+
 implementation
 
 uses
@@ -67,6 +72,8 @@ type
   TWebPDecodeBGRA = function(Data: pbyte; data_size: PtrUInt;
     Width, Height: PInteger): pbyte; cdecl;
   TWebPFree = procedure(ptr: Pointer); cdecl;
+  TWebPEncodeBGRA = function(bgra: pbyte; width, height, stride: integer;
+    quality: single; var output: pbyte): PtrUInt; cdecl;
 
 var
   LibLock: TRTLCriticalSection;
@@ -76,6 +83,7 @@ var
   _WebPGetInfo: TWebPGetInfo = nil;
   _WebPDecodeBGRA: TWebPDecodeBGRA = nil;
   _WebPFree: TWebPFree = nil;   { assente prima di libwebp 0.5: opzionale }
+  _WebPEncodeBGRA: TWebPEncodeBGRA = nil; { encode puo' essere assente }
 
 procedure InitLib;
 var
@@ -105,6 +113,7 @@ begin
     Pointer(_WebPGetInfo) := GetProcedureAddress(hLib, 'WebPGetInfo');
     Pointer(_WebPDecodeBGRA) := GetProcedureAddress(hLib, 'WebPDecodeBGRA');
     Pointer(_WebPFree) := GetProcedureAddress(hLib, 'WebPFree');
+    Pointer(_WebPEncodeBGRA) := GetProcedureAddress(hLib, 'WebPEncodeBGRA');
 
     if not (Assigned(_WebPGetInfo) and Assigned(_WebPDecodeBGRA)) then
     begin
@@ -181,6 +190,52 @@ begin
   finally
     if Assigned(_WebPFree) then
       _WebPFree(Buf);
+  end;
+end;
+
+function IntfImageToWebP(const Img: TLazIntfImage; Quality: integer): TMemoryStream;
+var
+  W, H, Stride, y: integer;
+  Buf: pbyte;
+  OutPtr: pbyte;
+  OutSize: PtrUInt;
+  SrcLine, DstLine: pbyte;
+begin
+  Result := nil;
+  if (Img = nil) or (Img.Width <= 0) or (Img.Height <= 0) then Exit;
+  if not Assigned(_WebPEncodeBGRA) then
+  begin
+    Log('WebP: encode non disponibile');
+    Exit;
+  end;
+
+  W := Img.Width;
+  H := Img.Height;
+  Stride := W * 4; // BGRA = 4 bytes per pixel
+
+  { TLazIntfImage is bottom-up (BIO). Copy rows in top-down order. }
+  Buf := GetMem(Stride * H);
+  try
+    for y := 0 to H - 1 do
+    begin
+      SrcLine := Img.GetDataLineStart(H - 1 - y);
+      DstLine := Buf + PtrUInt(y) * PtrUInt(Stride);
+      Move(SrcLine^, DstLine^, Stride);
+    end;
+
+    OutPtr := nil;
+    OutSize := _WebPEncodeBGRA(Buf, W, H, Stride, Quality, OutPtr);
+    if (OutSize > 0) and (OutPtr <> nil) then
+    begin
+      Result := TMemoryStream.Create;
+      Result.Write(OutPtr^, OutSize);
+      if Assigned(_WebPFree) then
+        _WebPFree(OutPtr);
+    end
+    else
+      Log('WebP: codifica fallita (%dx%d, q=%d)', [W, H, Quality]);
+  finally
+    FreeMem(Buf);
   end;
 end;
 

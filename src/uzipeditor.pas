@@ -56,6 +56,11 @@ procedure WriteZipFromEntries(const FileName: string;
 { Libera gli stream contenuti in un array TZipEntries. }
 procedure FreeZipEntries(var Entries: TZipEntries);
 
+{ Merge di piu' file CBZ in un unico CBZ con pagine rinumerate.
+  Filtra ComicInfo.xml. Tutto in RAM. Restituisce le entry del volume. }
+function MergeIntoVolume(const SourceFiles: TStringArray;
+  const ADir: string): TZipEntries;
+
 { Converte le immagini di un CBZ in WebP direttamente in RAM.
   Restituisce True se il file e' stato modificato.
   I parametri controllano la qualita' e le opzioni di conversione. }
@@ -449,6 +454,16 @@ begin
   end;
 end;
 
+function FormatPageName(PageNum, Padding: integer; const Ext: string): string;
+var
+  NumStr: string;
+begin
+  NumStr := IntToStr(PageNum);
+  while Length(NumStr) < Padding do
+    NumStr := '0' + NumStr;
+  Result := 'page_' + NumStr + Ext;
+end;
+
 function IsConvertibleExt(const Ext: string): boolean;
 begin
   Result := SameText(Ext, '.jpg') or SameText(Ext, '.jpeg') or
@@ -567,6 +582,60 @@ begin
   finally
     FreeZipEntries(AllEntries);
   end;
+end;
+
+function MergeIntoVolume(const SourceFiles: TStringArray;
+  const ADir: string): TZipEntries;
+var
+  i, j, PageNum, TotalImages, Padding: integer;
+  SrcPath: string;
+  Entries: TZipEntries;
+  Ext: string;
+begin
+  Result := nil;
+  if Length(SourceFiles) = 0 then Exit;
+
+  { Count total images across all sources }
+  TotalImages := 0;
+  for i := 0 to High(SourceFiles) do
+  begin
+    SrcPath := IncludeTrailingPathDelimiter(ADir) + SourceFiles[i];
+    Entries := CollectZipEntries(SrcPath);
+    for j := 0 to High(Entries) do
+      if not SameText(Entries[j].Name, 'ComicInfo.xml') then
+        Inc(TotalImages);
+    FreeZipEntries(Entries);
+  end;
+  Padding := 3;
+  if TotalImages > 999 then Padding := 4;
+  if TotalImages > 9999 then Padding := 5;
+
+  { Allocate result (worst case) }
+  SetLength(Result, TotalImages);
+  PageNum := 0;
+
+  for i := 0 to High(SourceFiles) do
+  begin
+    SrcPath := IncludeTrailingPathDelimiter(ADir) + SourceFiles[i];
+    Entries := CollectZipEntries(SrcPath);
+    try
+      for j := 0 to High(Entries) do
+      begin
+        if SameText(Entries[j].Name, 'ComicInfo.xml') then
+          Continue;
+        Ext := ExtractFileExt(Entries[j].Name);
+        Inc(PageNum);
+        Result[PageNum - 1].Name := FormatPageName(PageNum, Padding, Ext);
+        Result[PageNum - 1].Data := TMemoryStream.Create;
+        Entries[j].Data.Position := 0;
+        Result[PageNum - 1].Data.CopyFrom(Entries[j].Data, Entries[j].Data.Size);
+      end;
+    finally
+      FreeZipEntries(Entries);
+    end;
+  end;
+
+  SetLength(Result, PageNum);
 end;
 
 end.

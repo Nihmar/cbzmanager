@@ -730,9 +730,11 @@ end;
 procedure TfrmMain.MnuMergeClick(Sender: TObject);
 var
   Dlg: TdlgMerge;
-  Files: TStringArray;
-  i, n: integer;
-  SeriesName: string;
+  Files, ChBatch, Batch: TStringArray;
+  i, n, ChStart, ChEnd, CPV, VolNum, ChNum: integer;
+  SeriesName, VolName, FullPath, BaseName: string;
+  VolEntries: TZipEntries;
+  TotalCreated: integer;
 begin
   if FDir = '' then
   begin
@@ -749,18 +751,87 @@ begin
   end;
   SetLength(Files, n);
   if n = 0 then Exit;
-  { Try to extract series name from first file: "Title - NNNN.cbz" }
-  SeriesName := ChangeFileExt(Files[0], '');
-  i := LastDelimiter(' -', SeriesName);
-  if i > 0 then
-    SeriesName := Trim(Copy(SeriesName, 1, i - 1))
-  else
-    SeriesName := 'Sconosciuto';
+
+  { Extract series name from first matching "Title - NNNN" pattern }
+  SeriesName := '';
+  for i := 0 to High(Files) do
+  begin
+    n := LastDelimiter(' -', ChangeFileExt(Files[i], ''));
+    if n > 0 then
+    begin
+      SeriesName := Trim(Copy(ChangeFileExt(Files[i], ''), 1, n - 1));
+      Break;
+    end;
+  end;
+  if SeriesName = '' then SeriesName := 'Unknown';
+
   Dlg := TdlgMerge.Create(Self);
   try
     Dlg.LoadChapters(Files, FDir, SeriesName);
-    if Dlg.ShowModal = mrOk then
-      SetStatus(Format('Merge chapters — logica da completare', []));
+    if Dlg.ShowModal <> mrOk then Exit;
+
+    ChStart := Dlg.EditChapterStart.Value;
+    ChEnd := Dlg.EditChapterEnd.Value;
+    if Dlg.CbManualCPV.Checked then
+      CPV := Dlg.EditCPV.Value
+    else
+      CPV := 7;
+
+    { Build chapter batch from files matching "Title - NNNN" in range }
+    ChBatch := nil;
+    for i := 0 to High(Files) do
+    begin
+      BaseName := ChangeFileExt(Files[i], '');
+      n := LastDelimiter(' -', BaseName);
+      if n > 0 then
+      begin
+        ChNum := StrToIntDef(Trim(Copy(BaseName, n + 1, MaxInt)), 0);
+        if (ChNum >= ChStart) and (ChNum <= ChEnd) then
+        begin
+          SetLength(ChBatch, Length(ChBatch) + 1);
+          ChBatch[High(ChBatch)] := Files[i];
+        end;
+      end;
+    end;
+
+    if Length(ChBatch) = 0 then
+    begin
+      SetStatus('No matching chapter files found');
+      Exit;
+    end;
+
+    { Group chapters by CPV and merge each group }
+    TotalCreated := 0;
+    VolNum := 1;
+    i := 0;
+    while i < Length(ChBatch) do
+    begin
+      { Build batch of CPV chapters for this volume }
+      Batch := nil;
+      for n := 0 to CPV - 1 do
+        if i + n < Length(ChBatch) then
+        begin
+          SetLength(Batch, Length(Batch) + 1);
+          Batch[High(Batch)] := ChBatch[i + n];
+        end;
+
+      { Merge batch into volume }
+      VolName := Format('%s V%.3d.cbz', [SeriesName, VolNum]);
+      FullPath := IncludeTrailingPathDelimiter(FDir) + VolName;
+      VolEntries := MergeIntoVolume(Batch, FDir);
+      if Length(VolEntries) > 0 then
+      begin
+        WriteZipFromEntries(FullPath, VolEntries);
+        FreeZipEntries(VolEntries);
+        Inc(TotalCreated);
+      end;
+
+      Inc(VolNum);
+      Inc(i, CPV);
+    end;
+
+    LoadDirectory(FDir);
+    SetStatus(Format('Merge complete: %d volumes created', [TotalCreated]));
   finally
     Dlg.Free;
   end;

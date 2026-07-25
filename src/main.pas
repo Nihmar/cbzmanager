@@ -18,7 +18,8 @@ uses
   Math,
   IntfGraphics,
   Types,
-  uloaderthread;
+  uloaderthread,
+  uservicebase;
 
 type
   { In-memory page state for the editing model }
@@ -38,6 +39,33 @@ type
     PageName: string;
   end;
   TChanges = array of TChange;
+
+  { Result record for background save-changes thread }
+  TSaveChangesResult = record
+    Success: boolean;
+    ErrorMsg: string;
+  end;
+
+  { Background thread for saving in-memory page edits to disk.
+    Takes a snapshot of FPages so the main thread stays responsive. }
+  TSaveChangesThread = class(TThread)
+  private
+    FPageFile: string;
+    FPages: TPageStates;
+    FRenumber: boolean;
+    FResult: TSaveChangesResult;
+    FOnProgress: TProgressEvent;
+    FPendingPct: integer;
+    FPendingMsg: string;
+    procedure SyncProgress;
+    procedure DoProgress(APercent: integer; const AMsg: string);
+  protected
+    procedure Execute; override;
+  public
+    constructor Create(const APageFile: string; const APages: TPageStates;
+      ARenumber: boolean; AOnProgress: TProgressEvent);
+    property Result: TSaveChangesResult read FResult;
+  end;
 
   { TfrmMain }
 
@@ -157,6 +185,7 @@ type
     procedure BtnClosePreviewClick(Sender: TObject);
     procedure BtnStageRevertClick(Sender: TObject);
     procedure BtnStageSaveClick(Sender: TObject);
+    procedure SaveChangesThreadTerminated(Sender: TObject);
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure FormKeyDown(Sender: TObject; var Key: word; Shift: TShiftState);
@@ -170,6 +199,7 @@ type
     procedure ConvertThreadTerminated(Sender: TObject);
 
     procedure MnuDeleteRowsClick(Sender: TObject);
+    procedure DeleteRowsThreadTerminated(Sender: TObject);
     procedure MnuExitClick(Sender: TObject);
 
     procedure MnuMergeClick(Sender: TObject);
@@ -241,9 +271,9 @@ uses
   uImgUtil,
   uLog,
   uZipEditor,
-  uservicebase,
   userviceconvert,
   uservicemerge,
+  uservicecomicinfo,
   udlgrows,
   udlgvalidate,
   udlgcomicinfo,
@@ -816,13 +846,28 @@ begin
   SetStatus(Format('ComicInfo.xml: %d files processed', [Length(Files)]));
 end;
 
+procedure TfrmMain.DeleteRowsThreadTerminated(Sender: TObject);
+var
+  Thread: TDeletePagesThread;
+begin
+  Thread := Sender as TDeletePagesThread;
+  StatusProgress.Visible := False;
+  MnuDeleteRows.Enabled := True;
+  if Thread.Result.Success then
+  begin
+    LoadDirectory(FDir);
+    SetStatus(Format('Batch delete complete: %d files processed', [Thread.Result.Processed]));
+  end
+  else
+    SetStatus(Format('Batch delete failed: %s', [Thread.Result.ErrorMsg]));
+end;
+
 procedure TfrmMain.MnuDeleteRowsClick(Sender: TObject);
 var
   Dlg: TdlgRows;
   i: integer;
   Files: TStringArray;
-  FullPath: string;
-  Entries: TZipEntries;
+  Thread: TDeletePagesThread;
 begin
   if not PanelSingleFile.Visible or (FPageFile = '') then
   begin
@@ -837,42 +882,17 @@ begin
     begin
       if Dlg.CbBatchAll.Checked and (FDir <> '') then
       begin
-        { Batch mode: process all CBZ files in directory }
+        { Batch mode: delegate to background thread }
         Files := GetFileList;
         if Length(Files) > 0 then
         begin
           StatusProgress.Visible := True;
-          try
-            for i := 0 to High(Files) do
-            begin
-              FullPath := IncludeTrailingPathDelimiter(FDir) + Files[i];
-              UpdateProgress((i * 100) div Length(Files),
-                Format('Deleting pages from %s (%d/%d)', [Files[i], i + 1, Length(Files)]));
-
-              Entries := FilterPagesFromCBZ(FullPath, Dlg.Selected, Dlg.CbRenumber.Checked);
-              try
-                if Length(Entries) > 0 then
-                begin
-                  if Dlg.CbDeletePerm.Checked then
-                  begin
-                    { Write directly, no backup }
-                    WriteZipFromEntriesDeflated(FullPath, Entries);
-                  end
-                  else
-                  begin
-                    { Write with backup via ReplaceCBZ }
-                    ReplaceCBZ(FullPath, Entries);
-                  end;
-                end;
-              finally
-                FreeZipEntries(Entries);
-              end;
-            end;
-          finally
-            StatusProgress.Visible := False;
-          end;
-          LoadDirectory(FDir);
-          SetStatus(Format('Batch delete complete: %d files processed', [Length(Files)]));
+          MnuDeleteRows.Enabled := False;
+          Thread := TDeletePagesThread.Create(Files, FDir,
+            Dlg.Selected, Dlg.CbRenumber.Checked, Dlg.CbDeletePerm.Checked,
+            @UpdateProgress);
+          Thread.OnTerminate := @DeleteRowsThreadTerminated;
+          Thread.Start;
         end;
       end
       else
@@ -1111,62 +1131,16 @@ end;
 
 { Stage bar }
 
-procedure TfrmMain.BtnStageSaveClick(Sender: TObject);
+procedure TfrmMain.SaveChangesThreadTerminated(Sender: TObject);
 var
+  Thread: TSaveChangesThread;
   i, j, PageNum: integer;
-  AllEntries, OutEntries: TZipEntries;
-  NewName, PageExt: string;
+  PageExt: string;
 begin
-  if Length(FChanges) = 0 then Exit;
-  if FPageFile = '' then Exit;
-
-  if MessageDlg('Save changes',
-    Format('Save %d pending changes? The original will be backed up as _OLD.cbz.',
-      [Length(FChanges)]),
-    mtConfirmation, mbYesNo, 0) <> mrYes then Exit;
-
-  { Step 1: Read ALL original entries into RAM (no temp files) }
-  AllEntries := CollectZipEntries(FPageFile);
-  try
-    { Step 2: Build the output entry list — keep only survivors }
-    SetLength(OutEntries, 0);
-    for i := 0 to High(FPages) do
-    begin
-      if FPages[i].Gone then Continue;
-
-      { Find original data by OrigName }
-      for j := 0 to High(AllEntries) do
-        if SameText(AllEntries[j].Name, FPages[i].OrigName) then
-        begin
-          SetLength(OutEntries, Length(OutEntries) + 1);
-          { Apply renumber to the output name }
-          if FRenumber then
-          begin
-            PageNum := Length(OutEntries);
-            PageExt := ExtractFileExt(FPages[i].Name);
-            NewName := FormatPageName(PageNum, 4, PageExt);
-          end
-          else
-            NewName := FPages[i].Name;
-
-          OutEntries[High(OutEntries)].Name := NewName;
-          OutEntries[High(OutEntries)].Data := TMemoryStream.Create;
-          AllEntries[j].Data.Position := 0;
-          OutEntries[High(OutEntries)].Data.CopyFrom(AllEntries[j].Data,
-            AllEntries[j].Data.Size);
-          Break;
-        end;
-    end;
-
-    { Step 3: Replace file with backup }
-    if not ReplaceCBZ(FPageFile, OutEntries) then
-    begin
-      SetStatus('Save failed — check disk space or file permissions');
-      FreeZipEntries(OutEntries);
-      Exit;
-    end;
-
-    { Step 4: Update model }
+  Thread := Sender as TSaveChangesThread;
+  if Thread.Result.Success then
+  begin
+    { Step 4: Update model in-memory (same logic as original synchronous path) }
     j := 0;
     for i := 0 to High(FPages) do
       if not FPages[i].Gone then
@@ -1191,12 +1165,143 @@ begin
     FChanges := nil;
     FRenumber := True;
     PanelStageBar.Visible := False;
-    FreeZipEntries(OutEntries);
     RenderPages;
     SetStatus(Format('Changes saved: %d pages', [Length(FPages)]));
-  finally
-    FreeZipEntries(AllEntries);
+  end
+  else
+    SetStatus(Format('Save failed: %s', [Thread.Result.ErrorMsg]));
+  StatusProgress.Visible := False;
+  BtnStageSave.Enabled := True;
+  BtnStageRevert.Enabled := True;
+end;
+
+{ TSaveChangesThread }
+
+constructor TSaveChangesThread.Create(const APageFile: string;
+  const APages: TPageStates; ARenumber: boolean;
+  AOnProgress: TProgressEvent);
+var
+  i: integer;
+begin
+  inherited Create(True);
+  FreeOnTerminate := True;
+  FPageFile := APageFile;
+  SetLength(FPages, Length(APages));
+  for i := 0 to High(APages) do
+  begin
+    FPages[i].Name := APages[i].Name;
+    FPages[i].OrigName := APages[i].OrigName;
+    FPages[i].Gone := APages[i].Gone;
+    { Image reference not copied — thread doesn't need it }
   end;
+  FRenumber := ARenumber;
+  FOnProgress := AOnProgress;
+  FResult.Success := False;
+end;
+
+procedure TSaveChangesThread.DoProgress(APercent: integer; const AMsg: string);
+begin
+  FPendingPct := APercent;
+  FPendingMsg := AMsg;
+  if Assigned(FOnProgress) then
+    TThread.Queue(nil, @SyncProgress);
+end;
+
+procedure TSaveChangesThread.SyncProgress;
+begin
+  if Assigned(FOnProgress) then
+    FOnProgress(FPendingPct, FPendingMsg);
+end;
+
+procedure TSaveChangesThread.Execute;
+var
+  i, j, PageNum: integer;
+  AllEntries, OutEntries: TZipEntries;
+  NewName, PageExt: string;
+begin
+  try
+    DoProgress(0, 'Reading all entries into RAM...');
+    AllEntries := CollectZipEntries(FPageFile);
+    try
+      SetLength(OutEntries, 0);
+      for i := 0 to High(FPages) do
+      begin
+        if Terminated then Exit;
+        if FPages[i].Gone then Continue;
+        for j := 0 to High(AllEntries) do
+          if SameText(AllEntries[j].Name, FPages[i].OrigName) then
+          begin
+            SetLength(OutEntries, Length(OutEntries) + 1);
+            if FRenumber then
+            begin
+              PageNum := Length(OutEntries);
+              PageExt := ExtractFileExt(FPages[i].Name);
+              NewName := FormatPageName(PageNum, 4, PageExt);
+            end
+            else
+              NewName := FPages[i].Name;
+            OutEntries[High(OutEntries)].Name := NewName;
+            OutEntries[High(OutEntries)].Data := TMemoryStream.Create;
+            AllEntries[j].Data.Position := 0;
+            OutEntries[High(OutEntries)].Data.CopyFrom(AllEntries[j].Data,
+              AllEntries[j].Data.Size);
+            Break;
+          end;
+      end;
+      DoProgress(60, 'Writing new CBZ...');
+      if not ReplaceCBZ(FPageFile, OutEntries) then
+      begin
+        FResult.ErrorMsg := 'Replace failed — check disk space or permissions';
+        FreeZipEntries(OutEntries);
+        Exit;
+      end;
+      FreeZipEntries(OutEntries);
+      FResult.Success := True;
+      DoProgress(100, 'Save complete');
+    finally
+      FreeZipEntries(AllEntries);
+    end;
+  except
+    on E: Exception do
+    begin
+      FResult.Success := False;
+      FResult.ErrorMsg := E.Message;
+    end;
+  end;
+end;
+
+procedure TfrmMain.BtnStageSaveClick(Sender: TObject);
+var
+  i: integer;
+  Snapshot: TPageStates;
+  Thread: TSaveChangesThread;
+begin
+  if Length(FChanges) = 0 then Exit;
+  if FPageFile = '' then Exit;
+
+  if MessageDlg('Save changes',
+    Format('Save %d pending changes? The original will be backed up as _OLD.cbz.',
+      [Length(FChanges)]),
+    mtConfirmation, mbYesNo, 0) <> mrYes then Exit;
+
+  { Take a snapshot of the page state for the background thread }
+  SetLength(Snapshot, Length(FPages));
+  for i := 0 to High(FPages) do
+  begin
+    Snapshot[i].Name := FPages[i].Name;
+    Snapshot[i].OrigName := FPages[i].OrigName;
+    Snapshot[i].Gone := FPages[i].Gone;
+  end;
+
+  { Disable stage bar during save }
+  BtnStageSave.Enabled := False;
+  BtnStageRevert.Enabled := False;
+  LblStageMsg.Caption := 'Saving...';
+  StatusProgress.Visible := True;
+
+  Thread := TSaveChangesThread.Create(FPageFile, Snapshot, FRenumber, @UpdateProgress);
+  Thread.OnTerminate := @SaveChangesThreadTerminated;
+  Thread.Start;
 end;
 
 procedure TfrmMain.BtnStageRevertClick(Sender: TObject);
@@ -1266,6 +1371,7 @@ var
   i, n: integer;
 begin
   n := 0;
+  Result := nil;
   SetLength(Result, LVFiles.Items.Count);
   for i := 0 to LVFiles.Items.Count - 1 do
     if AAll or (LVFiles.SelCount = 0) or LVFiles.Items[i].Selected then
@@ -1281,8 +1387,6 @@ begin
   StatusProgress.Position := APercent;
   StatusProgress.Visible := APercent < 100;
   LblStatus.Caption := AMsg;
-  StatusProgress.Update;
-  Application.ProcessMessages;
 end;
 
 procedure TfrmMain.LoadDirectory(const ADir: string);

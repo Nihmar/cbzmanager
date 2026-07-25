@@ -103,6 +103,7 @@ implementation
 
 uses
   Zipper,
+  zstream,
   Math,
   uImgUtil,
   uWebP,
@@ -432,7 +433,8 @@ begin
       for i := 0 to High(Entries) do
       begin
         Entries[i].Data.Position := 0;
-        ZEntries.AddFileEntry(Entries[i].Data, Entries[i].Name);
+        with ZEntries.AddFileEntry(Entries[i].Data, Entries[i].Name) do
+          CompressionLevel := clmax;
       end;
       ZW.ZipFiles(FileName, ZEntries);
     finally

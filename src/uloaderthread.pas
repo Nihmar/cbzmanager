@@ -95,7 +95,8 @@ implementation
 uses
   uLog,
   uimgutil,
-  uzipeditor;
+  uzipeditor,
+  uservicebase;
 
 const
   BatchSize = 4;
@@ -201,21 +202,17 @@ end;
 procedure TLoadThread.Produce;
 var
   Dir, FilePath: string;
-  SearchRec: TSearchRec;
+  FileList: TStringArray;
   Names: TStringList;
   i: integer;
   Img, Small: TLazIntfImage;
 begin
   Dir := IncludeTrailingPathDelimiter(FDir);
+  FileList := CollectCBZFiles(FDir);
   Names := TStringList.Create;
   try
-    if FindFirst(Dir + '*.cbz', faAnyFile, SearchRec) = 0 then
-    begin
-      repeat
-        Names.Add(SearchRec.Name);
-      until FindNext(SearchRec) <> 0;
-      FindClose(SearchRec);
-    end;
+    for i := 0 to High(FileList) do
+      Names.Add(FileList[i]);
     Names.Sort;
     Log('Thread: %d file .cbz trovati in %s', [Names.Count, Dir]);
 

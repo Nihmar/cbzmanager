@@ -5,7 +5,9 @@ uses
   fpcunit,
   testregistry,
   test_uzipeditor,
-  test_uservicemerge;
+  test_uservicemerge,
+  test_uservicevalidate,
+  test_uservicecomicinfo;
 var
   App: TTestRunner;
 begin

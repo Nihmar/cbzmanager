@@ -42,6 +42,7 @@ var
   i: integer;
   FullPath: string;
 begin
+  Result := nil;
   SetLength(Result, Length(AFiles));
   for i := 0 to High(AFiles) do
   begin
@@ -68,7 +69,7 @@ begin
       begin
         Result[i].Valid := False;
         Result[i].ImageCount := 0;
-        Result[i].ErrorMsg := E.Message;
+        Result[i].ErrorMsg := E.ClassName + ': ' + E.Message;
       end;
     end;
   end;
@@ -83,6 +84,7 @@ var
   Checks: TImageChecks;
   j: integer;
 begin
+  Result := nil;
   SetLength(Result, Length(AFiles));
   for i := 0 to High(AFiles) do
   begin
@@ -116,7 +118,7 @@ begin
       begin
         Result[i].Valid := False;
         Result[i].ImageCount := 0;
-        Result[i].ErrorMsg := E.Message;
+        Result[i].ErrorMsg := E.ClassName + ': ' + E.Message;
       end;
     end;
   end;

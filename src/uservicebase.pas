@@ -70,24 +70,34 @@ var
 begin
   OldFile := ChangeFileExt(AFilePath, '') + '_OLD.cbz';
   NewFile := AFilePath + '.new';
+
+  { Step 1: write new CBZ to a temp file. If this fails, original is intact. }
   try
     WriteZipFromEntriesDeflated(NewFile, ANewEntries);
-    if FileExists(OldFile) then
-      DeleteFile(OldFile);
-    Result := RenameFile(AFilePath, OldFile);
-    if Result then
-      Result := RenameFile(NewFile, AFilePath);
-    if not Result then
-    begin
-      { Rollback: try to restore the original }
-      if FileExists(AFilePath) then
-        DeleteFile(AFilePath);
-      RenameFile(OldFile, AFilePath);
-    end;
   except
-    if FileExists(NewFile) then
-      DeleteFile(NewFile);
+    DeleteFile(NewFile);
     Result := False;
+    Exit;
+  end;
+
+  { Step 2: remove any existing _OLD backup }
+  if FileExists(OldFile) then
+    DeleteFile(OldFile);
+
+  { Step 3: move original → _OLD }
+  Result := RenameFile(AFilePath, OldFile);
+  if not Result then
+  begin
+    { Cannot back up — leave .new for manual recovery, abort }
+    Exit;
+  end;
+
+  { Step 4: move .new → original }
+  Result := RenameFile(NewFile, AFilePath);
+  if not Result then
+  begin
+    { Rollback: restore original from _OLD, leave .new as recovery file }
+    RenameFile(OldFile, AFilePath);
   end;
 end;
 

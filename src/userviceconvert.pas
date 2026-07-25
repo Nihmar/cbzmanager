@@ -42,6 +42,7 @@ var
   NewEntries: TZipEntries;
 begin
   Total := Length(AFiles);
+  Result := nil;
   SetLength(Result, Total);
   if Assigned(AOnProgress) and (Total > 0) then
     AOnProgress(0, Format('Converting 0/%d files', [Total]));

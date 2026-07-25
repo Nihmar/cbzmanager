@@ -38,6 +38,7 @@ var
   Entries: TZipEntries;
   j: integer;
 begin
+  Result := nil;
   SetLength(Result, Length(AFiles));
   for i := 0 to High(AFiles) do
   begin
@@ -76,6 +77,7 @@ var
   Found: boolean;
 begin
   Total := Length(AFiles);
+  Result := nil;
   SetLength(Result, Total);
   if Assigned(AOnProgress) and (Total > 0) then
     AOnProgress(0, Format('Scanning 0/%d files', [Total]));
@@ -102,20 +104,16 @@ begin
 
         if not Found then Continue;
 
-        { Filter out ComicInfo.xml entries in-place }
+        { Build filtered output array — transfer ownership from Entries }
         k := 0;
         for j := 0 to High(Entries) do
         begin
           if SameText(Entries[j].Name, COMICINFO_XML) then
-          begin
-            Entries[j].Data.Free;
-            Entries[j].Data := nil;
-            Continue;
-          end;
+            Continue;   { Entries[j].Data will be freed by FreeZipEntries below }
           if j <> k then
           begin
             Entries[k] := Entries[j];
-            Entries[j].Data := nil;
+            Entries[j].Data := nil;  { transferred }
           end;
           Inc(k);
         end;
@@ -128,15 +126,9 @@ begin
         { Write new CBZ without ComicInfo.xml }
         WriteZipFromEntriesDeflated(FullPath, Entries);
 
-        { Free remaining streams }
-        for j := 0 to High(Entries) do
-          Entries[j].Data.Free;
-
         Result[i].Removed := True;
-        Entries := nil;  { prevent double-free in finally }
       finally
-        if Entries <> nil then
-          FreeZipEntries(Entries);
+        FreeZipEntries(Entries);
       end;
     except
       on E: Exception do

@@ -447,13 +447,8 @@ end;
 
 
 function FormatPageName(PageNum, Padding: integer; const Ext: string): string;
-var
-  NumStr: string;
 begin
-  NumStr := IntToStr(PageNum);
-  while Length(NumStr) < Padding do
-    NumStr := '0' + NumStr;
-  Result := 'page_' + NumStr + Ext;
+  Result := 'page_' + Format('%.*d', [Padding, PageNum]) + Ext;
 end;
 
 function IsConvertibleExt(const Ext: string): boolean;
@@ -611,33 +606,16 @@ end;
 function MergeIntoVolume(const SourceFiles: TStringArray;
   const ADir: string): TZipEntries;
 var
-  i, j, PageNum, TotalImages, Padding: integer;
+  i, j, PageNum, Padding: integer;
   SrcPath: string;
   Entries: TZipEntries;
-  Ext: string;
 begin
   Result := nil;
   if Length(SourceFiles) = 0 then Exit;
 
-  { Count total images across all sources }
-  TotalImages := 0;
-  for i := 0 to High(SourceFiles) do
-  begin
-    SrcPath := IncludeTrailingPathDelimiter(ADir) + SourceFiles[i];
-    Entries := CollectZipEntries(SrcPath);
-    for j := 0 to High(Entries) do
-      if not SameText(Entries[j].Name, COMICINFO_XML) then
-        Inc(TotalImages);
-    FreeZipEntries(Entries);
-  end;
-  Padding := 3;
-  if TotalImages > 999 then Padding := 4;
-  if TotalImages > 9999 then Padding := 5;
-
-  { Allocate result (worst case) }
-  SetLength(Result, TotalImages);
+  { Single pass: collect all entries, transfer Data ownership from each CBZ.
+    Store original extensions in the Name field as a temporary placeholder. }
   PageNum := 0;
-
   for i := 0 to High(SourceFiles) do
   begin
     SrcPath := IncludeTrailingPathDelimiter(ADir) + SourceFiles[i];
@@ -647,19 +625,25 @@ begin
       begin
         if SameText(Entries[j].Name, COMICINFO_XML) then
           Continue;
-        Ext := ExtractFileExt(Entries[j].Name);
+        { Transfer ownership: move Data pointer, nil the source }
+        SetLength(Result, PageNum + 1);
+        Result[PageNum].Name := LowerCase(ExtractFileExt(Entries[j].Name));
+        Result[PageNum].Data := Entries[j].Data;
+        Entries[j].Data := nil;
         Inc(PageNum);
-        Result[PageNum - 1].Name := FormatPageName(PageNum, Padding, Ext);
-        Result[PageNum - 1].Data := TMemoryStream.Create;
-        Entries[j].Data.Position := 0;
-        Result[PageNum - 1].Data.CopyFrom(Entries[j].Data, Entries[j].Data.Size);
       end;
     finally
-      FreeZipEntries(Entries);
+      FreeZipEntries(Entries);  { frees only ComicInfo.xml streams (nil'd survivors) }
     end;
   end;
 
-  SetLength(Result, PageNum);
+  { Rename all pages with final zero-padded names }
+  Padding := 3;
+  if PageNum > 999 then Padding := 4;
+  if PageNum > 9999 then Padding := 5;
+
+  for i := 0 to PageNum - 1 do
+    Result[i].Name := FormatPageName(i + 1, Padding, Result[i].Name);
 end;
 
 function FilterPagesFromCBZ(const FileName: string;

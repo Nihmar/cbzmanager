@@ -1,0 +1,67 @@
+object dlgValidate: TdlgValidate
+  Left = 400
+  Height = 420
+  Top = 150
+  Width = 640
+  BorderIcons = [biSystemMenu]
+  BorderStyle = bsDialog
+  Caption = 'Validation results'
+  ClientHeight = 420
+  ClientWidth = 640
+  Position = poScreenCenter
+  LCLVersion = '4.8.0.0'
+  OnCreate = FormCreate
+  object LVResult: TListView
+    Left = 8
+    Height = 360
+    Top = 8
+    Width = 624
+    Align = alClient
+    BorderSpacing.Around = 8
+    Columns = <
+      item
+        AutoSize = True
+        Caption = 'File'
+      end
+      item
+        Caption = 'Result'
+        Width = 80
+      end
+      item
+        Alignment = taRightJustify
+        Caption = 'Immagini'
+        Width = 80
+      end
+      item
+        AutoSize = True
+        Caption = 'Note'
+      end>
+    GridLines = True
+    ReadOnly = True
+    RowSelect = True
+    TabOrder = 0
+    ViewStyle = vsReport
+  end
+  object PanelBottom: TPanel
+    Left = 0
+    Height = 44
+    Top = 376
+    Width = 640
+    Align = alBottom
+    BevelOuter = bvNone
+    ClientHeight = 44
+    ClientWidth = 640
+    TabOrder = 1
+    object BtnClose: TButton
+      Left = 552
+      Height = 30
+      Top = 7
+      Width = 80
+      Cancel = True
+      Caption = 'Close'
+      Default = True
+      ModalResult = mrOk
+      TabOrder = 0
+    end
+  end
+end

@@ -1,0 +1,104 @@
+object dlgSimilar: TdlgSimilar
+  Left = 200
+  Height = 480
+  Top = 100
+  Width = 720
+  BorderIcons = [biSystemMenu]
+  BorderStyle = bsDialog
+  Caption = 'Find similar pages'
+  ClientHeight = 480
+  ClientWidth = 720
+  Position = poScreenCenter
+  LCLVersion = '4.8.0.0'
+  OnCreate = FormCreate
+  object LabelThreshold: TLabel
+    Left = 12
+    Height = 16
+    Top = 12
+    Width = 100
+    Caption = 'Hamming threshold'
+    Font.Height = -13
+    Font.Style = [fsBold]
+    ParentFont = False
+  end
+  object LblThresholdVal: TLabel
+    Left = 660
+    Height = 16
+    Top = 36
+    Width = 48
+    Alignment = taRightJustify
+    Caption = '10'
+  end
+  object TrackThreshold: TTrackBar
+    Left = 12
+    Height = 36
+    Top = 32
+    Width = 640
+    Frequency = 1
+    Max = 16
+    Min = 0
+    Position = 10
+    TabOrder = 0
+    OnChange = TrackThresholdChange
+  end
+  object LVGroups: TListView
+    Left = 8
+    Height = 376
+    Top = 80
+    Width = 704
+    Align = alCustom
+    BorderSpacing.Around = 8
+    Columns = <
+      item
+        Caption = 'Gruppo'
+        Width = 80
+      end
+      item
+        AutoSize = True
+        Caption = 'File: Page'
+      end>
+    GridLines = True
+    ReadOnly = True
+    RowSelect = True
+    TabOrder = 1
+    ViewStyle = vsReport
+  end
+  object PanelBottom: TPanel
+    Left = 0
+    Height = 44
+    Top = 436
+    Width = 720
+    Align = alBottom
+    BevelOuter = bvNone
+    ClientHeight = 44
+    ClientWidth = 720
+    TabOrder = 2
+    object BtnExtract: TButton
+      Left = 456
+      Height = 30
+      Top = 7
+      Width = 120
+      Caption = 'Extract to folder...'
+      TabOrder = 0
+    end
+    object BtnDeleteDups: TButton
+      Left = 584
+      Height = 30
+      Top = 7
+      Width = 120
+      Caption = 'Delete duplicates'
+      TabOrder = 1
+    end
+    object BtnClose: TButton
+      Left = 12
+      Height = 30
+      Top = 7
+      Width = 80
+      Cancel = True
+      Caption = 'Close'
+      Default = True
+      ModalResult = mrOk
+      TabOrder = 2
+    end
+  end
+end

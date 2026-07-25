@@ -1,42 +1,238 @@
 object frmMain: TfrmMain
   Left = 368
-  Height = 600
+  Height = 650
   Top = 100
-  Width = 900
+  Width = 1000
   Caption = 'CBZ Manager'
-  ClientHeight = 600
-  ClientWidth = 900
+  ClientHeight = 650
+  ClientWidth = 1000
   KeyPreview = True
+  Menu = MainMenu
+  ShowHint = True
   LCLVersion = '4.8.0.0'
   OnCreate = FormCreate
   OnDestroy = FormDestroy
   OnKeyDown = FormKeyDown
   OnResize = FormResize
+  object MainMenu: TMainMenu
+    Left = 8
+    Top = 0
+    object MnuFile: TMenuItem
+      Caption = '&File'
+      object MnuOpenFile: TMenuItem
+        Caption = 'Open file'
+        OnClick = MnuOpenFileClick
+      end
+      object MnuBrowse: TMenuItem
+        Caption = 'Browse...'
+        ShortCut = 16463
+        OnClick = BtnBrowseClick
+      end
+      object SepFile1: TMenuItem
+        Caption = '-'
+      end
+      object MnuValidate: TMenuItem
+        Caption = 'Validate'
+        ShortCut = 119
+        OnClick = MnuValidateClick
+      end
+      object MnuConvertWebP: TMenuItem
+        Caption = 'Convert to WebP...'
+        OnClick = MnuConvertWebPClick
+      end
+      object MnuMerge: TMenuItem
+        Caption = 'Merge into volumes...'
+        OnClick = MnuMergeClick
+      end
+      object MnuFindSimilar: TMenuItem
+        Caption = 'Find similar pages...'
+        OnClick = MnuFindSimilarClick
+      end
+      object SepFile2: TMenuItem
+        Caption = '-'
+      end
+      object MnuExit: TMenuItem
+        Caption = 'Exit'
+        OnClick = MnuExitClick
+      end
+    end
+    object MnuArchive: TMenuItem
+      Caption = '&Archive'
+      object MnuRemoveComicInfo: TMenuItem
+        Caption = 'Remove ComicInfo.xml...'
+        OnClick = MnuRemoveComicInfoClick
+      end
+      object MnuDeleteRows: TMenuItem
+        Caption = 'Delete rows...'
+        OnClick = MnuDeleteRowsClick
+      end
+      object MnuDeleteByID: TMenuItem
+        Caption = 'Delete pages by ID...'
+        OnClick = MnuDeleteByIDClick
+      end
+      object SepArch1: TMenuItem
+        Caption = '-'
+      end
+      object MnuReload: TMenuItem
+        Caption = 'Refresh'
+        ShortCut = 116
+        OnClick = MnuReloadClick
+      end
+    end
+    object MnuPages: TMenuItem
+      Caption = '&Pages'
+      object MnuPageDelete: TMenuItem
+        Caption = 'Delete page(s)'
+        OnClick = MnuPageDeleteClick
+      end
+      object MnuPageDeleteRows: TMenuItem
+        Caption = 'Delete rows...'
+        OnClick = MnuDeleteRowsClick
+      end
+      object SepPag1: TMenuItem
+        Caption = '-'
+      end
+      object MnuPageMoveUp: TMenuItem
+        Caption = 'Move up'
+        ShortCut = 32781
+        OnClick = MnuPageMoveUpClick
+      end
+      object MnuPageMoveDown: TMenuItem
+        Caption = 'Move down'
+        ShortCut = 32779
+        OnClick = MnuPageMoveDownClick
+      end
+      object MnuPageMoveStart: TMenuItem
+        Caption = 'Move to start'
+        OnClick = MnuPageMoveStartClick
+      end
+      object MnuPageMoveEnd: TMenuItem
+        Caption = 'Move to end'
+        OnClick = MnuPageMoveEndClick
+      end
+      object SepPag2: TMenuItem
+        Caption = '-'
+      end
+      object MnuPageSort: TMenuItem
+        Caption = 'Sort by name'
+        OnClick = MnuPageSortClick
+      end
+      object MnuPageReverse: TMenuItem
+        Caption = 'Reverse order'
+        OnClick = MnuPageReverseClick
+      end
+      object SepPag3: TMenuItem
+        Caption = '-'
+      end
+      object MnuPageRenumber: TMenuItem
+        Caption = 'Renumber'
+        OnClick = MnuPageRenumberClick
+      end
+    end
+    object MnuView: TMenuItem
+      Caption = '&View'
+      object MnuTogglePreview: TMenuItem
+        Caption = 'Preview'
+        ShortCut = 115
+        OnClick = MnuTogglePreviewClick
+      end
+      object SepView1: TMenuItem
+        Caption = '-'
+      end
+      object MnuZoomIn: TMenuItem
+        Caption = 'Zoom in'
+        ShortCut = 16439
+        OnClick = MnuZoomInClick
+      end
+      object MnuZoomOut: TMenuItem
+        Caption = 'Zoom out'
+        ShortCut = 16427
+        OnClick = MnuZoomOutClick
+      end
+    end
+  end
+  object ToolBar: TToolBar
+    Left = 0
+    Height = 42
+    Top = 0
+    Width = 1000
+    Align = alTop
+    AutoSize = True
+    BorderWidth = 4
+    Caption = 'ToolBar'
+    EdgeBorders = [ebBottom]
+    EdgeInner = esNone
+    EdgeOuter = esNone
+    Images = ILToolbar
+    ShowCaptions = True
+    TabOrder = 0
+    object TbBrowse: TToolButton
+      Caption = 'Browse'
+      OnClick = BtnBrowseClick
+    end
+    object TbSep1: TToolButton
+      Left = 48
+      Style = tbsSeparator
+    end
+    object TbValidate: TToolButton
+      Left = 53
+      Caption = 'Validate'
+      OnClick = MnuValidateClick
+    end
+    object TbConvertWebP: TToolButton
+      Left = 93
+      Caption = 'Convert WebP'
+      OnClick = MnuConvertWebPClick
+    end
+    object TbMerge: TToolButton
+      Left = 153
+      Caption = 'Merge'
+      OnClick = MnuMergeClick
+    end
+    object TbFindSimilar: TToolButton
+      Left = 198
+      Caption = 'Find similar'
+      OnClick = MnuFindSimilarClick
+    end
+    object TbSep2: TToolButton
+      Left = 263
+      Style = tbsSeparator
+    end
+    object TbTogglePreview: TToolButton
+      Left = 268
+      Caption = 'Preview'
+      OnClick = MnuTogglePreviewClick
+    end
+  end
   object PanelTop: TPanel
     Left = 0
-    Height = 36
-    Top = 0
-    Width = 900
+    Height = 38
+    Top = 42
+    Width = 1000
     Align = alTop
     BevelOuter = bvNone
-    ClientHeight = 36
-    ClientWidth = 900
-    TabOrder = 0
+    ClientHeight = 38
+    ClientWidth = 1000
+    TabOrder = 1
     object EditDir: TEdit
       Left = 4
-      Height = 28
+      Height = 30
       Top = 4
-      Width = 812
+      Width = 896
       Align = alClient
       BorderSpacing.Around = 4
+      Font.Height = -13
+      Font.Name = 'Cascadia Code'
+      Font.Pitch = fpFixed
+      ParentFont = False
       ReadOnly = True
       TabOrder = 0
     end
     object BtnBrowse: TButton
-      Left = 820
-      Height = 28
+      Left = 904
+      Height = 30
       Top = 4
-      Width = 76
+      Width = 92
       Align = alRight
       BorderSpacing.Around = 4
       Caption = 'Browse...'
@@ -46,46 +242,77 @@ object frmMain: TfrmMain
   end
   object PanelBottom: TPanel
     Left = 0
-    Height = 32
-    Top = 568
-    Width = 900
+    Height = 28
+    Top = 622
+    Width = 1000
     Align = alBottom
     BevelOuter = bvNone
-    ClientHeight = 32
-    ClientWidth = 900
-    TabOrder = 1
-    object ZoomScroll: TTrackBar
-      Left = 749
-      Height = 24
+    BorderSpacing.Around = 0
+    ClientHeight = 28
+    ClientWidth = 1000
+    TabOrder = 2
+    object LblZoomVal: TLabel
+      Left = 958
+      Height = 20
       Top = 4
-      Width = 147
+      Width = 38
+      Align = alRight
+      Alignment = taCenter
+      AutoSize = False
+      BorderSpacing.Around = 4
+      Caption = '128'
+      Layout = tlCenter
+    end
+    object ZoomScroll: TTrackBar
+      Left = 828
+      Height = 28
+      Top = 0
+      Width = 130
+      Align = alRight
       Frequency = 8
-      Max = 256
-      Min = 12
-      Position = 96
+      Max = 320
+      Min = 48
+      Position = 128
+      TabOrder = 0
       OnChange = ZoomScrollChange
+      OnMouseWheel = ZoomScrollMouseWheel
+    end
+    object StatusProgress: TProgressBar
+      Left = 678
+      Height = 20
+      Top = 4
+      Width = 150
       Align = alRight
       BorderSpacing.Around = 4
-      TabOrder = 0
-      OnMouseWheel = ZoomScrollMouseWheel
+      TabOrder = 1
+      Visible = False
+    end
+    object LblStatus: TLabel
+      Left = 4
+      Height = 20
+      Top = 4
+      Width = 674
+      Align = alClient
+      BorderSpacing.Around = 4
+      Caption = 'Ready'
+      Layout = tlCenter
     end
   end
   object PanelMiddle: TPanel
     Left = 0
-    Height = 532
-    Top = 36
-    Width = 900
+    Height = 582
+    Top = 80
+    Width = 1000
     Align = alClient
-    AutoSize = True
     BevelOuter = bvNone
-    ClientHeight = 532
-    ClientWidth = 900
-    TabOrder = 2
+    ClientHeight = 582
+    ClientWidth = 1000
+    TabOrder = 3
     object LVFiles: TListView
       Left = 4
-      Height = 524
+      Height = 574
       Top = 4
-      Width = 464
+      Width = 504
       Align = alClient
       BorderSpacing.Around = 4
       Columns = <>
@@ -101,54 +328,245 @@ object frmMain: TfrmMain
       OnMouseDown = LVFilesMouseDown
     end
     object PanelSingleFile: TPanel
-      Left = 476
-      Height = 532
+      Left = 520
+      Height = 582
       Top = 0
-      Width = 424
+      Width = 480
       Align = alRight
       BevelOuter = bvNone
-      ClientHeight = 532
-      ClientWidth = 424
+      ClientHeight = 582
+      ClientWidth = 480
       TabOrder = 1
       Visible = False
       object PanelPreviewTop: TPanel
         Left = 0
-        Height = 28
+        Height = 30
         Top = 0
-        Width = 424
+        Width = 480
         Align = alTop
         BevelOuter = bvNone
-        ClientHeight = 28
-        ClientWidth = 424
+        BorderSpacing.Around = 0
+        ClientHeight = 30
+        ClientWidth = 480
         TabOrder = 0
         object LblPreviewFile: TLabel
           Left = 4
-          Height = 20
+          Height = 22
           Top = 4
-          Width = 388
+          Width = 406
           Align = alClient
           BorderSpacing.Around = 4
           Caption = ' '
+          Font.Height = -13
+          Font.Style = [fsBold]
           Layout = tlCenter
+          ParentFont = False
           ShowAccelChar = False
         end
-        object BtnClosePreview: TButton
-          Left = 396
-          Height = 24
-          Top = 2
-          Width = 26
+        object LblPageCount: TLabel
+          Left = 410
+          Height = 22
+          Top = 4
+          Width = 44
           Align = alRight
-          BorderSpacing.Around = 2
+          BorderSpacing.Around = 4
+          Caption = '0 pages'
+          Layout = tlCenter
+        end
+        object BtnClosePreview: TButton
+          Left = 454
+          Height = 24
+          Top = 3
+          Width = 24
+          Align = alRight
+          BorderSpacing.Around = 3
           Caption = 'X'
+          Hint = 'Close preview (Esc)'
+          ShowHint = True
           TabOrder = 0
           OnClick = BtnClosePreviewClick
         end
       end
+      object PanelPageTools: TPanel
+        Left = 0
+        Height = 30
+        Top = 30
+        Width = 480
+        Align = alTop
+        AutoSize = True
+        BevelOuter = bvNone
+        BorderSpacing.Around = 0
+        ClientHeight = 30
+        ClientWidth = 480
+        ShowHint = True
+        TabOrder = 1
+        object BtnPgDelete: TButton
+          Left = 4
+          Height = 26
+          Top = 2
+          Width = 80
+          BorderSpacing.Around = 2
+          Caption = 'Delete'
+          TabOrder = 0
+          OnClick = BtnPgDeleteClick
+        end
+        object BtnPgDeleteRows: TButton
+          Left = 88
+          Height = 26
+          Top = 2
+          Width = 80
+          BorderSpacing.Around = 2
+          Caption = 'Delete rows...'
+          TabOrder = 1
+          OnClick = MnuDeleteRowsClick
+        end
+        object SepPt1: TPanel
+          Left = 172
+          Height = 26
+          Top = 2
+          Width = 4
+          BorderSpacing.Around = 2
+          BorderWidth = 0
+          TabOrder = 2
+        end
+        object BtnPgMoveUp: TButton
+          Left = 180
+          Height = 26
+          Top = 2
+          Width = 30
+          BorderSpacing.Around = 2
+          Caption = #9650
+          Hint = 'Move page up'
+          ShowHint = True
+          TabOrder = 3
+          OnClick = BtnPgMoveUpClick
+        end
+        object BtnPgMoveDown: TButton
+          Left = 214
+          Height = 26
+          Top = 2
+          Width = 30
+          BorderSpacing.Around = 2
+          Caption = #9660
+          Hint = 'Move down|Move page down'
+          ShowHint = True
+          TabOrder = 4
+          OnClick = BtnPgMoveDownClick
+        end
+        object BtnPgMoveStart: TButton
+          Left = 248
+          Height = 26
+          Top = 2
+          Width = 30
+          BorderSpacing.Around = 2
+          Caption = #9198
+          Hint = 'Move to start'
+          ShowHint = True
+          TabOrder = 5
+          OnClick = BtnPgMoveStartClick
+        end
+        object BtnPgMoveEnd: TButton
+          Left = 282
+          Height = 26
+          Top = 2
+          Width = 30
+          BorderSpacing.Around = 2
+          Caption = #9197
+          Hint = 'Move to end'
+          ShowHint = True
+          TabOrder = 6
+          OnClick = BtnPgMoveEndClick
+        end
+        object SepPt2: TPanel
+          Left = 316
+          Height = 26
+          Top = 2
+          Width = 4
+          BorderSpacing.Around = 2
+          BorderWidth = 0
+          TabOrder = 7
+        end
+        object BtnPgSort: TButton
+          Left = 324
+          Height = 26
+          Top = 2
+          Width = 30
+          BorderSpacing.Around = 2
+          Caption = #9650#9660
+          Hint = 'Sort by name'
+          ShowHint = True
+          TabOrder = 8
+          OnClick = BtnPgSortClick
+        end
+        object BtnPgReverse: TButton
+          Left = 358
+          Height = 26
+          Top = 2
+          Width = 30
+          BorderSpacing.Around = 2
+          Caption = #8646
+          Hint = 'Reverse order'
+          ShowHint = True
+          TabOrder = 9
+          OnClick = BtnPgReverseClick
+        end
+      end
+      object PanelStageBar: TPanel
+        Left = 0
+        Height = 34
+        Top = 60
+        Width = 480
+        Align = alTop
+        AutoSize = True
+        BevelOuter = bvNone
+        ClientHeight = 34
+        ClientWidth = 480
+        TabOrder = 2
+        Visible = False
+        object ShapeStageDot: TShape
+          Left = 8
+          Height = 10
+          Top = 12
+          Width = 10
+          Brush.Color = 10311296
+          Shape = stCircle
+        end
+        object LblStageMsg: TLabel
+          Left = 24
+          Height = 22
+          Top = 6
+          Width = 298
+          Align = alClient
+          BorderSpacing.Around = 6
+          Caption = 'Pending changes: 2 deleted, 3 moved'
+          Layout = tlCenter
+        end
+        object BtnStageRevert: TButton
+          Left = 326
+          Height = 26
+          Top = 4
+          Width = 70
+          BorderSpacing.Around = 4
+          Caption = 'Undo'
+          TabOrder = 0
+          OnClick = BtnStageRevertClick
+        end
+        object BtnStageSave: TButton
+          Left = 400
+          Height = 26
+          Top = 4
+          Width = 76
+          BorderSpacing.Around = 4
+          Caption = 'Save changes'
+          TabOrder = 1
+          OnClick = BtnStageSaveClick
+        end
+      end
       object LVPages: TListView
         Left = 4
-        Height = 496
-        Top = 32
-        Width = 416
+        Height = 484
+        Top = 94
+        Width = 472
         Align = alClient
         BorderSpacing.Around = 4
         Columns = <>
@@ -156,14 +574,18 @@ object frmMain: TfrmMain
         IconOptions.AutoArrange = True
         LargeImages = ILPages
         MultiSelect = True
+        PopupMenu = PMPages
         ScrollBars = ssAutoVertical
-        TabOrder = 1
+        TabOrder = 3
         ViewStyle = vsIcon
+        OnDragDrop = LVPagesDragDrop
+        OnDragOver = LVPagesDragOver
+        OnMouseDown = LVFilesMouseDown
       end
     end
     object SplitterPreview: TSplitter
-      Left = 471
-      Height = 532
+      Left = 515
+      Height = 582
       Top = 0
       Width = 5
       Align = alRight
@@ -172,9 +594,9 @@ object frmMain: TfrmMain
     end
   end
   object SelectDialog: TSelectDirectoryDialog
-    Title = 'Select folder with CBZ files'
+    Title = 'Seleziona cartella con file CBZ'
     Left = 40
-    Top = 72
+    Top = 80
   end
   object ILFilesFirstPages: TImageList
     Height = 96
@@ -188,14 +610,83 @@ object frmMain: TfrmMain
     Left = 571
     Top = 371
   end
+  object ILToolbar: TImageList
+    Height = 24
+    Width = 24
+    Left = 571
+    Top = 443
+  end
   object PMFiles: TPopupMenu
     Left = 40
     Top = 144
     OnPopup = PMFilesPopup
-    object MnuOpenFile: TMenuItem
-      Caption = 'Apri file'
+    object MnuCtxOpenFile: TMenuItem
+      Caption = 'Open file'
       Default = True
       OnClick = MnuOpenFileClick
+    end
+    object MnuCtxRemoveComicInfo: TMenuItem
+      Caption = 'Remove ComicInfo.xml...'
+      OnClick = MnuRemoveComicInfoClick
+    end
+    object MnuCtxDeleteRows: TMenuItem
+      Caption = 'Delete rows...'
+      OnClick = MnuDeleteRowsClick
+    end
+    object MnuCtxReorder: TMenuItem
+      Caption = 'Reorder pages...'
+      OnClick = MnuOpenFileClick
+    end
+    object SepCtx1: TMenuItem
+      Caption = '-'
+    end
+    object MnuCtxValidate: TMenuItem
+      Caption = 'Validate'
+      OnClick = MnuValidateClick
+    end
+    object MnuCtxConvertWebP: TMenuItem
+      Caption = 'Convert to WebP...'
+      OnClick = MnuConvertWebPClick
+    end
+    object MnuCtxMerge: TMenuItem
+      Caption = 'Merge into volumes...'
+      OnClick = MnuMergeClick
+    end
+    object MnuCtxFindSimilar: TMenuItem
+      Caption = 'Find similar pages...'
+      OnClick = MnuFindSimilarClick
+    end
+  end
+  object PMPages: TPopupMenu
+    Left = 40
+    Top = 200
+    OnPopup = PMPagesPopup
+    object MnuPgDelete: TMenuItem
+      Caption = 'Delete page(s)'
+      OnClick = MnuPageDeleteClick
+    end
+    object MnuPgDeleteRows: TMenuItem
+      Caption = 'Delete rows...'
+      OnClick = MnuDeleteRowsClick
+    end
+    object SepPg1: TMenuItem
+      Caption = '-'
+    end
+    object MnuPgMoveUp: TMenuItem
+      Caption = 'Move up'
+      OnClick = MnuPageMoveUpClick
+    end
+    object MnuPgMoveDown: TMenuItem
+      Caption = 'Move down'
+      OnClick = MnuPageMoveDownClick
+    end
+    object MnuPgMoveStart: TMenuItem
+      Caption = 'Move to start'
+      OnClick = MnuPageMoveStartClick
+    end
+    object MnuPgMoveEnd: TMenuItem
+      Caption = 'Move to end'
+      OnClick = MnuPageMoveEndClick
     end
   end
   object TimerDebounceZoom: TTimer

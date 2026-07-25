@@ -16,7 +16,8 @@ uses
   uZipEditor,
   uWebP,
   uImgUtil,
-  uLog, uloaderthread;
+  uLog, uloaderthread, udlgrows, udlgvalidate, udlgcomicinfo, udlgwebp,
+  udlgmerge, udlgsimilar, udlgbyid;
 
   {$R *.res}
 

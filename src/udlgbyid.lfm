@@ -1,0 +1,97 @@
+object dlgByID: TdlgByID
+  Left = 400
+  Height = 400
+  Top = 150
+  Width = 520
+  BorderIcons = [biSystemMenu]
+  BorderStyle = bsDialog
+  Caption = 'Delete pages by ID'
+  ClientHeight = 400
+  ClientWidth = 520
+  Position = poScreenCenter
+  LCLVersion = '4.8.0.0'
+  OnCreate = FormCreate
+  object MemoIDs: TMemo
+    Left = 12
+    Height = 160
+    Top = 12
+    Width = 496
+    Align = alCustom
+    Font.Height = -13
+    Font.Name = 'Cascadia Code'
+    Font.Pitch = fpFixed
+    Lines.Strings = (
+      'One Piece - 0001.cbz:page_0018.jpg'
+      'One Piece - 0002.cbz:page_0017.jpg'
+      'One Piece - 0005.cbz:page_0009.jpg')
+    ParentFont = False
+    ScrollBars = ssAutoVertical
+    TabOrder = 0
+    OnChange = MemoIDsChange
+  end
+  object LblHint: TLabel
+    Left = 12
+    Height = 32
+    Top = 180
+    Width = 496
+    Caption = 'One ID per line, format: filename.cbz:entry.ext. Unmatched entries are reported and skipped.'
+    WordWrap = True
+  end
+  object LblCount: TLabel
+    Left = 12
+    Height = 16
+    Top = 224
+    Width = 80
+    Caption = '0 valid IDs'
+  end
+  object BtnLoadCSV: TButton
+    Left = 12
+    Height = 28
+    Top = 248
+    Width = 120
+    Caption = 'Load from CSV...'
+    TabOrder = 1
+  end
+  object CbRenumber: TCheckBox
+    Left = 12
+    Height = 24
+    Top = 288
+    Width = 496
+    Caption = 'Renumber pages in every affected archive'
+    Checked = True
+    State = cbChecked
+    TabOrder = 2
+  end
+  object PanelBottom: TPanel
+    Left = 0
+    Height = 44
+    Top = 356
+    Width = 520
+    Align = alBottom
+    BevelOuter = bvNone
+    ClientHeight = 44
+    ClientWidth = 520
+    TabOrder = 3
+    object BtnDelete: TButton
+      Left = 344
+      Height = 30
+      Top = 7
+      Width = 80
+      Caption = 'Delete'
+      Default = True
+      Enabled = False
+      ModalResult = mrOk
+      TabOrder = 0
+    end
+    object BtnClose: TButton
+      Left = 432
+      Height = 30
+      Top = 7
+      Width = 80
+      Cancel = True
+      Caption = 'Cancel'
+      ModalResult = mrCancel
+      TabOrder = 1
+    end
+  end
+end

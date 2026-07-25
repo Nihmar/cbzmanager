@@ -1,0 +1,69 @@
+object dlgComicInfo: TdlgComicInfo
+  Left = 400
+  Height = 400
+  Top = 150
+  Width = 560
+  BorderIcons = [biSystemMenu]
+  BorderStyle = bsDialog
+  Caption = 'Remove ComicInfo.xml'
+  ClientHeight = 400
+  ClientWidth = 560
+  Position = poScreenCenter
+  LCLVersion = '4.8.0.0'
+  OnCreate = FormCreate
+  object LVFiles: TListView
+    Left = 8
+    Height = 296
+    Top = 8
+    Width = 544
+    Align = alClient
+    BorderSpacing.Around = 8
+    Checkboxes = True
+    Columns = <
+      item
+        AutoSize = True
+        Caption = 'File'
+      end
+      item
+        Caption = 'ComicInfo.xml'
+        Width = 120
+      end>
+    GridLines = True
+    ReadOnly = True
+    RowSelect = True
+    TabOrder = 0
+    ViewStyle = vsReport
+  end
+  object PanelBottom: TPanel
+    Left = 0
+    Height = 88
+    Top = 312
+    Width = 560
+    Align = alBottom
+    BevelOuter = bvNone
+    ClientHeight = 88
+    ClientWidth = 560
+    TabOrder = 1
+    object CbBackup: TCheckBox
+      Left = 12
+      Height = 24
+      Top = 8
+      Width = 540
+      Caption = 'Create backup (_OLD.cbz) prima di riscrivere'
+      Checked = True
+      State = cbChecked
+      TabOrder = 0
+    end
+    object BtnClose: TButton
+      Left = 472
+      Height = 30
+      Top = 44
+      Width = 80
+      Cancel = True
+      Caption = 'Close'
+      Default = True
+      ModalResult = mrOk
+      TabOrder = 1
+    end
+  end
+end

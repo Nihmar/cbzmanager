@@ -23,7 +23,8 @@ uses
 type
   { In-memory page state for the editing model }
   TPageState = record
-    Name: string;          // entry name inside CBZ
+    Name: string;          // current entry name inside CBZ
+    OrigName: string;      // original entry name at open time
     Image: TLazIntfImage;  // cached thumbnail (writable copy)
     Gone: boolean;         // marked for deletion
     OrigIndex: integer;    // original position at open time
@@ -245,6 +246,7 @@ uses
   LCLType,
   uImgUtil,
   uLog,
+  Zipper,
   udlgrows,
   udlgvalidate,
   udlgcomicinfo,
@@ -1059,45 +1061,133 @@ end;
 
 procedure TfrmMain.BtnStageSaveClick(Sender: TObject);
 var
-  i, j: integer;
+  i, j, PageNum: integer;
+  TempDir, OldFile, NewFile, SrcFile: string;
+  UnZipper: TUnZipper;
+  Zipper: TZipper;
+  FilesToZip: TStringList;
+  NewName: string;
+  PageExt: string;
+  SearchRec: TSearchRec;
 begin
   if Length(FChanges) = 0 then Exit;
   if FPageFile = '' then Exit;
-  { Remove deleted pages }
-  j := 0;
-  for i := 0 to High(FPages) do
-  begin
-    if not FPages[i].Gone then
-    begin
-      if i <> j then
-        FPages[j] := FPages[i];
-      Inc(j);
+
+  TempDir := IncludeTrailingPathDelimiter(GetTempDir) + 'cbz_save_'
+    + IntToStr(PtrUInt(Self));
+  OldFile := ChangeFileExt(FPageFile, '') + '_OLD.cbz';
+  NewFile := FPageFile + '.new';
+  ForceDirectories(TempDir);
+
+  try
+    { Step 1: Extract all original entries to temp dir }
+    UnZipper := TUnZipper.Create;
+    try
+      UnZipper.FileName := FPageFile;
+      UnZipper.OutputPath := TempDir;
+      UnZipper.Examine;
+      { We need to extract all entries — TUnZipper.ExtractFiles can do it }
+      // TUnZipper doesn't have ExtractAllFiles directly, but we can iterate
+      UnZipper.UnZipAllFiles;
+    finally
+      UnZipper.Free;
     end;
-  end;
-  SetLength(FPages, j);
-  { Renumber if requested }
-  if FRenumber then
-  begin
-    j := 1;
+
+    { Step 2: Remove files for deleted pages, rename survivors }
     for i := 0 to High(FPages) do
     begin
-      if FPages[i].Gone then Continue;
-      FPages[i].Name := Format('page_%.4d%s', [j, ExtractFileExt(FPages[i].Name)]);
-      Inc(j);
+      if FPages[i].Gone then
+      begin
+        SrcFile := TempDir + DirectorySeparator + FPages[i].OrigName;
+        if FileExists(SrcFile) then DeleteFile(SrcFile);
+      end;
+    end;
+
+    { Step 3: Apply renumber (rename temp files) }
+    if FRenumber then
+    begin
+      PageNum := 1;
+      for i := 0 to High(FPages) do
+      begin
+        if FPages[i].Gone then Continue;
+        SrcFile := TempDir + DirectorySeparator + FPages[i].OrigName;
+        PageExt := ExtractFileExt(FPages[i].OrigName);
+        NewName := Format('page_%.4d%s', [PageNum, PageExt]);
+        if SrcFile <> TempDir + DirectorySeparator + NewName then
+        begin
+          if FileExists(SrcFile) then
+            RenameFile(SrcFile, TempDir + DirectorySeparator + NewName);
+        end;
+        FPages[i].Name := NewName;
+        Inc(PageNum);
+      end;
+    end;
+
+    { Step 4: Build list of files to zip }
+    FilesToZip := TStringList.Create;
+    try
+      for i := 0 to High(FPages) do
+      begin
+        if FPages[i].Gone then Continue;
+        SrcFile := TempDir + DirectorySeparator + FPages[i].Name;
+        if FileExists(SrcFile) then
+          FilesToZip.Add(SrcFile);
+      end;
+
+      { Step 5: Create the new CBZ }
+      Zipper := TZipper.Create;
+      try
+        Zipper.FileName := NewFile;
+        Zipper.ZipFiles(FilesToZip);
+      finally
+        Zipper.Free;
+      end;
+    finally
+      FilesToZip.Free;
+    end;
+
+    { Step 6: Replace old file with new }
+    if FileExists(OldFile) then DeleteFile(OldFile);
+    RenameFile(FPageFile, OldFile);
+    RenameFile(NewFile, FPageFile);
+
+    { Step 7: Update model }
+    j := 0;
+    for i := 0 to High(FPages) do
+      if not FPages[i].Gone then
+      begin
+        if i <> j then FPages[j] := FPages[i];
+        FPages[j].OrigName := FPages[j].Name;
+        Inc(j);
+      end;
+    SetLength(FPages, j);
+    SetLength(FBaseline, Length(FPages));
+    for i := 0 to High(FPages) do
+    begin
+      FBaseline[i] := FPages[i];
+      FBaseline[i].OrigIndex := i;
+    end;
+    FChanges := nil;
+    FRenumber := True;
+    PanelStageBar.Visible := False;
+    RenderPages;
+    SetStatus(Format('Changes saved: %d pages', [Length(FPages)]));
+  finally
+    { Clean up temp directory }
+    if DirectoryExists(TempDir) then
+    begin
+      SrcFile := TempDir + DirectorySeparator + '*';
+      j := FindFirst(SrcFile, faAnyFile, SearchRec);
+      while j = 0 do
+      begin
+        if (SearchRec.Name <> '.') and (SearchRec.Name <> '..') then
+          DeleteFile(TempDir + DirectorySeparator + SearchRec.Name);
+        j := FindNext(SearchRec);
+      end;
+      FindClose(SearchRec);
+      RemoveDir(TempDir);
     end;
   end;
-  { Update baseline and reset changes }
-  SetLength(FBaseline, Length(FPages));
-  for i := 0 to High(FPages) do
-  begin
-    FBaseline[i] := FPages[i];
-    FBaseline[i].OrigIndex := i;
-  end;
-  FChanges := nil;
-  FRenumber := True;
-  PanelStageBar.Visible := False;
-  RenderPages;
-  SetStatus(Format('Changes saved: %d pages', [Length(FPages)]));
 end;
 
 procedure TfrmMain.BtnStageRevertClick(Sender: TObject);
@@ -1241,6 +1331,7 @@ begin
     for i := 0 to FPagePreviews.Count - 1 do
     begin
       FPages[i].Name := LVPages.Items[i].Caption;
+      FPages[i].OrigName := LVPages.Items[i].Caption;
       FPages[i].Image := FPagePreviews[i];
       FPages[i].Gone := False;
       FPages[i].OrigIndex := i;

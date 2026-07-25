@@ -4,7 +4,8 @@ uses
   consoletestrunner,
   fpcunit,
   testregistry,
-  test_uzipeditor;
+  test_uzipeditor,
+  test_uservicemerge;
 var
   App: TTestRunner;
 begin

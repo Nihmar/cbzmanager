@@ -61,7 +61,7 @@ begin
   for i := 0 to High(AFiles) do
   begin
     BaseName := ChangeFileExt(AFiles[i], '');
-    n := LastDelimiter(' -', BaseName);
+    n := RPos(' -', BaseName);
     if n > 0 then
     begin
       Result := Trim(Copy(BaseName, 1, n - 1));
@@ -93,10 +93,10 @@ begin
       Continue;
     end;
     { Find lowest chapter number }
-    n := LastDelimiter(' -', BaseName);
+    n := RPos(' -', BaseName);
     if n > 0 then
     begin
-      ChNum := StrToIntDef(Trim(Copy(BaseName, n + 1, MaxInt)), 0);
+      ChNum := StrToIntDef(Trim(Copy(BaseName, n + 2, MaxInt)), 0);
       if (ChNum > 0) and (ChNum < LowestCh) then
         LowestCh := ChNum;
     end;
@@ -144,10 +144,10 @@ begin
   for i := 0 to High(AFiles) do
   begin
     BaseName := ChangeFileExt(AFiles[i], '');
-    n := LastDelimiter(' -', BaseName);
+    n := RPos(' -', BaseName);
     if n > 0 then
     begin
-      ChNum := StrToIntDef(Trim(Copy(BaseName, n + 1, MaxInt)), 0);
+      ChNum := StrToIntDef(Trim(Copy(BaseName, n + 2, MaxInt)), 0);
       if (ChNum >= Options.ChapterStart) and (ChNum <= Options.ChapterEnd) then
       begin
         SetLength(ChBatch, Length(ChBatch) + 1);
@@ -237,7 +237,7 @@ begin
   Result.VolumesCreated := TotalCreated;
 
   { Phase: Cleanup original chapters — rename to _OLD or delete }
-  for n := 0 to i - 1 do
+  for n := 0 to High(ChBatch) do
   begin
     FullPath := IncludeTrailingPathDelimiter(ADir) + ChBatch[n];
     if Options.Delete then

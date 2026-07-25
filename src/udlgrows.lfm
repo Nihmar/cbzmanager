@@ -16,7 +16,7 @@ object dlgRows: TdlgRows
     Height = 16
     Top = 12
     Width = 476
-    Caption = 'Rows to delete (es. 1, 4, 7-10, 15)'
+    Caption = 'Rows to delete (e.g. 1, 4, 7-10, 15)'
     Font.Height = -13
     Font.Style = [fsBold]
     ParentFont = False
@@ -70,15 +70,6 @@ object dlgRows: TdlgRows
     State = cbChecked
     TabOrder = 2
   end
-  object CbRemoveComicInfo: TCheckBox
-    Left = 12
-    Height = 24
-    Top = 196
-    Width = 476
-    Caption = 'Remove ComicInfo.xml'
-    Checked = True
-    State = cbChecked
-    TabOrder = 3
   end
   object PanelBottom: TPanel
     Left = 0

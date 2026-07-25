@@ -155,19 +155,11 @@ type
     { Event handlers }
     procedure BtnBrowseClick(Sender: TObject);
     procedure BtnClosePreviewClick(Sender: TObject);
-    procedure BtnPgDeleteClick(Sender: TObject);
-    procedure BtnPgMoveDownClick(Sender: TObject);
-    procedure BtnPgMoveStartClick(Sender: TObject);
-    procedure BtnPgMoveEndClick(Sender: TObject);
-    procedure BtnPgMoveUpClick(Sender: TObject);
-    procedure BtnPgReverseClick(Sender: TObject);
-    procedure BtnPgSortClick(Sender: TObject);
     procedure BtnStageRevertClick(Sender: TObject);
     procedure BtnStageSaveClick(Sender: TObject);
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure FormKeyDown(Sender: TObject; var Key: word; Shift: TShiftState);
-    procedure FormResize(Sender: TObject);
     procedure LVFilesDblClick(Sender: TObject);
     procedure LVFilesMouseDown(Sender: TObject; Button: TMouseButton;
       Shift: TShiftState; X, Y: integer);
@@ -246,6 +238,7 @@ uses
   uImgUtil,
   uLog,
   uZipEditor,
+  uservicebase,
   userviceconvert,
   uservicemerge,
   udlgrows,
@@ -358,10 +351,6 @@ begin
       LVFiles.SelectAll;
     Key := 0;
   end;
-end;
-
-procedure TfrmMain.FormResize(Sender: TObject);
-begin
 end;
 
 procedure TfrmMain.SetStatus(const AMsg: string);
@@ -683,7 +672,6 @@ begin
     Options.RemoveComicInfo := Dlg.RemoveComicInfo;
     Options.RenumberPages := Dlg.RenumberPages;
     Options.BackupOld := Dlg.BackupOld;
-    Options.UseDeflated := Dlg.UseDeflated;
 
     Results := TConvertService.Convert(Files, FDir, Options, @UpdateProgress);
     for i := 0 to High(Results) do
@@ -823,7 +811,7 @@ begin
   Dlg := TdlgByID.Create(Self);
   try
     if Dlg.ShowModal = mrOk then
-      SetStatus('Delete by ID — logica da completare');
+      SetStatus('Delete by ID — logic to be completed');
   finally
     Dlg.Free;
   end;
@@ -1042,49 +1030,11 @@ begin
   SetStatus(Format('Pages renumbered (%d)', [PageNum - 1]));
 end;
 
-{ Toolbar page operation redirects }
-
-procedure TfrmMain.BtnPgDeleteClick(Sender: TObject);
-begin
-  MnuPageDeleteClick(Sender);
-end;
-
-procedure TfrmMain.BtnPgMoveUpClick(Sender: TObject);
-begin
-  MnuPageMoveUpClick(Sender);
-end;
-
-procedure TfrmMain.BtnPgMoveDownClick(Sender: TObject);
-begin
-  MnuPageMoveDownClick(Sender);
-end;
-
-procedure TfrmMain.BtnPgMoveStartClick(Sender: TObject);
-begin
-  MnuPageMoveStartClick(Sender);
-end;
-
-procedure TfrmMain.BtnPgMoveEndClick(Sender: TObject);
-begin
-  MnuPageMoveEndClick(Sender);
-end;
-
-procedure TfrmMain.BtnPgSortClick(Sender: TObject);
-begin
-  MnuPageSortClick(Sender);
-end;
-
-procedure TfrmMain.BtnPgReverseClick(Sender: TObject);
-begin
-  MnuPageReverseClick(Sender);
-end;
-
 { Stage bar }
 
 procedure TfrmMain.BtnStageSaveClick(Sender: TObject);
 var
   i, j, PageNum: integer;
-  OldFile, NewFile: string;
   AllEntries, OutEntries: TZipEntries;
   NewName, PageExt: string;
 begin
@@ -1095,9 +1045,6 @@ begin
     Format('Save %d pending changes? The original will be backed up as _OLD.cbz.',
       [Length(FChanges)]),
     mtConfirmation, mbYesNo, 0) <> mrYes then Exit;
-
-  OldFile := ChangeFileExt(FPageFile, '') + '_OLD.cbz';
-  NewFile := FPageFile + '.new';
 
   { Step 1: Read ALL original entries into RAM (no temp files) }
   AllEntries := CollectZipEntries(FPageFile);
@@ -1132,15 +1079,10 @@ begin
         end;
     end;
 
-    { Step 3: Write new CBZ directly to disk (final output only) }
-    WriteZipFromEntries(NewFile, OutEntries);
+    { Step 3: Replace file with backup }
+    ReplaceCBZ(FPageFile, OutEntries);
 
-    { Step 4: Replace old file with new }
-    if FileExists(OldFile) then DeleteFile(OldFile);
-    RenameFile(FPageFile, OldFile);
-    RenameFile(NewFile, FPageFile);
-
-    { Step 5: Update model }
+    { Step 4: Update model }
     j := 0;
     for i := 0 to High(FPages) do
       if not FPages[i].Gone then

@@ -19,7 +19,6 @@ type
     CbSkipExistingWebP: TCheckBox;
     CbRemoveComicInfo: TCheckBox;
     CbRenumber: TCheckBox;
-    CbUseDeflated: TCheckBox;
     GroupBackup: TRadioGroup;
     LabelQuality: TLabel;
     LblQualityVal: TLabel;
@@ -34,7 +33,6 @@ type
     function GetSkipExistingWebP: boolean;
     function GetRemoveComicInfo: boolean;
     function GetRenumberPages: boolean;
-    function GetUseDeflated: boolean;
   public
     property Quality: integer read GetQuality;
     property ReplaceOnlyIfSmaller: boolean read GetReplaceOnlyIfSmaller;
@@ -42,7 +40,6 @@ type
     property RemoveComicInfo: boolean read GetRemoveComicInfo;
     property RenumberPages: boolean read GetRenumberPages;
     property BackupOld: boolean read GetBackup;
-    property UseDeflated: boolean read GetUseDeflated;
   end;
 
 implementation
@@ -58,12 +55,6 @@ begin
   TrackQuality.Frequency := 5;
   TrackQuality.Position := 75;
   LblQualityVal.Caption := '75%';
-
-  { Add deflated checkbox programmatically, default checked }
-  CbUseDeflated := TCheckBox.Create(Self);
-  CbUseDeflated.Parent := PanelBottom;
-  CbUseDeflated.Caption := 'Compress (deflate)';
-  CbUseDeflated.Checked := True;
 end;
 
 procedure TdlgWebp.TrackQualityChange(Sender: TObject);
@@ -99,11 +90,6 @@ end;
 function TdlgWebp.GetBackup: boolean;
 begin
   Result := GroupBackup.ItemIndex <> 1; // 0=Backup, 1=Elimina
-end;
-
-function TdlgWebp.GetUseDeflated: boolean;
-begin
-  Result := CbUseDeflated.Checked;
 end;
 
 end.

@@ -17,7 +17,6 @@ type
     BtnOk: TButton;
     BtnCancel: TButton;
     CbRenumber: TCheckBox;
-    CbRemoveComicInfo: TCheckBox;
     EditRanges: TEdit;
     Label1: TLabel;
     Label2: TLabel;
@@ -125,11 +124,11 @@ begin
     end;
 
   if Count = 0 then
-    LblPreview.Caption := 'Nessuna pagina selezionata'
+    LblPreview.Caption := 'No pages selected'
   else if Count = 1 then
-    LblPreview.Caption := '1 pagina: ' + Parts
+    LblPreview.Caption := '1 page: ' + Parts
   else
-    LblPreview.Caption := Format('%d pagine: %s', [Count, Parts]);
+    LblPreview.Caption := Format('%d pages: %s', [Count, Parts]);
 end;
 
 end.

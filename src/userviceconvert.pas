@@ -13,7 +13,6 @@ type
     RemoveComicInfo: boolean;
     RenumberPages: boolean;
     BackupOld: boolean;
-    UseDeflated: boolean;  // True = ZIP_DEFLATED, False = stored (uncompressed)
   end;
 
   TConvertEntry = record
@@ -55,17 +54,15 @@ begin
     FullPath := IncludeTrailingPathDelimiter(ADir) + AFiles[i];
     try
       NewEntries := ConvertCBZToWebP(FullPath, Options.Quality,
-        Options.ReplaceOnlyIfSmaller, Options.SkipExistingWebP, NewCount);
+        Options.ReplaceOnlyIfSmaller, Options.SkipExistingWebP,
+        Options.RemoveComicInfo, Options.RenumberPages, NewCount);
       try
         if NewCount > 0 then
         begin
           if Options.BackupOld then
             BackupFile(FullPath);
-          { In --delete mode, skip backup; just overwrite }
-          if Options.UseDeflated then
-            WriteZipFromEntriesDeflated(FullPath, NewEntries)
-          else
-            WriteZipFromEntries(FullPath, NewEntries);
+          { Write new CBZ }
+        WriteZipFromEntriesDeflated(FullPath, NewEntries);
           Result[i].Success := True;
           Result[i].PagesConverted := NewCount;
         end

@@ -192,7 +192,7 @@ begin
       try
         if Length(VolEntries) > 0 then
         begin
-          WriteZipFromEntries(FullPath, VolEntries);
+          WriteZipFromEntriesDeflated(FullPath, VolEntries);
           { No new volume created — entries added to existing }
         end;
       finally
@@ -217,7 +217,7 @@ begin
       try
         if Length(VolEntries) > 0 then
         begin
-          WriteZipFromEntries(FullPath, VolEntries);
+          WriteZipFromEntriesDeflated(FullPath, VolEntries);
           SetLength(CreatedFiles, Length(CreatedFiles) + 1);
           CreatedFiles[High(CreatedFiles)] := FullPath;
           Inc(TotalCreated);

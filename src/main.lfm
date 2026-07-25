@@ -13,7 +13,6 @@ object frmMain: TfrmMain
   OnCreate = FormCreate
   OnDestroy = FormDestroy
   OnKeyDown = FormKeyDown
-  OnResize = FormResize
   object MainMenu: TMainMenu
     Left = 8
     Top = 0
@@ -410,7 +409,7 @@ object frmMain: TfrmMain
           BorderSpacing.Around = 2
           Caption = 'Delete'
           TabOrder = 0
-          OnClick = BtnPgDeleteClick
+          OnClick = MnuPageDeleteClick
         end
         object BtnPgDeleteRows: TButton
           Left = 88
@@ -441,7 +440,7 @@ object frmMain: TfrmMain
           Hint = 'Move page up'
           ShowHint = True
           TabOrder = 3
-          OnClick = BtnPgMoveUpClick
+          OnClick = MnuPageMoveUpClick
         end
         object BtnPgMoveDown: TButton
           Left = 214
@@ -453,7 +452,7 @@ object frmMain: TfrmMain
           Hint = 'Move down|Move page down'
           ShowHint = True
           TabOrder = 4
-          OnClick = BtnPgMoveDownClick
+          OnClick = MnuPageMoveDownClick
         end
         object BtnPgMoveStart: TButton
           Left = 248
@@ -465,7 +464,7 @@ object frmMain: TfrmMain
           Hint = 'Move to start'
           ShowHint = True
           TabOrder = 5
-          OnClick = BtnPgMoveStartClick
+          OnClick = MnuPageMoveStartClick
         end
         object BtnPgMoveEnd: TButton
           Left = 282
@@ -477,7 +476,7 @@ object frmMain: TfrmMain
           Hint = 'Move to end'
           ShowHint = True
           TabOrder = 6
-          OnClick = BtnPgMoveEndClick
+          OnClick = MnuPageMoveEndClick
         end
         object SepPt2: TPanel
           Left = 316
@@ -498,7 +497,7 @@ object frmMain: TfrmMain
           Hint = 'Sort by name'
           ShowHint = True
           TabOrder = 8
-          OnClick = BtnPgSortClick
+          OnClick = MnuPageSortClick
         end
         object BtnPgReverse: TButton
           Left = 358
@@ -510,7 +509,7 @@ object frmMain: TfrmMain
           Hint = 'Reverse order'
           ShowHint = True
           TabOrder = 9
-          OnClick = BtnPgReverseClick
+          OnClick = MnuPageReverseClick
         end
       end
       object PanelStageBar: TPanel

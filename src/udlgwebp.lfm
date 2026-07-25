@@ -66,7 +66,7 @@ object dlgWebp: TdlgWebp
     Height = 24
     Top = 136
     Width = 436
-    Caption = 'Rimuovi ComicInfo.xml'
+    Caption = 'Remove ComicInfo.xml'
     Checked = True
     State = cbChecked
     TabOrder = 3

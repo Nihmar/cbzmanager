@@ -126,7 +126,7 @@ begin
           BackupFile(FullPath);
 
         { Write new CBZ without ComicInfo.xml }
-        WriteZipFromEntries(FullPath, Entries);
+        WriteZipFromEntriesDeflated(FullPath, Entries);
 
         { Free remaining streams }
         for j := 0 to High(Entries) do

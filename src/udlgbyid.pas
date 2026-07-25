@@ -65,7 +65,7 @@ begin
     if (Line <> '') and IsValidID(Line) then
       Inc(ValidCount);
   end;
-  LblCount.Caption := Format('%d ID validi', [ValidCount]);
+  LblCount.Caption := Format('%d valid IDs', [ValidCount]);
   BtnDelete.Enabled := ValidCount > 0;
 end;
 

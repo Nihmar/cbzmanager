@@ -19,7 +19,7 @@ unit uservicebase;
 interface
 
 uses
-  Classes, SysUtils, uZipEditor;
+  Classes, SysUtils, uzipcore;
 
 type
   { ------------------------------------------------------------------------

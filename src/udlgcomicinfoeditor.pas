@@ -104,7 +104,7 @@ implementation
 {$R *.lfm}
 
 uses
-  uzipeditor;
+  uzipcore;
 
 const
   LBL_LEFT = 12;

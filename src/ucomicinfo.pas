@@ -60,7 +60,7 @@ procedure WriteComicInfoToCBZ(const AFilePath: string;
 implementation
 
 uses
-  DOM, XMLRead, uzipeditor, uservicebase, Math;
+  DOM, XMLRead, uzipcore, uservicebase;
 
 const
   UNSET_INT = -1;

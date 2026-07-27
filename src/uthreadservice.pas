@@ -26,7 +26,7 @@ interface
 
 uses
   Classes, SysUtils,
-  uZipEditor, uservicebase, userviceconvert, uservicemerge, uservicevalidate,
+  uzipcore, uZipEditor, uservicebase, userviceconvert, uservicemerge, uservicevalidate,
   uservicecomicinfo;
 
 type

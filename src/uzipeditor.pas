@@ -14,24 +14,12 @@ interface
 uses
   Classes,
   SysUtils,
-  IntfGraphics;
+  IntfGraphics,
+  uzipcore;
 
 type
-  { Richiamata per ogni immagine estratta e decodificata. Il chiamante
-    diventa proprietario di AImage, che e' nil se la decodifica e' fallita.
-    Impostare ACancel a True interrompe la scansione dell'archivio. }
   TImageEntryProc = procedure(const AName: string; AImage: TLazIntfImage;
     var ACancel: boolean) of object;
-
-  { Entry ZIP in memoria per la riscrittura senza scrivere su disco }
-  TZipEntryData = record
-    Name: string;
-    Data: TMemoryStream;
-  end;
-  TZipEntries = array of TZipEntryData;
-
-const
-  COMICINFO_XML = 'ComicInfo.xml';
 
 { Prima pagina del CBZ come TLazIntfImage (sola memoria, nessuna GDI):
   invocabile da thread secondari. nil se il file non contiene immagini
@@ -71,18 +59,6 @@ type
 function ValidateCBZImages(const FileName: string;
   out ImageResults: TImageChecks): integer;
 
-{ Legge TUTTE le entry di un CBZ in memoria (senza decodificare le immagini).
-  Il chiamante diventa proprietario degli stream e deve liberarli. }
-function CollectZipEntries(const FileName: string): TZipEntries;
-
-{ Writes a ZIP file to disk from in-memory entries using DEFLATE compression
-  (method 8). Produces smaller output, matching Python reference behaviour. }
-procedure WriteZipFromEntriesDeflated(const FileName: string;
-  const Entries: TZipEntries);
-
-{ Libera gli stream contenuti in un array TZipEntries. }
-procedure FreeZipEntries(var Entries: TZipEntries);
-
 { Merge di piu' file CBZ in un unico CBZ con pagine rinumerate.
   Filtra ComicInfo.xml. Tutto in RAM. Restituisce le entry del volume. }
 function MergeIntoVolume(const SourceFiles: TStringArray;
@@ -104,14 +80,10 @@ function ConvertCBZToWebP(const FileName: string; Quality: integer;
 function FilterPagesFromCBZ(const FileName: string;
   const PagesToDelete: array of boolean; Renumber: boolean): TZipEntries;
 
-{ Format a page name with zero-padded number: page_NNNN.ext }
-function FormatPageName(PageNum, Padding: integer; const Ext: string): string;
-
 implementation
 
 uses
   Zipper,
-  zstream,
   Math,
   uImgUtil,
   uWebP,
@@ -390,104 +362,6 @@ begin
   end;
 end;
 
-{ TZipCollector – extracts every entry of a CBZ into memory without
-  decoding images.  Each entry's raw bytes are stored in a TMemoryStream;
-  the resulting TZipEntries array is returned to the caller, who becomes
-  the owner and must call FreeZipEntries to release the streams. }
-type
-  TZipCollector = class
-  private
-    FEntries: TZipEntries;
-    { Allocates a TMemoryStream for the incoming entry. }
-    procedure DoCreateStream(Sender: TObject; var AStream: TStream;
-      AItem: TFullZipFileEntry);
-    { Transfers ownership of the filled stream into FEntries. }
-    procedure DoDoneStream(Sender: TObject; var AStream: TStream;
-      AItem: TFullZipFileEntry);
-  end;
-
-procedure TZipCollector.DoCreateStream(Sender: TObject; var AStream: TStream;
-  AItem: TFullZipFileEntry);
-begin
-  AStream := TMemoryStream.Create;
-end;
-
-procedure TZipCollector.DoDoneStream(Sender: TObject; var AStream: TStream;
-  AItem: TFullZipFileEntry);
-var
-  n: integer;
-begin
-  n := Length(FEntries);
-  SetLength(FEntries, n + 1);
-  FEntries[n].Name := AItem.ArchiveFileName;
-  FEntries[n].Data := TMemoryStream(AStream);
-  AStream := nil; // ownership transferred
-end;
-
-function CollectZipEntries(const FileName: string): TZipEntries;
-var
-  Collector: TZipCollector;
-  UnZipper: TUnZipper;
-begin
-  Result := nil;
-  Collector := TZipCollector.Create;
-  try
-    UnZipper := TUnZipper.Create;
-    try
-      UnZipper.OnCreateStream := @Collector.DoCreateStream;
-      UnZipper.OnDoneStream := @Collector.DoDoneStream;
-      UnZipper.UnZipAllFiles(FileName);
-    finally
-      UnZipper.Free;
-    end;
-    Result := Collector.FEntries;
-    Collector.FEntries := nil; // prevent double-free
-  finally
-    Collector.Free;
-  end;
-end;
-
-procedure FreeZipEntries(var Entries: TZipEntries);
-var
-  i: integer;
-begin
-  for i := 0 to High(Entries) do
-    Entries[i].Data.Free;
-  Entries := nil;
-end;
-
-procedure WriteZipFromEntriesDeflated(const FileName: string;
-  const Entries: TZipEntries);
-var
-  ZW: TZipper;
-  ZEntries: TZipFileEntries;
-  i: integer;
-begin
-  ZW := TZipper.Create;
-  try
-    ZEntries := TZipFileEntries.Create(TZipFileEntry);
-    try
-      for i := 0 to High(Entries) do
-      begin
-        Entries[i].Data.Position := 0;
-        with ZEntries.AddFileEntry(Entries[i].Data, Entries[i].Name) do
-          CompressionLevel := clmax;
-      end;
-      ZW.ZipFiles(FileName, ZEntries);
-    finally
-      ZEntries.Free;
-    end;
-  finally
-    ZW.Free;
-  end;
-end;
-
-
-function FormatPageName(PageNum, Padding: integer; const Ext: string): string;
-begin
-  Result := 'page_' + Format('%.*d', [Padding, PageNum]) + Ext;
-end;
-
 { Returns True when Ext belongs to a raster format that can be re-encoded
   as WebP (JPEG, PNG, GIF, BMP, TIFF).  Extensions already matching .webp
   are NOT convertible – they are already in the target format. }
@@ -528,13 +402,51 @@ function ConvertCBZToWebP(const FileName: string; Quality: integer;
     Result := Format('page_%.4d%s', [ANum, AExt]);
   end;
 
+  { Keep original entry, applying renumber when requested }
+  procedure KeepOriginal(var Dest: TZipEntries; var Count: integer;
+    const Source: TZipEntryData; const Ext: string);
+  var
+    NewName: string;
+  begin
+    if RenumberPages then
+    begin
+      NewName := PageName(Count + 1, Ext);
+      if NewName <> Source.Name then AModified := True;
+      KeepEntry(Dest, Count, NewName, Source);
+    end
+    else
+      KeepEntry(Dest, Count, Source.Name, Source);
+  end;
+
+  { Try to decode image, encode as WebP, return WebP stream or nil }
+  function TryWebPEncode(const Source: TZipEntryData;
+    const Ext: string): TMemoryStream;
+  var
+    RawStream: TMemoryStream;
+    Img: TLazIntfImage;
+  begin
+    Result := nil;
+    RawStream := TMemoryStream.Create;
+    try
+      RawStream.CopyFrom(Source.Data, Source.Data.Size);
+      RawStream.Position := 0;
+      Img := StreamToIntfImage(RawStream, ReaderClassForExt(Ext));
+    finally
+      RawStream.Free;
+    end;
+    if Img = nil then Exit;
+    try
+      Result := IntfImageToWebP(Img, Quality);
+    finally
+      Img.Free;
+    end;
+  end;
+
 var
   AllEntries: TZipEntries;
   i, PageNum: integer;
-  Ext, NewName: string;
-  Img: TLazIntfImage;
+  Ext: string;
   WebPData: TMemoryStream;
-  RawStream: TMemoryStream;
 begin
   Result := nil;
   NewEntryCount := 0;
@@ -557,79 +469,27 @@ begin
         if SameText(AllEntries[i].Name, COMICINFO_XML) then
         begin
           if RemoveComicInfo then
-          begin
-            AModified := True;
-            Continue;
-          end;
-          KeepEntry(Result, PageNum, COMICINFO_XML, AllEntries[i]);
+            AModified := True
+          else
+            KeepEntry(Result, PageNum, COMICINFO_XML, AllEntries[i]);
           Continue;
         end;
 
         { --- Non-convertible (incl. existing .webp): keep as-is --- }
         if not IsConvertibleExt(Ext) then
         begin
-          if RenumberPages then
-          begin
-            NewName := PageName(PageNum + 1, Ext);
-            if NewName <> AllEntries[i].Name then AModified := True;
-            KeepEntry(Result, PageNum, NewName, AllEntries[i]);
-          end
-          else
-            KeepEntry(Result, PageNum, AllEntries[i].Name, AllEntries[i]);
+          KeepOriginal(Result, PageNum, AllEntries[i], Ext);
           Continue;
         end;
 
         { --- Attempt WebP conversion --- }
-        RawStream := TMemoryStream.Create;
-        try
-          RawStream.CopyFrom(AllEntries[i].Data, AllEntries[i].Data.Size);
-          RawStream.Position := 0;
-          Img := StreamToIntfImage(RawStream, ReaderClassForExt(Ext));
-        finally
-          RawStream.Free;
-        end;
+        WebPData := TryWebPEncode(AllEntries[i], Ext);
 
-        if Img = nil then
-        begin
-          if RenumberPages then
-          begin
-            NewName := PageName(PageNum + 1, Ext);
-            if NewName <> AllEntries[i].Name then AModified := True;
-            KeepEntry(Result, PageNum, NewName, AllEntries[i]);
-          end
-          else
-            KeepEntry(Result, PageNum, AllEntries[i].Name, AllEntries[i]);
-          Continue;
-        end;
-
-        WebPData := IntfImageToWebP(Img, Quality);
-        Img.Free;
-
-        if WebPData = nil then
-        begin
-          if RenumberPages then
-          begin
-            NewName := PageName(PageNum + 1, Ext);
-            if NewName <> AllEntries[i].Name then AModified := True;
-            KeepEntry(Result, PageNum, NewName, AllEntries[i]);
-          end
-          else
-            KeepEntry(Result, PageNum, AllEntries[i].Name, AllEntries[i]);
-          Continue;
-        end;
-
-        { Decide: keep original or adopt WebP }
-        if ReplaceOnlyIfSmaller and (WebPData.Size >= AllEntries[i].Data.Size) then
+        if (WebPData = nil) or
+           (ReplaceOnlyIfSmaller and (WebPData.Size >= AllEntries[i].Data.Size)) then
         begin
           WebPData.Free;
-          if RenumberPages then
-          begin
-            NewName := PageName(PageNum + 1, Ext);
-            if NewName <> AllEntries[i].Name then AModified := True;
-            KeepEntry(Result, PageNum, NewName, AllEntries[i]);
-          end
-          else
-            KeepEntry(Result, PageNum, AllEntries[i].Name, AllEntries[i]);
+          KeepOriginal(Result, PageNum, AllEntries[i], Ext);
         end
         else
         begin

@@ -18,7 +18,7 @@ unit uservicecomicinfo;
 interface
 
 uses
-  Classes, SysUtils, uZipEditor, uservicebase;
+  Classes, SysUtils, uzipcore, uservicebase;
 
 type
   { ------------------------------------------------------------------------

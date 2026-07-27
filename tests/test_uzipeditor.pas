@@ -3,7 +3,7 @@ unit test_uzipeditor;
 interface
 uses
   fpcunit, testregistry,
-  Classes, SysUtils, IntfGraphics, uZipEditor;
+  Classes, SysUtils, IntfGraphics, uzipcore, uZipEditor;
 
 type
   TZipEditorTest = class(TTestCase)

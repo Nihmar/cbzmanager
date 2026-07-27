@@ -15,7 +15,7 @@ unit userviceconvert;
 interface
 
 uses
-  Classes, SysUtils, uZipEditor, uservicebase;
+  Classes, SysUtils, uzipcore, uZipEditor, uservicebase;
 
 type
   { ------------------------------------------------------------------------

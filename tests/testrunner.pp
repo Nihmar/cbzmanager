@@ -7,7 +7,8 @@ uses
   test_uzipeditor,
   test_uservicemerge,
   test_uservicevalidate,
-  test_uservicecomicinfo;
+  test_uservicecomicinfo,
+  test_ucomicinfo;
 var
   App: TTestRunner;
 begin

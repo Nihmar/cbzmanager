@@ -24,7 +24,7 @@ unit uservicemerge;
 interface
 
 uses
-  Classes, SysUtils, uZipEditor, uservicebase;
+  Classes, SysUtils, uzipcore, uZipEditor, uservicebase;
 
 type
   { TMergeOptions — Configuration parameters for a merge operation.

@@ -306,6 +306,7 @@ type
     procedure SetPageOpsEnabled(AEnabled: boolean);
     procedure UpdateStageBar;
     procedure AddChange(AKind: TChangeKind; const APageName: string);
+    function GetSelectedPageIndices: TIntegerDynArray;
     procedure FreePageImages;
     procedure LoadDirectory(const ADir: string);
     procedure OpenPreview(AItem: TListItem);
@@ -330,6 +331,7 @@ uses
   LCLType,
   uImgUtil,
   uLog,
+  uzipcore,
   uZipEditor,
   userviceconvert,
   uservicemerge,
@@ -680,6 +682,21 @@ begin
   FChanges[n].Kind := AKind;
   FChanges[n].PageName := APageName;
   UpdateStageBar;
+end;
+
+function TfrmMain.GetSelectedPageIndices: TIntegerDynArray;
+var
+  i, n: integer;
+begin
+  Result := nil;
+  n := 0;
+  for i := 0 to LVPages.Items.Count - 1 do
+    if LVPages.Items[i].Selected then
+    begin
+      SetLength(Result, n + 1);
+      Result[n] := i;
+      Inc(n);
+    end;
 end;
 
 {
@@ -1464,36 +1481,21 @@ end;
 }
 procedure TfrmMain.MnuPageDeleteClick(Sender: TObject);
 var
-  i, n: integer;
-  Sel: array of integer;
+  Sel: TIntegerDynArray;
+  Count: integer;
 begin
   if not PanelSingleFile.Visible then Exit;
-  Sel := nil;
-  { Collect selected indices }
-  for i := 0 to LVPages.Items.Count - 1 do
-    if LVPages.Items[i].Selected then
-    begin
-      SetLength(Sel, Length(Sel) + 1);
-      Sel[High(Sel)] := i;
-    end;
+  Sel := GetSelectedPageIndices;
   if Length(Sel) = 0 then
   begin
     SetStatus('No pages selected');
     Exit;
   end;
-  { Mark as Gone from highest index to lowest so indices stay valid }
-  for i := High(Sel) downto 0 do
-  begin
-    n := Sel[i];
-    if not FPages[n].Gone then
-    begin
-      FPages[n].Gone := True;
-      AddChange(ckDeleted, FPages[n].Name);
-    end;
-  end;
-  RenderPages;
+  Count := PageDeleteSelected(FPages, FChanges, Sel);
   FRenumber := True;
-  SetStatus(Format('%d pages deleted', [Length(Sel)]));
+  UpdateStageBar;
+  RenderPages;
+  SetStatus(Format('%d pages deleted', [Count]));
 end;
 
 {
@@ -1504,31 +1506,13 @@ end;
 }
 procedure TfrmMain.MnuPageMoveUpClick(Sender: TObject);
 var
-  i, n: integer;
-  Tmp: TPageState;
-  Sel: array of integer;
+  Sel: TIntegerDynArray;
 begin
   if not PanelSingleFile.Visible then Exit;
-  Sel := nil;
-  for i := 0 to LVPages.Items.Count - 1 do
-    if LVPages.Items[i].Selected then
-    begin
-      SetLength(Sel, Length(Sel) + 1);
-      Sel[High(Sel)] := i;
-    end;
+  Sel := GetSelectedPageIndices;
   if Length(Sel) = 0 then Exit;
-  { Move each selected page up by one (process in order) }
-  for i := 0 to High(Sel) do
-  begin
-    n := Sel[i];
-    if n > 0 then
-    begin
-      Tmp := FPages[n - 1];
-      FPages[n - 1] := FPages[n];
-      FPages[n] := Tmp;
-      AddChange(ckMoved, FPages[n - 1].Name);
-    end;
-  end;
+  PageMoveUp(FPages, FChanges, Sel);
+  UpdateStageBar;
   RenderPages;
 end;
 
@@ -1541,31 +1525,13 @@ end;
 }
 procedure TfrmMain.MnuPageMoveDownClick(Sender: TObject);
 var
-  i, n: integer;
-  Tmp: TPageState;
-  Sel: array of integer;
+  Sel: TIntegerDynArray;
 begin
   if not PanelSingleFile.Visible then Exit;
-  Sel := nil;
-  for i := 0 to LVPages.Items.Count - 1 do
-    if LVPages.Items[i].Selected then
-    begin
-      SetLength(Sel, Length(Sel) + 1);
-      Sel[High(Sel)] := i;
-    end;
+  Sel := GetSelectedPageIndices;
   if Length(Sel) = 0 then Exit;
-  { Move each selected page down by one (process in reverse) }
-  for i := High(Sel) downto 0 do
-  begin
-    n := Sel[i];
-    if n < High(FPages) then
-    begin
-      Tmp := FPages[n + 1];
-      FPages[n + 1] := FPages[n];
-      FPages[n] := Tmp;
-      AddChange(ckMoved, FPages[n + 1].Name);
-    end;
-  end;
+  PageMoveDown(FPages, FChanges, Sel);
+  UpdateStageBar;
   RenderPages;
 end;
 
@@ -1576,19 +1542,11 @@ end;
   All items between index 0 and the selected index shift right by one.
 }
 procedure TfrmMain.MnuPageMoveStartClick(Sender: TObject);
-var
-  i, n: integer;
-  Page: TPageState;
 begin
   if not PanelSingleFile.Visible then Exit;
   if LVPages.Selected = nil then Exit;
-  n := LVPages.Selected.Index;
-  if n <= 0 then Exit;
-  Page := FPages[n];
-  for i := n downto 1 do
-    FPages[i] := FPages[i - 1];
-  FPages[0] := Page;
-  AddChange(ckMoved, Page.Name);
+  PageMoveToStart(FPages, FChanges, LVPages.Selected.Index);
+  UpdateStageBar;
   RenderPages;
 end;
 
@@ -1599,20 +1557,11 @@ end;
   the selected index and the end shift left by one.
 }
 procedure TfrmMain.MnuPageMoveEndClick(Sender: TObject);
-var
-  i, n, Last: integer;
-  Page: TPageState;
 begin
   if not PanelSingleFile.Visible then Exit;
   if LVPages.Selected = nil then Exit;
-  n := LVPages.Selected.Index;
-  Last := High(FPages);
-  if (n < 0) or (n >= Last) then Exit;
-  Page := FPages[n];
-  for i := n to Last - 1 do
-    FPages[i] := FPages[i + 1];
-  FPages[Last] := Page;
-  AddChange(ckMoved, Page.Name);
+  PageMoveToEnd(FPages, FChanges, LVPages.Selected.Index);
+  UpdateStageBar;
   RenderPages;
 end;
 
@@ -1625,31 +1574,10 @@ end;
   associated TLazIntfImage references.
 }
 procedure TfrmMain.MnuPageSortClick(Sender: TObject);
-var
-  i: integer;
-  SL: TStringList;
-  NewPages: TPageStates;
-  OldIdx: integer;
 begin
   if not PanelSingleFile.Visible then Exit;
-  SL := TStringList.Create;
-  try
-    { Build string list: key=Name, object=original index }
-    for i := 0 to High(FPages) do
-      SL.AddObject(FPages[i].Name, TObject(PtrInt(i)));
-    SL.Sort;  { O(n log n) }
-    { Rebuild FPages in sorted order }
-    SetLength(NewPages, SL.Count);
-    for i := 0 to SL.Count - 1 do
-    begin
-      OldIdx := PtrInt(SL.Objects[i]);
-      NewPages[i] := FPages[OldIdx];
-    end;
-    FPages := NewPages;
-  finally
-    SL.Free;
-  end;
-  AddChange(ckMoved, 'sort');
+  PageSort(FPages, FChanges);
+  UpdateStageBar;
   RenderPages;
   SetStatus('Pages sorted by name');
 end;
@@ -1660,22 +1588,10 @@ end;
   Reverses the page order in-place using two-pointer swap (O(n/2)).
 }
 procedure TfrmMain.MnuPageReverseClick(Sender: TObject);
-var
-  i, j: integer;
-  Tmp: TPageState;
 begin
   if not PanelSingleFile.Visible then Exit;
-  i := 0;
-  j := High(FPages);
-  while i < j do
-  begin
-    Tmp := FPages[i];
-    FPages[i] := FPages[j];
-    FPages[j] := Tmp;
-    Inc(i);
-    Dec(j);
-  end;
-  AddChange(ckMoved, 'inversione');
+  PageReverse(FPages, FChanges);
+  UpdateStageBar;
   RenderPages;
   SetStatus('Order reversed');
 end;
@@ -1691,22 +1607,14 @@ end;
 }
 procedure TfrmMain.MnuPageRenumberClick(Sender: TObject);
 var
-  i, PageNum: integer;
-  Ext: string;
+  Count: integer;
 begin
   if not PanelSingleFile.Visible then Exit;
   FRenumber := True;
-  PageNum := 1;
-  for i := 0 to High(FPages) do
-  begin
-    if FPages[i].Gone then Continue;
-    Ext := ExtractFileExt(FPages[i].Name);
-    FPages[i].Name := FormatPageName(PageNum, 4, Ext);
-    Inc(PageNum);
-  end;
-  AddChange(ckMoved, 'renumber');
+  Count := PageRenumber(FPages, FChanges);
+  UpdateStageBar;
   RenderPages;
-  SetStatus(Format('Pages renumbered (%d)', [PageNum - 1]));
+  SetStatus(Format('Pages renumbered (%d)', [Count]));
 end;
 
 { ---------------------------------------------------------------------------
@@ -1872,9 +1780,9 @@ end;
 }
 procedure TfrmMain.LVPagesDragDrop(Sender, Source: TObject; X, Y: integer);
 var
-  FromIdx, ToIdx, d: integer;
+  FromIdx, ToIdx: integer;
   Item: TListItem;
-  Tmp: TPageState;
+  MovedName: string;
 begin
   if Source <> LVPages then Exit;
   if LVPages.Selected = nil then Exit;
@@ -1883,18 +1791,11 @@ begin
   FromIdx := LVPages.Selected.Index;
   ToIdx := Item.Index;
   if (FromIdx < 0) or (ToIdx < 0) or (FromIdx = ToIdx) then Exit;
-  { Safe reorder using swaps (handles reference-counted strings correctly) }
-  Tmp := FPages[FromIdx];
-  if FromIdx < ToIdx then
-    for d := FromIdx to ToIdx - 1 do
-      FPages[d] := FPages[d + 1]
-  else
-    for d := FromIdx downto ToIdx + 1 do
-      FPages[d] := FPages[d - 1];
-  FPages[ToIdx] := Tmp;
-  AddChange(ckMoved, Tmp.Name);
+  MovedName := FPages[FromIdx].Name;
+  PageDragDrop(FPages, FChanges, FromIdx, ToIdx);
+  UpdateStageBar;
   RenderPages;
-  SetStatus(Format('%s moved to position %d', [Tmp.Name, ToIdx + 1]));
+  SetStatus(Format('%s moved to position %d', [MovedName, ToIdx + 1]));
 end;
 
 { ---------------------------------------------------------------------------

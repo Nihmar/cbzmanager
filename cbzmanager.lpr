@@ -13,6 +13,7 @@ uses
   Forms,
   main,
   { you can add units after this }
+  uzipcore,
   uZipEditor,
   uWebP,
   uImgUtil,

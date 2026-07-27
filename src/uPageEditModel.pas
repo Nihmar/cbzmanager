@@ -21,7 +21,7 @@ unit uPageEditModel;
 interface
 
 uses
-  Classes, SysUtils, IntfGraphics, uservicebase, uZipEditor;
+  Classes, SysUtils, IntfGraphics, uzipcore, uservicebase;
 
 type
   { ------------------------------------------------------------------------
@@ -117,7 +117,198 @@ type
     property Result: TSaveChangesResult read FResult;
   end;
 
+procedure AppendChange(var AChanges: TChanges; AKind: TChangeKind;
+  const APageName: string);
+function PageDeleteSelected(var APages: TPageStates; var AChanges: TChanges;
+  const ASel: array of integer): integer;
+procedure PageMoveUp(var APages: TPageStates; var AChanges: TChanges;
+  const ASel: array of integer);
+procedure PageMoveDown(var APages: TPageStates; var AChanges: TChanges;
+  const ASel: array of integer);
+procedure PageMoveToStart(var APages: TPageStates; var AChanges: TChanges;
+  AIndex: integer);
+procedure PageMoveToEnd(var APages: TPageStates; var AChanges: TChanges;
+  AIndex: integer);
+procedure PageSort(var APages: TPageStates; var AChanges: TChanges);
+procedure PageReverse(var APages: TPageStates; var AChanges: TChanges);
+function PageRenumber(var APages: TPageStates; var AChanges: TChanges): integer;
+procedure PageDragDrop(var APages: TPageStates; var AChanges: TChanges;
+  AFromIdx, AToIdx: integer);
+
 implementation
+
+procedure AppendChange(var AChanges: TChanges; AKind: TChangeKind;
+  const APageName: string);
+var
+  n: integer;
+begin
+  n := Length(AChanges);
+  SetLength(AChanges, n + 1);
+  AChanges[n].Kind := AKind;
+  AChanges[n].PageName := APageName;
+end;
+
+function PageDeleteSelected(var APages: TPageStates; var AChanges: TChanges;
+  const ASel: array of integer): integer;
+var
+  i, n: integer;
+begin
+  Result := 0;
+  for i := High(ASel) downto 0 do
+  begin
+    n := ASel[i];
+    if (n >= 0) and (n <= High(APages)) and not APages[n].Gone then
+    begin
+      APages[n].Gone := True;
+      AppendChange(AChanges, ckDeleted, APages[n].Name);
+      Inc(Result);
+    end;
+  end;
+end;
+
+procedure PageMoveUp(var APages: TPageStates; var AChanges: TChanges;
+  const ASel: array of integer);
+var
+  i, n: integer;
+  Tmp: TPageState;
+begin
+  for i := 0 to High(ASel) do
+  begin
+    n := ASel[i];
+    if (n > 0) and (n <= High(APages)) then
+    begin
+      Tmp := APages[n - 1];
+      APages[n - 1] := APages[n];
+      APages[n] := Tmp;
+      AppendChange(AChanges, ckMoved, APages[n - 1].Name);
+    end;
+  end;
+end;
+
+procedure PageMoveDown(var APages: TPageStates; var AChanges: TChanges;
+  const ASel: array of integer);
+var
+  i, n: integer;
+  Tmp: TPageState;
+begin
+  for i := High(ASel) downto 0 do
+  begin
+    n := ASel[i];
+    if (n >= 0) and (n < High(APages)) then
+    begin
+      Tmp := APages[n + 1];
+      APages[n + 1] := APages[n];
+      APages[n] := Tmp;
+      AppendChange(AChanges, ckMoved, APages[n + 1].Name);
+    end;
+  end;
+end;
+
+procedure PageMoveToStart(var APages: TPageStates; var AChanges: TChanges;
+  AIndex: integer);
+var
+  i: integer;
+  Page: TPageState;
+begin
+  if (AIndex <= 0) or (AIndex > High(APages)) then Exit;
+  Page := APages[AIndex];
+  for i := AIndex downto 1 do
+    APages[i] := APages[i - 1];
+  APages[0] := Page;
+  AppendChange(AChanges, ckMoved, Page.Name);
+end;
+
+procedure PageMoveToEnd(var APages: TPageStates; var AChanges: TChanges;
+  AIndex: integer);
+var
+  i, Last: integer;
+  Page: TPageState;
+begin
+  Last := High(APages);
+  if (AIndex < 0) or (AIndex >= Last) then Exit;
+  Page := APages[AIndex];
+  for i := AIndex to Last - 1 do
+    APages[i] := APages[i + 1];
+  APages[Last] := Page;
+  AppendChange(AChanges, ckMoved, Page.Name);
+end;
+
+procedure PageSort(var APages: TPageStates; var AChanges: TChanges);
+var
+  i, OldIdx: integer;
+  SL: TStringList;
+  NewPages: TPageStates;
+begin
+  SL := TStringList.Create;
+  try
+    for i := 0 to High(APages) do
+      SL.AddObject(APages[i].Name, TObject(PtrInt(i)));
+    SL.Sort;
+    SetLength(NewPages, SL.Count);
+    for i := 0 to SL.Count - 1 do
+    begin
+      OldIdx := PtrInt(SL.Objects[i]);
+      NewPages[i] := APages[OldIdx];
+    end;
+    APages := NewPages;
+  finally
+    SL.Free;
+  end;
+  AppendChange(AChanges, ckMoved, 'sort');
+end;
+
+procedure PageReverse(var APages: TPageStates; var AChanges: TChanges);
+var
+  i, j: integer;
+  Tmp: TPageState;
+begin
+  i := 0;
+  j := High(APages);
+  while i < j do
+  begin
+    Tmp := APages[i];
+    APages[i] := APages[j];
+    APages[j] := Tmp;
+    Inc(i);
+    Dec(j);
+  end;
+  AppendChange(AChanges, ckMoved, 'inversione');
+end;
+
+function PageRenumber(var APages: TPageStates; var AChanges: TChanges): integer;
+var
+  i: integer;
+  Ext: string;
+begin
+  Result := 0;
+  for i := 0 to High(APages) do
+  begin
+    if APages[i].Gone then Continue;
+    Inc(Result);
+    Ext := ExtractFileExt(APages[i].Name);
+    APages[i].Name := FormatPageName(Result, 4, Ext);
+  end;
+  AppendChange(AChanges, ckMoved, 'renumber');
+end;
+
+procedure PageDragDrop(var APages: TPageStates; var AChanges: TChanges;
+  AFromIdx, AToIdx: integer);
+var
+  d: integer;
+  Tmp: TPageState;
+begin
+  if (AFromIdx < 0) or (AToIdx < 0) or (AFromIdx = AToIdx) then Exit;
+  if (AFromIdx > High(APages)) or (AToIdx > High(APages)) then Exit;
+  Tmp := APages[AFromIdx];
+  if AFromIdx < AToIdx then
+    for d := AFromIdx to AToIdx - 1 do
+      APages[d] := APages[d + 1]
+  else
+    for d := AFromIdx downto AToIdx + 1 do
+      APages[d] := APages[d - 1];
+  APages[AToIdx] := Tmp;
+  AppendChange(AChanges, ckMoved, Tmp.Name);
+end;
 
 { ----------------------------------------------------------------------------
   TSaveChangesThread – Implementation

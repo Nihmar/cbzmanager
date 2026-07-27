@@ -11,6 +11,13 @@ unit udlgrows;
   parses them into a boolean array where True entries mark selected pages.
   A live preview panel shows the expanded selection so the user can verify
   the result before confirming.
+
+  Usage:
+    dlg.PageCount := N;        // resets the dialog for a new archive
+    dlg.Directory := APath;
+    if dlg.ShowModal = mrOk then
+      for i := 0 to High(dlg.Selected) do
+        if dlg.Selected[i] then ...   // page (i+1) was selected
 }
 
 interface
@@ -20,11 +27,8 @@ uses
   SysUtils,
   Forms,
   Controls,
-  Graphics,
-  Dialogs,
   StdCtrls,
-  ExtCtrls,
-  ComCtrls;
+  ExtCtrls;
 
 type
   { TBooleanDynArray - dynamic array of boolean used to represent which pages
@@ -39,9 +43,12 @@ type
     batching across all files, and permanent (non-recoverable) deletion.
 
     Properties:
-      PageCount - total number of pages in the archive (set before showing)
-      Directory - path to the archive directory (for contextual actions)
-      Selected  - read-only boolean array marking selected pages }
+      PageCount     - total number of pages in the archive. Assigning it also
+                      resets the dialog, so set it before every ShowModal.
+      Directory     - path to the archive directory (for contextual actions)
+      Selected      - read-only boolean array marking selected pages
+      SelectedCount - how many pages are currently selected
+      Renumber / BatchAll / DeletePermanently - checkbox states }
 
   TdlgRows = class(TForm)
     BtnOk: TButton;
@@ -57,16 +64,30 @@ type
     PanelPreview: TPanel;
     procedure EditRangesChange(Sender: TObject);
     procedure FormCreate(Sender: TObject);
+    procedure FormShow(Sender: TObject);
+    procedure FormCloseQuery(Sender: TObject; var CanClose: boolean);
   private
     FPageCount: integer;
     FDirectory: string;
     FSelected: TBooleanDynArray;
+    function GetSelectedCount: integer;
+    function GetRenumber: boolean;
+    function GetBatchAll: boolean;
+    function GetDeletePermanently: boolean;
+    procedure SetPageCount(AValue: integer);
     procedure ParseRanges;
     procedure UpdatePreview;
   public
-    property PageCount: integer read FPageCount write FPageCount;
+    { Clears the range text, the selection and the preview. Called
+      automatically whenever PageCount is assigned. }
+    procedure Reset;
+    property PageCount: integer read FPageCount write SetPageCount;
     property Directory: string read FDirectory write FDirectory;
     property Selected: TBooleanDynArray read FSelected;
+    property SelectedCount: integer read GetSelectedCount;
+    property Renumber: boolean read GetRenumber;
+    property BatchAll: boolean read GetBatchAll;
+    property DeletePermanently: boolean read GetDeletePermanently;
   end;
 
 implementation
@@ -75,17 +96,23 @@ implementation
 
 { Parses range strings like "1, 4, 7-10, 15" into a boolean array
   where True means the page at that index is selected for deletion.
-  Indices are 1-based in the input, 0-based in the array. }
+  Indices are 1-based in the input, 0-based in the array.
+  Invalid tokens (non-numeric values) are silently skipped.
+  Writes are bounded by the actual array length, so the routine is safe
+  even if ATotal and Length(ASelected) disagree. }
 procedure ParseRangeString(const S: string; ATotal: integer;
-  out ASelected: array of boolean);
+  var ASelected: array of boolean);
 var
   Parts: TStringArray;
-  i, Lo, Hi, Code, DashPos: integer;
+  i, Lo, Hi, Err, DashPos, j, Limit: integer;
   Token: string;
 begin
-  for i := 0 to ATotal - 1 do
-    if i < Length(ASelected) then
-      ASelected[i] := False;
+  Limit := Length(ASelected);
+  if ATotal < Limit then
+    Limit := ATotal;
+
+  for i := 0 to Limit - 1 do
+    ASelected[i] := False;
 
   Parts := S.Split([',', ';']);
   for i := 0 to High(Parts) do
@@ -94,44 +121,77 @@ begin
     if Token = '' then Continue;
 
     { Try "N-M" range }
-    Code := Token.IndexOf('-');
-    if Code >= 0 then
+    DashPos := Token.IndexOf('-');
+    if DashPos >= 0 then
     begin
-      DashPos := Code;
-      Val(Trim(Token.Substring(0, DashPos)), Lo, Code);
-      if Code <> 0 then Lo := 1;
-      Val(Trim(Token.Substring(DashPos + 1)), Hi, Code);
-      if Code <> 0 then Hi := Lo;
+      Val(Trim(Token.Substring(0, DashPos)), Lo, Err);
+      if Err <> 0 then Continue;  { skip token if left side is not a number }
+      Val(Trim(Token.Substring(DashPos + 1)), Hi, Err);
+      if Err <> 0 then Continue;  { skip token if right side is not a number }
     end
     else
     begin
-      Val(Token, Lo, Code);
-      if Code <> 0 then Lo := 0;
+      Val(Token, Lo, Err);
+      if Err <> 0 then Continue;  { skip token if not a number }
       Hi := Lo;
     end;
 
+    { Swap if the user wrote the range backwards, e.g. "10-7" }
     if Lo > Hi then
     begin
-      Code := Lo;
+      j := Lo;
       Lo := Hi;
-      Hi := Code;
+      Hi := j;
     end;
 
-    for Code := Lo to Hi do
-      if (Code >= 1) and (Code <= ATotal) then
-        ASelected[Code - 1] := True;
+    { Clamp to the valid page interval before looping, so that a huge
+      range such as "1-999999" costs nothing extra }
+    if Lo < 1 then Lo := 1;
+    if Hi > Limit then Hi := Limit;
+
+    for j := Lo to Hi do
+      ASelected[j - 1] := True;
   end;
 end;
 
 { TdlgRows }
 
-{ Initialise the dialog: zero the page count, clear the selection array,
-  and reset the range edit so no pages are selected on open. }
+{ Initialise the dialog: zero the page count and clear the selection array. }
 procedure TdlgRows.FormCreate(Sender: TObject);
 begin
   FPageCount := 0;
   FSelected := nil;
+end;
+
+{ Re-synchronise the preview every time the dialog becomes visible, so the
+  panel can never show a stale result left over from a previous session. }
+procedure TdlgRows.FormShow(Sender: TObject);
+begin
+  ParseRanges;
+  UpdatePreview;
+end;
+
+{ Refuse to confirm an empty selection: a "Delete" that deletes nothing is
+  almost always a mistake (typo in the range text, or nothing typed at all). }
+procedure TdlgRows.FormCloseQuery(Sender: TObject; var CanClose: boolean);
+begin
+  if (ModalResult = mrOk) and (GetSelectedCount = 0) then
+  begin
+    CanClose := False;
+    MemoPreview.Lines.Text := 'No pages selected - nothing to delete.' +
+      LineEnding + 'Enter a range such as 1, 4, 7-10 or press Cancel.';
+    if EditRanges.CanFocus then
+      EditRanges.SetFocus;
+  end;
+end;
+
+{ Clear text, selection and preview. }
+procedure TdlgRows.Reset;
+begin
   EditRanges.Text := '';
+  SetLength(FSelected, 0);
+  ParseRanges;
+  UpdatePreview;
 end;
 
 { Fired on every change to the range edit box. Re-parses the input string
@@ -142,11 +202,52 @@ begin
   UpdatePreview;
 end;
 
-{ Allocate the selection array (if PageCount > 0) and parse the current
-  range text into it by calling the standalone ParseRangeString helper. }
+{ Setter for PageCount. Assigning it always performs a full reset, even when
+  the value is unchanged, because it marks the start of a new archive. }
+procedure TdlgRows.SetPageCount(AValue: integer);
+begin
+  if AValue < 0 then
+    AValue := 0;
+  FPageCount := AValue;
+  Reset;
+end;
+
+{ Number of pages currently marked as selected. }
+function TdlgRows.GetSelectedCount: integer;
+var
+  i: integer;
+begin
+  Result := 0;
+  for i := 0 to High(FSelected) do
+    if FSelected[i] then
+      Inc(Result);
+end;
+
+function TdlgRows.GetRenumber: boolean;
+begin
+  Result := CbRenumber.Checked;
+end;
+
+function TdlgRows.GetBatchAll: boolean;
+begin
+  Result := CbBatchAll.Checked;
+end;
+
+function TdlgRows.GetDeletePermanently: boolean;
+begin
+  Result := CbDeletePerm.Checked;
+end;
+
+{ Size the selection array to PageCount and parse the current range text
+  into it. When there are no pages, the array is emptied rather than left
+  holding values from a previous archive. }
 procedure TdlgRows.ParseRanges;
 begin
-  if FPageCount <= 0 then Exit;
+  if FPageCount <= 0 then
+  begin
+    SetLength(FSelected, 0);
+    Exit;
+  end;
   SetLength(FSelected, FPageCount);
   ParseRangeString(EditRanges.Text, FPageCount, FSelected);
 end;
@@ -157,25 +258,25 @@ end;
 procedure TdlgRows.UpdatePreview;
 var
   i, Count: integer;
-  Parts: string;
+  List: string;
 begin
   Count := 0;
-  Parts := '';
+  List := '';
   for i := 0 to High(FSelected) do
     if FSelected[i] then
     begin
       Inc(Count);
       // Build comma-separated list of 1-based page numbers
-      if Parts <> '' then Parts := Parts + ', ';
-      Parts := Parts + IntToStr(i + 1);
+      if List <> '' then List := List + ', ';
+      List := List + IntToStr(i + 1);
     end;
 
   if Count = 0 then
     MemoPreview.Lines.Text := 'No pages selected'
   else if Count = 1 then
-    MemoPreview.Lines.Text := '1 page: ' + Parts
+    MemoPreview.Lines.Text := '1 page: ' + List
   else
-    MemoPreview.Lines.Text := Format('%d pages: %s', [Count, Parts]);
+    MemoPreview.Lines.Text := Format('%d pages: %s', [Count, List]);
 end;
 
 end.

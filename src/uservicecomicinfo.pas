@@ -195,7 +195,8 @@ begin
 
         { Backup original if requested }
         if ABackup then
-          BackupFile(FullPath);
+          if not BackupFile(FullPath) then
+            raise Exception.CreateFmt('Failed to create backup of %s', [FullPath]);
 
         { Write new CBZ without ComicInfo.xml }
         WriteZipFromEntriesDeflated(FullPath, Entries);

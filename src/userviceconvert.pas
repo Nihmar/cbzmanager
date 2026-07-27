@@ -143,7 +143,8 @@ begin
         if Modified then
         begin
           if Options.BackupOld then
-            BackupFile(FullPath);
+            if not BackupFile(FullPath) then
+              raise Exception.CreateFmt('Failed to create backup of %s', [FullPath]);
           WriteZipFromEntriesDeflated(FullPath, NewEntries);
           Result[i].Success := True;
           Result[i].PagesConverted := ConvertedCount;

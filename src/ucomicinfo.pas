@@ -329,10 +329,10 @@ begin
       Entries[k].Data.Position := 0;
     end;
 
-    if ABackup then
-      BackupFile(AFilePath);
-
-    WriteZipFromEntriesDeflated(AFilePath, Entries);
+    if not ReplaceCBZ(AFilePath, Entries) then
+      raise Exception.CreateFmt('Failed to write %s', [ExtractFileName(AFilePath)]);
+    if not ABackup then
+      DeleteFile(ChangeFileExt(AFilePath, '') + '_OLD.cbz');
   finally
     FreeZipEntries(Entries);
   end;

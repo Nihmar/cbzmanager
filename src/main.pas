@@ -357,6 +357,13 @@ const
     thumbnail of width W is given height Round(W * PAGE_ASPECT_RATIO). }
   PAGE_ASPECT_RATIO = 1.25;
 
+  { Zoom / thumbnail sizing.  The zoom slider value is the thumbnail width in
+    pixels; height is derived via PAGE_ASPECT_RATIO. }
+  THUMB_DEFAULT_SIZE = 128;   // initial thumbnail width and default zoom
+  THUMB_MIN_SIZE = 48;        // smallest width the zoom slider allows
+  THUMB_RENDER_FLOOR = 16;    // absolute lower bound when rendering thumbs
+  ZOOM_STEP = 32;             // width change per zoom-in / zoom-out step
+
   { TfrmMain }
 
 {
@@ -382,10 +389,10 @@ begin
   FChanges := nil;
   FRenumber := True;
   FPageFile := '';
-  ILFilesFirstPages.Width := 128;
-  ILFilesFirstPages.Height := 160;
-  ILPages.Width := 128;
-  ILPages.Height := 160;
+  ILFilesFirstPages.Width := THUMB_DEFAULT_SIZE;
+  ILFilesFirstPages.Height := Round(THUMB_DEFAULT_SIZE * PAGE_ASPECT_RATIO);
+  ILPages.Width := THUMB_DEFAULT_SIZE;
+  ILPages.Height := Round(THUMB_DEFAULT_SIZE * PAGE_ASPECT_RATIO);
   LVFiles.DoubleBuffered := True;
   LVFiles.ReadOnly := True;
   LVFiles.ViewStyle := vsIcon;
@@ -394,9 +401,9 @@ begin
   LVPages.ReadOnly := True;
   LVPages.ViewStyle := vsIcon;
   LVPages.LargeImages := ILPages;
-  ZoomScroll.Min := 48;
+  ZoomScroll.Min := THUMB_MIN_SIZE;
   ZoomScroll.Max := CacheW;
-  ZoomScroll.Position := 128;
+  ZoomScroll.Position := THUMB_DEFAULT_SIZE;
   HidePreview;
   SetFolderOpsEnabled(False);
   SetStatus('Ready');
@@ -621,7 +628,7 @@ begin
     LVPages.Items.Clear;
     LVPages.LargeImages := nil;
     ILPages.Clear;
-    Sz := Max(16, ZoomScroll.Position);
+    Sz := Max(THUMB_RENDER_FLOOR, ZoomScroll.Position);
     ILPages.Width := Sz;
     ILPages.Height := Round(Sz * PAGE_ASPECT_RATIO);
     for i := 0 to High(FPages) do
@@ -738,7 +745,7 @@ var
   Sz: integer;
 begin
   TimerDebounceZoom.Enabled := False;
-  Sz := Max(16, ZoomScroll.Position);
+  Sz := Max(THUMB_RENDER_FLOOR, ZoomScroll.Position);
   RebuildThumbs(LVFiles, ILFilesFirstPages, FFirstPages, Sz);
   if PanelSingleFile.Visible then
     RebuildThumbs(LVPages, ILPages, FPagePreviews, Sz);
@@ -880,7 +887,7 @@ begin
   if AItem = nil then Exit;
   ClearPreview;
 
-  Sz := Max(16, ZoomScroll.Position);
+  Sz := Max(THUMB_RENDER_FLOOR, ZoomScroll.Position);
   LblPreviewFile.Caption := AItem.Caption;
   PanelSingleFile.Visible := True;
   SplitterPreview.Visible := True;
@@ -1452,21 +1459,21 @@ end;
 {
   MnuZoomInClick
   --------------
-  Increases zoom by 32 units (clamped to ZoomScroll.Max).
+  Increases zoom by ZOOM_STEP units (clamped to ZoomScroll.Max).
 }
 procedure TfrmMain.MnuZoomInClick(Sender: TObject);
 begin
-  ZoomScroll.Position := Min(ZoomScroll.Max, ZoomScroll.Position + 32);
+  ZoomScroll.Position := Min(ZoomScroll.Max, ZoomScroll.Position + ZOOM_STEP);
 end;
 
 {
   MnuZoomOutClick
   ---------------
-  Decreases zoom by 32 units (clamped to ZoomScroll.Min).
+  Decreases zoom by ZOOM_STEP units (clamped to ZoomScroll.Min).
 }
 procedure TfrmMain.MnuZoomOutClick(Sender: TObject);
 begin
-  ZoomScroll.Position := Max(ZoomScroll.Min, ZoomScroll.Position - 32);
+  ZoomScroll.Position := Max(ZoomScroll.Min, ZoomScroll.Position - ZOOM_STEP);
 end;
 
 { ---------------------------------------------------------------------------

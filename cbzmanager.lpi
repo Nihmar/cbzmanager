@@ -106,12 +106,40 @@
       <Unit>
         <Filename Value="src\udlgrows.pas"/>
         <IsPartOfProject Value="True"/>
+        <ComponentName Value="dlgRows"/>
         <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
       </Unit>
       <Unit>
         <Filename Value="src\udlgcomicinfo.pas"/>
         <IsPartOfProject Value="True"/>
         <ComponentName Value="dlgComicInfo"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\udlgconvertresults.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="dlgConvertResults"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\udlgseqbuilder.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="dlgSeqBuilder"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\ucomicinfo.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\udlgcomicinfoeditor.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="dlgComicInfoEditor"/>
+        <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
       </Unit>
     </Units>

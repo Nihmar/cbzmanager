@@ -41,13 +41,17 @@ type
       Delete          — If True, original chapter files are deleted after a
                         successful merge; otherwise they are renamed to
                         *_OLD.cbz. }
+  TIntArray = array of integer;
+
   TMergeOptions = record
     SeriesName: string;
     ChapterStart: integer;
     ChapterEnd: integer;
-    ChaptersPerVolume: integer;  // 0 = auto-calculate
+    ChaptersPerVolume: integer;
+    ChaptersList: TIntArray;
     Force: boolean;
-    Delete: boolean;             // True=delete originals, False=rename to _OLD
+    Delete: boolean;
+    GenerateComicInfo: boolean;
   end;
 
   { TMergeResult — Outcome of a merge operation.
@@ -99,7 +103,26 @@ type
 implementation
 
 uses
-  StrUtils;
+  StrUtils, ucomicinfo;
+
+function ExtractChapterNum(const AFileName: string): integer;
+var
+  Base, S: string;
+  p: integer;
+begin
+  Base := ChangeFileExt(AFileName, '');
+  p := RPos(' -', Base);
+  if p > 0 then
+  begin
+    S := Trim(Copy(Base, p + 2, Length(Base)));
+    p := Pos('_', S);
+    if p > 0 then
+      S := Copy(S, 1, p - 1);
+    Result := StrToIntDef(S, 0);
+  end
+  else
+    Result := 0;
+end;
 
 { ---------------------------------------------------------------------------
   DetectSeriesName
@@ -156,31 +179,24 @@ class function TMergeService.CalculateChaptersPerVolume(
 var
   i, ChNum, LowestCh, VolCount: integer;
   BaseName: string;
-  n: integer;
 begin
   Result := 0;
   if (SeriesName = '') or (Length(AFiles) = 0) then Exit;
 
-  LowestCh := MaxInt;                     // start with a very large sentinel
+  LowestCh := MaxInt;
   VolCount := 0;
 
   for i := 0 to High(AFiles) do
   begin
     BaseName := ChangeFileExt(AFiles[i], '');
-    { Count existing volumes }
     if StartsStr(SeriesName + ' V', BaseName) then
     begin
       Inc(VolCount);
-      Continue;                           // a volume file, not a chapter
+      Continue;
     end;
-    { Find lowest chapter number }
-    n := RPos(' -', BaseName);
-    if n > 0 then
-    begin
-      ChNum := StrToIntDef(Trim(Copy(BaseName, n + 2, MaxInt)), 0);
-      if (ChNum > 0) and (ChNum < LowestCh) then
-        LowestCh := ChNum;
-    end;
+    ChNum := ExtractChapterNum(AFiles[i]);
+    if (ChNum > 0) and (ChNum < LowestCh) then
+      LowestCh := ChNum;
   end;
 
   { If we have at least one volume and the lowest chapter is > 1,
@@ -223,10 +239,15 @@ class function TMergeService.Merge(const AFiles: TStringArray;
   AOnProgress: TProgressEvent = nil): TMergeResult;
 var
   i, n, ChNum, CPV, VolNum, TotalCreated, Remaining, TotalBatches: integer;
-  BaseName, SeriesName, VolName, FullPath: string;
+  ChIdx, ListIdx, BatchSize: integer;
+  UseList: boolean;
+  SeriesName, VolName, FullPath: string;
   ChBatch, Batch: TStringArray;
   VolEntries: TZipEntries;
-  CreatedFiles: TStringArray;             // track created volumes (for future use)
+  CreatedFiles: TStringArray;
+  CI: TComicInfo;
+  XML: string;
+  k, ChFirst, ChLast: integer;
 begin
   Result.Success := False;
   Result.VolumesCreated := 0;
@@ -250,22 +271,14 @@ begin
       CPV := 7;                           // sensible default when no data exists
   end;
 
-  { Build the chapter batch: every file matching "SeriesName - NNNN.cbz"
-    whose chapter number is within the requested range.  We use RPos(' -')
-    so series names containing hyphens are handled correctly. }
   ChBatch := nil;
   for i := 0 to High(AFiles) do
   begin
-    BaseName := ChangeFileExt(AFiles[i], '');
-    n := RPos(' -', BaseName);
-    if n > 0 then
+    ChNum := ExtractChapterNum(AFiles[i]);
+    if (ChNum >= Options.ChapterStart) and (ChNum <= Options.ChapterEnd) then
     begin
-      ChNum := StrToIntDef(Trim(Copy(BaseName, n + 2, MaxInt)), 0);
-      if (ChNum >= Options.ChapterStart) and (ChNum <= Options.ChapterEnd) then
-      begin
-        SetLength(ChBatch, Length(ChBatch) + 1);
-        ChBatch[High(ChBatch)] := AFiles[i];
-      end;
+      SetLength(ChBatch, Length(ChBatch) + 1);
+      ChBatch[High(ChBatch)] := AFiles[i];
     end;
   end;
 
@@ -277,98 +290,107 @@ begin
 
   { ---- Phase 2: Volume creation ----------------------------------------- }
 
-  TotalBatches := (Length(ChBatch) + CPV - 1) div CPV;  // ceiling division
+  UseList := Length(Options.ChaptersList) > 0;
+
+  if UseList then
+    TotalBatches := Length(Options.ChaptersList)
+  else
+    TotalBatches := (Length(ChBatch) + CPV - 1) div CPV;
+
   TotalCreated := 0;
   VolNum := 1;
   CreatedFiles := nil;
+  ChIdx := 0;
+  ListIdx := 0;
 
-  { Signal start of merge via progress callback }
   if Assigned(AOnProgress) and (TotalBatches > 0) then
     AOnProgress(0, Format('Merging 0/%d volumes', [TotalBatches]));
 
-  i := 0;
-  while i < Length(ChBatch) do
+  while ChIdx < Length(ChBatch) do
   begin
-    Remaining := Length(ChBatch) - i;
+    Remaining := Length(ChBatch) - ChIdx;
 
-    { Report progress before writing each volume }
-    if Assigned(AOnProgress) then
+    if Assigned(AOnProgress) and (TotalBatches > 0) then
       AOnProgress((TotalCreated * 100) div TotalBatches,
         Format('Writing volume %d/%d', [TotalCreated + 1, TotalBatches]));
 
-    { ---- Force mode: append leftovers to the previous volume ----------- }
-    if Options.Force and (TotalCreated > 0) and (Remaining <= CPV) then
+    if UseList then
     begin
-      { The remaining chapters are few enough to fit in one normal batch.
-        Instead of creating a new (undersized) volume, re-open the last
-        volume we just wrote and append these chapters to it. }
-      VolName := Format('%s V%.3d.cbz', [SeriesName, VolNum - 1]);
-      FullPath := IncludeTrailingPathDelimiter(ADir) + VolName;
-
-      { Build a batch containing all remaining chapters }
-      SetLength(Batch, Remaining);
-      for n := 0 to Remaining - 1 do
-        Batch[n] := ChBatch[i + n];
-
-      VolEntries := MergeIntoVolume(Batch, ADir);
-      try
-        if Length(VolEntries) > 0 then
-        begin
-          WriteZipFromEntriesDeflated(FullPath, VolEntries);
-          { No new volume counter increment — entries were added to existing }
-        end;
-      finally
-        FreeZipEntries(VolEntries);
-      end;
-
-      i := Length(ChBatch);               // mark all chapters as consumed
-      Break;                               // exit the while loop
+      if ListIdx > High(Options.ChaptersList) then
+        Break;
+      BatchSize := Options.ChaptersList[ListIdx];
+      if BatchSize > Remaining then
+        BatchSize := Remaining;
+      Inc(ListIdx);
     end
-    { ---- Normal mode: create a new volume file ------------------------- }
     else
     begin
-      { Collect up to CPV chapters into a batch slice }
-      Batch := nil;
-      for n := 0 to CPV - 1 do
-        if i + n < Length(ChBatch) then
-        begin
-          SetLength(Batch, Length(Batch) + 1);
-          Batch[High(Batch)] := ChBatch[i + n];
-        end;
-
-      VolName := Format('%s V%.3d.cbz', [SeriesName, VolNum]);
-      FullPath := IncludeTrailingPathDelimiter(ADir) + VolName;
-
-      { Merge the batch into a single set of ZIP entries, then flush to disk }
-      VolEntries := MergeIntoVolume(Batch, ADir);
-      try
-        if Length(VolEntries) > 0 then
-        begin
-          WriteZipFromEntriesDeflated(FullPath, VolEntries);
-          SetLength(CreatedFiles, Length(CreatedFiles) + 1);
-          CreatedFiles[High(CreatedFiles)] := FullPath;
-          Inc(TotalCreated);
-        end;
-      finally
-        FreeZipEntries(VolEntries);
-      end;
-
-      Inc(VolNum);
-      Inc(i, CPV);                         // advance past the batch we just wrote
+      BatchSize := CPV;
+      if BatchSize > Remaining then
+        BatchSize := Remaining;
+      if Options.Force and (Remaining > CPV) and (Remaining - CPV < CPV) then
+        BatchSize := Remaining;
     end;
+
+    Batch := nil;
+    SetLength(Batch, BatchSize);
+    for n := 0 to BatchSize - 1 do
+      Batch[n] := ChBatch[ChIdx + n];
+
+    VolName := Format('%s V%.3d.cbz', [SeriesName, VolNum]);
+    FullPath := IncludeTrailingPathDelimiter(ADir) + VolName;
+
+    VolEntries := MergeIntoVolume(Batch, ADir);
+    try
+      if Length(VolEntries) > 0 then
+      begin
+        if Options.GenerateComicInfo then
+        begin
+          CI := DefaultComicInfo;
+          CI.Series := SeriesName;
+          CI.Volume := VolNum;
+          ChFirst := ExtractChapterNum(Batch[0]);
+          ChLast := ExtractChapterNum(Batch[High(Batch)]);
+          if (ChFirst > 0) and (ChLast > 0) then
+            CI.Number := Format('%d-%d', [ChFirst, ChLast])
+          else
+            CI.Number := IntToStr(VolNum);
+          CI.Title := Format('%s Vol.%d', [SeriesName, VolNum]);
+          CI.PageCount := Length(VolEntries);
+          CI.Manga := 'Unknown';
+          XML := GenerateComicInfoXML(CI);
+          k := Length(VolEntries);
+          SetLength(VolEntries, k + 1);
+          VolEntries[k].Name := COMICINFO_XML;
+          VolEntries[k].Data := TMemoryStream.Create;
+          if Length(XML) > 0 then
+            VolEntries[k].Data.Write(XML[1], Length(XML));
+          VolEntries[k].Data.Position := 0;
+        end;
+        WriteZipFromEntriesDeflated(FullPath, VolEntries);
+        SetLength(CreatedFiles, Length(CreatedFiles) + 1);
+        CreatedFiles[High(CreatedFiles)] := FullPath;
+        Inc(TotalCreated);
+      end;
+    finally
+      FreeZipEntries(VolEntries);
+    end;
+
+    Inc(VolNum);
+    Inc(ChIdx, BatchSize);
   end;
 
   Result.Success := TotalCreated > 0;
   Result.VolumesCreated := TotalCreated;
 
   { ---- Phase 3: Cleanup — remove or back up original chapter files ---- }
-  for n := 0 to High(ChBatch) do
+  for n := 0 to ChIdx - 1 do
   begin
     FullPath := IncludeTrailingPathDelimiter(ADir) + ChBatch[n];
     if Options.Delete then
-      DeleteFile(FullPath)                 // permanent deletion
+      DeleteFile(FullPath)
     else
-      BackupFile(FullPath);                // rename to *_OLD.cbz
+      BackupFile(FullPath);
   end;
 end;
 

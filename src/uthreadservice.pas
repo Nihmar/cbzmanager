@@ -388,13 +388,9 @@ begin
   FDir := ADir;
 end;
 
-{ TValidateThread.Execute
-
-  Delegates to TValidateService.ValidateDeep.  Note: the validation service
-  does not currently report progress — the progress callback is not passed. }
 procedure TValidateThread.Execute;
 begin
-  FResult := TValidateService.ValidateDeep(FFiles, FDir);
+  FResult := TValidateService.ValidateDeep(FFiles, FDir, @Progress);
 end;
 
 { ============================================================================

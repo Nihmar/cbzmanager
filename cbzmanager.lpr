@@ -22,7 +22,11 @@ uses
   udlgvalidate,
   udlgcomicinfo,
   udlgwebp,
-  udlgmerge;
+  udlgmerge,
+  udlgconvertresults,
+  udlgseqbuilder,
+  ucomicinfo,
+  udlgcomicinfoeditor;
 
   {$R *.res}
 

@@ -58,6 +58,8 @@ type
     Success: boolean;
     PagesConverted: integer;
     ErrorMsg: string;
+    OriginalSize: Int64;
+    NewSize: Int64;
   end;
 
   { ------------------------------------------------------------------------
@@ -97,22 +99,27 @@ type
 
 implementation
 
-{ ----------------------------------------------------------------------------
-  Convert
+function GetFileSize(const APath: string): Int64;
+var
+  SR: TSearchRec;
+begin
+  if FindFirst(APath, faAnyFile, SR) = 0 then
+  begin
+    Result := SR.Size;
+    FindClose(SR);
+  end
+  else
+    Result := 0;
+end;
 
-  For each file: delegates to ConvertCBZToWebP (which returns new ZIP
-  entries and an out-parameter NewCount of converted pages).  If any pages
-  were converted and backup is requested, the original file is renamed
-  before the new archive is written.  Exceptions are caught per-file so
-  one failure does not abort the batch.
-  ---------------------------------------------------------------------------- }
 class function TConvertService.Convert(const AFiles: TStringArray;
   const ADir: string; const Options: TConvertOptions;
   AOnProgress: TProgressEvent = nil): TConvertResults;
 var
-  i, NewCount, Total: integer;
+  i, NewCount, ConvertedCount, Total: integer;
   FullPath: string;
   NewEntries: TZipEntries;
+  Modified: boolean;
 begin
   Total := Length(AFiles);
   Result := nil;
@@ -127,27 +134,27 @@ begin
     Result[i].FileName := AFiles[i];
     FullPath := IncludeTrailingPathDelimiter(ADir) + AFiles[i];
     try
+      Result[i].OriginalSize := GetFileSize(FullPath);
       NewEntries := ConvertCBZToWebP(FullPath, Options.Quality,
         Options.ReplaceOnlyIfSmaller, Options.SkipExistingWebP,
-        Options.RemoveComicInfo, Options.RenumberPages, NewCount);
+        Options.RemoveComicInfo, Options.RenumberPages,
+        NewCount, ConvertedCount, Modified);
       try
-        if NewCount > 0 then
+        if Modified then
         begin
-          { Backup the original before overwriting, if requested }
           if Options.BackupOld then
             BackupFile(FullPath);
-          { Write the converted archive back to disk }
           WriteZipFromEntriesDeflated(FullPath, NewEntries);
           Result[i].Success := True;
-          Result[i].PagesConverted := NewCount;
+          Result[i].PagesConverted := ConvertedCount;
+          Result[i].NewSize := GetFileSize(FullPath);
         end
         else
         begin
-          { Nothing was converted — still a success, but flag it so the UI
-            can show a meaningful message. }
           Result[i].Success := True;
           Result[i].PagesConverted := 0;
-          Result[i].ErrorMsg := 'No convertible images found';
+          Result[i].NewSize := Result[i].OriginalSize;
+          Result[i].ErrorMsg := 'Already up to date';
         end;
       finally
         FreeZipEntries(NewEntries);
@@ -157,6 +164,7 @@ begin
       begin
         Result[i].Success := False;
         Result[i].PagesConverted := 0;
+        Result[i].NewSize := Result[i].OriginalSize;
         Result[i].ErrorMsg := E.Message;
       end;
     end;

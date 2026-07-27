@@ -2,16 +2,6 @@ unit udlgcomicinfo;
 
 {$mode ObjFPC}{$H+}
 
-{
-  udlgcomicinfo.pas - ComicInfo Metadata Management Dialog
-
-  Provides TdlgComicInfo, a dialog that scans comic archives (CBZ/CBR) for
-  embedded ComicInfo.xml metadata and lets the user selectively remove it.
-  Files are listed with their metadata status (Present / Absent / Error) and
-  can be individually checked for removal. An optional backup of each archive
-  can be created before the metadata is stripped.
-}
-
 interface
 
 uses
@@ -20,25 +10,17 @@ uses
 
 type
 
-  { TdlgComicInfo - Dialog for inspecting and removing ComicInfo.xml metadata
-    from comic archives. Displays scan results in a list view with a status
-    column and checkboxes. Files whose metadata is "Present" are pre-checked.
-
-    Fields:
-      FDir   - base directory that contains the scanned files
-      FFiles - array of file names being managed by this dialog }
-
   TdlgComicInfo = class(TForm)
+    procedure FormCreate(Sender: TObject);
+  private
     BtnRemove: TButton;
     BtnClose: TButton;
     CbBackup: TCheckBox;
     LVFiles: TListView;
     PanelBottom: TPanel;
-    procedure BtnRemoveClick(Sender: TObject);
-    procedure FormCreate(Sender: TObject);
-  private
     FDir: string;
     FFiles: TStringArray;
+    procedure BtnRemoveClick(Sender: TObject);
   public
     procedure ScanFiles(const AFiles: TStringArray; const ADir: string);
   end;
@@ -53,21 +35,58 @@ uses
 
 { TdlgComicInfo }
 
-{ Initialise the dialog: clear the list view so it starts empty. }
 procedure TdlgComicInfo.FormCreate(Sender: TObject);
+var
+  Col: TListColumn;
 begin
+  BorderStyle := bsDialog;
+  BorderIcons := [biSystemMenu];
+
+  LVFiles := TListView.Create(Self);
+  LVFiles.Parent := Self;
+  LVFiles.Align := alClient;
+  LVFiles.BorderSpacing.Around := 8;
+  LVFiles.Checkboxes := True;
+  LVFiles.GridLines := True;
+  LVFiles.ReadOnly := True;
+  LVFiles.RowSelect := True;
+  LVFiles.ViewStyle := vsReport;
+  Col := LVFiles.Columns.Add;
+  Col.Caption := 'File';
+  Col.AutoSize := True;
+  Col := LVFiles.Columns.Add;
+  Col.Caption := 'ComicInfo.xml';
+  Col.Width := 120;
+
+  PanelBottom := TPanel.Create(Self);
+  PanelBottom.Parent := Self;
+  PanelBottom.Align := alBottom;
+  PanelBottom.Height := 88;
+  PanelBottom.BevelOuter := bvNone;
+
+  CbBackup := TCheckBox.Create(Self);
+  CbBackup.Parent := PanelBottom;
+  CbBackup.SetBounds(12, 8, 540, 24);
+  CbBackup.Caption := 'Create backup (_OLD.cbz) before rewriting';
+  CbBackup.Checked := True;
+
+  BtnClose := TButton.Create(Self);
+  BtnClose.Parent := PanelBottom;
+  BtnClose.SetBounds(472, 44, 80, 30);
+  BtnClose.Cancel := True;
+  BtnClose.Caption := 'Close';
+  BtnClose.Default := True;
+  BtnClose.ModalResult := mrOk;
+
+  BtnRemove := TButton.Create(Self);
+  BtnRemove.Parent := PanelBottom;
+  BtnRemove.SetBounds(384, 44, 80, 30);
+  BtnRemove.Caption := 'Remove';
+  BtnRemove.OnClick := @BtnRemoveClick;
+
   LVFiles.Clear;
 end;
 
-{ Scan every file in AFiles for ComicInfo.xml metadata and populate the
-  list view with the outcome.
-
-  Parameters:
-    AFiles - array of file names (relative paths) to scan
-    ADir   - base directory that contains the files
-
-  Each row receives a status of "Present" (metadata found, pre-checked),
-  "Absent" (no metadata, not checked), or "Error" (scan failed, not checked). }
 procedure TdlgComicInfo.ScanFiles(const AFiles: TStringArray;
   const ADir: string);
 var
@@ -78,7 +97,6 @@ begin
   FDir := ADir;
   FFiles := AFiles;
   Results := TComicInfoService.Scan(AFiles, ADir);
-  // BeginUpdate / EndUpdate pair avoids flicker while rebuilding the list
   LVFiles.BeginUpdate;
   try
     LVFiles.Items.Clear;
@@ -107,18 +125,12 @@ begin
   end;
 end;
 
-{ Remove ComicInfo.xml from every checked file in the list view.
-  Collects the checked items, delegates to TComicInfoService.Remove
-  (optionally creating backups via CbBackup), then rescans the list.
-  If at least one file was successfully stripped, ModalResult is set
-  to mrOk so the caller knows the directory may need a refresh. }
 procedure TdlgComicInfo.BtnRemoveClick(Sender: TObject);
 var
   i, Removed: integer;
   ToRemove: TStringArray;
   Results: TComicInfoResults;
 begin
-  // Build the list of checked file names to remove metadata from
   ToRemove := nil;
   for i := 0 to LVFiles.Items.Count - 1 do
     if LVFiles.Items[i].Checked then
@@ -130,13 +142,11 @@ begin
   if Length(ToRemove) = 0 then Exit;
 
   Results := TComicInfoService.Remove(ToRemove, FDir, CbBackup.Checked);
-  // Tally how many removals actually succeeded
   Removed := 0;
   for i := 0 to High(Results) do
     if Results[i].Removed then
       Inc(Removed);
 
-  // Refresh the list view to reflect the new state after removal
   ScanFiles(FFiles, FDir);
   if Removed > 0 then
     ModalResult := mrOk;

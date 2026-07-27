@@ -506,6 +506,10 @@ object frmMain: TfrmMain
     end
     object MnuArchive: TMenuItem
       Caption = '&Archive'
+      object MnuManageComicInfo: TMenuItem
+        Caption = 'Manage ComicInfo.xml...'
+        OnClick = MnuManageComicInfoClick
+      end
       object MnuRemoveComicInfo: TMenuItem
         Caption = 'Remove ComicInfo.xml...'
         OnClick = MnuRemoveComicInfoClick
@@ -626,6 +630,21 @@ object frmMain: TfrmMain
       Caption = 'Open file'
       Default = True
       OnClick = MnuOpenFileClick
+    end
+    object MnuCtxRenameFile: TMenuItem
+      Caption = 'Rename...'
+      OnClick = MnuCtxRenameFileClick
+    end
+    object MnuCtxDeleteFile: TMenuItem
+      Caption = 'Delete file'
+      OnClick = MnuCtxDeleteFileClick
+    end
+    object SepCtxFile: TMenuItem
+      Caption = '-'
+    end
+    object MnuCtxManageComicInfo: TMenuItem
+      Caption = 'Manage ComicInfo.xml...'
+      OnClick = MnuManageComicInfoClick
     end
     object MnuCtxRemoveComicInfo: TMenuItem
       Caption = 'Remove ComicInfo.xml...'

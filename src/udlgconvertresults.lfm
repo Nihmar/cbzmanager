@@ -1,9 +1,9 @@
-object dlgValidate: TdlgValidate
-  Left = 400
+object dlgConvertResults: TdlgConvertResults
+  Left = 450
   Height = 420
   Top = 150
-  Width = 640
-  Caption = 'Validation results'
+  Width = 750
+  Caption = 'WebP conversion results'
   Position = poOwnerFormCenter
   LCLVersion = '4.8.0.0'
   OnCreate = FormCreate

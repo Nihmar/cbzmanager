@@ -27,6 +27,7 @@ uses
   SysUtils,
   Forms,
   Controls,
+  Graphics,
   StdCtrls,
   ExtCtrls;
 
@@ -51,6 +52,10 @@ type
       Renumber / BatchAll / DeletePermanently - checkbox states }
 
   TdlgRows = class(TForm)
+    procedure FormCreate(Sender: TObject);
+    procedure FormShow(Sender: TObject);
+    procedure FormCloseQuery(Sender: TObject; var CanClose: boolean);
+  private
     BtnOk: TButton;
     BtnCancel: TButton;
     CbRenumber: TCheckBox;
@@ -62,11 +67,6 @@ type
     MemoPreview: TMemo;
     PanelBottom: TPanel;
     PanelPreview: TPanel;
-    procedure EditRangesChange(Sender: TObject);
-    procedure FormCreate(Sender: TObject);
-    procedure FormShow(Sender: TObject);
-    procedure FormCloseQuery(Sender: TObject; var CanClose: boolean);
-  private
     FPageCount: integer;
     FDirectory: string;
     FSelected: TBooleanDynArray;
@@ -77,6 +77,7 @@ type
     procedure SetPageCount(AValue: integer);
     procedure ParseRanges;
     procedure UpdatePreview;
+    procedure EditRangesChange(Sender: TObject);
   public
     { Clears the range text, the selection and the preview. Called
       automatically whenever PageCount is assigned. }
@@ -156,23 +157,111 @@ end;
 
 { TdlgRows }
 
-{ Initialise the dialog: zero the page count and clear the selection array. }
 procedure TdlgRows.FormCreate(Sender: TObject);
 begin
+  BorderStyle := bsDialog;
+  BorderIcons := [biSystemMenu];
+
+  Label1 := TLabel.Create(Self);
+  Label1.Parent := Self;
+  Label1.Left := 12;
+  Label1.Top := 12;
+  Label1.Caption := 'Rows to delete (e.g. 1, 4, 7-10, 15)';
+  Label1.Font.Height := -13;
+  Label1.Font.Style := [fsBold];
+
+  EditRanges := TEdit.Create(Self);
+  EditRanges.Parent := Self;
+  EditRanges.Left := 12;
+  EditRanges.Top := 32;
+  EditRanges.Width := 476;
+  EditRanges.Font.Height := -13;
+  EditRanges.OnChange := @EditRangesChange;
+
+  Label2 := TLabel.Create(Self);
+  Label2.Parent := Self;
+  Label2.Left := 12;
+  Label2.Top := 72;
+  Label2.Caption := 'Preview';
+  Label2.Font.Height := -13;
+  Label2.Font.Style := [fsBold];
+
+  PanelPreview := TPanel.Create(Self);
+  PanelPreview.Parent := Self;
+  PanelPreview.Left := 12;
+  PanelPreview.Top := 92;
+  PanelPreview.Width := 476;
+  PanelPreview.Height := 130;
+  PanelPreview.BevelOuter := bvLowered;
+
+  MemoPreview := TMemo.Create(Self);
+  MemoPreview.Parent := PanelPreview;
+  MemoPreview.Align := alClient;
+  MemoPreview.BorderSpacing.Around := 4;
+  MemoPreview.BorderStyle := bsNone;
+  MemoPreview.Color := clBtnFace;
+  MemoPreview.Font.Height := -11;
+  MemoPreview.ReadOnly := True;
+  MemoPreview.ScrollBars := ssAutoVertical;
+
+  CbRenumber := TCheckBox.Create(Self);
+  CbRenumber.Parent := Self;
+  CbRenumber.Left := 12;
+  CbRenumber.Top := 238;
+  CbRenumber.Width := 164;
+  CbRenumber.Caption := 'Renumber remaining pages';
+  CbRenumber.Checked := True;
+
+  CbBatchAll := TCheckBox.Create(Self);
+  CbBatchAll.Parent := Self;
+  CbBatchAll.Left := 12;
+  CbBatchAll.Top := 266;
+  CbBatchAll.Width := 165;
+  CbBatchAll.Caption := 'Apply to all files in directory';
+
+  CbDeletePerm := TCheckBox.Create(Self);
+  CbDeletePerm.Parent := Self;
+  CbDeletePerm.Left := 12;
+  CbDeletePerm.Top := 294;
+  CbDeletePerm.Width := 239;
+  CbDeletePerm.Caption := 'Permanently delete (no _OLD.cbz backup)';
+
+  PanelBottom := TPanel.Create(Self);
+  PanelBottom.Parent := Self;
+  PanelBottom.Align := alBottom;
+  PanelBottom.Height := 48;
+  PanelBottom.BevelOuter := bvNone;
+
+  BtnOk := TButton.Create(Self);
+  BtnOk.Parent := PanelBottom;
+  BtnOk.Left := 324;
+  BtnOk.Top := 9;
+  BtnOk.Width := 80;
+  BtnOk.Height := 30;
+  BtnOk.Caption := 'Delete';
+  BtnOk.Default := True;
+  BtnOk.ModalResult := mrOK;
+
+  BtnCancel := TButton.Create(Self);
+  BtnCancel.Parent := PanelBottom;
+  BtnCancel.Left := 412;
+  BtnCancel.Top := 9;
+  BtnCancel.Width := 80;
+  BtnCancel.Height := 30;
+  BtnCancel.Cancel := True;
+  BtnCancel.Caption := 'Cancel';
+  BtnCancel.ModalResult := mrCancel;
+
   FPageCount := 0;
   FSelected := nil;
 end;
 
-{ Re-synchronise the preview every time the dialog becomes visible, so the
-  panel can never show a stale result left over from a previous session. }
 procedure TdlgRows.FormShow(Sender: TObject);
 begin
   ParseRanges;
   UpdatePreview;
 end;
 
-{ Refuse to confirm an empty selection: a "Delete" that deletes nothing is
-  almost always a mistake (typo in the range text, or nothing typed at all). }
 procedure TdlgRows.FormCloseQuery(Sender: TObject; var CanClose: boolean);
 begin
   if (ModalResult = mrOk) and (GetSelectedCount = 0) then
@@ -185,7 +274,6 @@ begin
   end;
 end;
 
-{ Clear text, selection and preview. }
 procedure TdlgRows.Reset;
 begin
   EditRanges.Text := '';
@@ -194,16 +282,12 @@ begin
   UpdatePreview;
 end;
 
-{ Fired on every change to the range edit box. Re-parses the input string
-  and updates the preview panel so the user sees instant feedback. }
 procedure TdlgRows.EditRangesChange(Sender: TObject);
 begin
   ParseRanges;
   UpdatePreview;
 end;
 
-{ Setter for PageCount. Assigning it always performs a full reset, even when
-  the value is unchanged, because it marks the start of a new archive. }
 procedure TdlgRows.SetPageCount(AValue: integer);
 begin
   if AValue < 0 then
@@ -212,7 +296,6 @@ begin
   Reset;
 end;
 
-{ Number of pages currently marked as selected. }
 function TdlgRows.GetSelectedCount: integer;
 var
   i: integer;
@@ -238,9 +321,6 @@ begin
   Result := CbDeletePerm.Checked;
 end;
 
-{ Size the selection array to PageCount and parse the current range text
-  into it. When there are no pages, the array is emptied rather than left
-  holding values from a previous archive. }
 procedure TdlgRows.ParseRanges;
 begin
   if FPageCount <= 0 then
@@ -252,9 +332,6 @@ begin
   ParseRangeString(EditRanges.Text, FPageCount, FSelected);
 end;
 
-{ Build a human-readable summary of the current selection and display it
-  in the MemoPreview control. Shows either "No pages selected", the single
-  selected page number, or a count followed by the comma-separated list. }
 procedure TdlgRows.UpdatePreview;
 var
   i, Count: integer;

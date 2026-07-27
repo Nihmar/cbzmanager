@@ -1,0 +1,11 @@
+object dlgSeqBuilder: TdlgSeqBuilder
+  Left = 300
+  Height = 540
+  Top = 80
+  Width = 800
+  Caption = 'Build volume sequence'
+  Position = poOwnerFormCenter
+  LCLVersion = '4.8.0.0'
+  OnCreate = FormCreate
+  OnDestroy = FormDestroy
+end

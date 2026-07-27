@@ -93,7 +93,8 @@ function MergeIntoVolume(const SourceFiles: TStringArray;
   I parametri controllano la qualita' e le opzioni di conversione. }
 function ConvertCBZToWebP(const FileName: string; Quality: integer;
   ReplaceOnlyIfSmaller, SkipExistingWebP, RemoveComicInfo, RenumberPages: boolean;
-  out NewEntryCount: integer): TZipEntries;
+  out NewEntryCount: integer; out AConvertedCount: integer;
+  out AModified: boolean): TZipEntries;
 
 { Filter pages from a CBZ by 1-indexed position.
   PagesToDelete: a boolean array where True = delete this page (1-indexed).
@@ -352,6 +353,7 @@ begin
     FResults[n].Valid := True;
     FResults[n].ErrorMsg := '';
     Inc(FValidCount);
+    AImage.Free;
   end
   else
   begin
@@ -498,7 +500,8 @@ end;
 
 function ConvertCBZToWebP(const FileName: string; Quality: integer;
   ReplaceOnlyIfSmaller, SkipExistingWebP, RemoveComicInfo, RenumberPages: boolean;
-  out NewEntryCount: integer): TZipEntries;
+  out NewEntryCount: integer; out AConvertedCount: integer;
+  out AModified: boolean): TZipEntries;
 
   { Copy entry from source into Result[Count], increment Count }
   procedure KeepEntry(var Result: TZipEntries; var Count: integer;
@@ -528,13 +531,15 @@ function ConvertCBZToWebP(const FileName: string; Quality: integer;
 var
   AllEntries: TZipEntries;
   i, PageNum: integer;
-  Ext: string;
+  Ext, NewName: string;
   Img: TLazIntfImage;
   WebPData: TMemoryStream;
   RawStream: TMemoryStream;
 begin
   Result := nil;
   NewEntryCount := 0;
+  AConvertedCount := 0;
+  AModified := False;
   AllEntries := CollectZipEntries(FileName);
   if Length(AllEntries) = 0 then Exit;
 
@@ -550,11 +555,12 @@ begin
       { --- ComicInfo.xml: skip or keep --- }
       if SameText(AllEntries[i].Name, COMICINFO_XML) then
       begin
-        if RemoveComicInfo then Continue;
-        if RenumberPages then
-          KeepEntry(Result, PageNum, PageName(PageNum + 1, '.xml'), AllEntries[i])
-        else
-          KeepEntry(Result, PageNum, AllEntries[i].Name, AllEntries[i]);
+        if RemoveComicInfo then
+        begin
+          AModified := True;
+          Continue;
+        end;
+        KeepEntry(Result, PageNum, COMICINFO_XML, AllEntries[i]);
         Continue;
       end;
 
@@ -562,7 +568,11 @@ begin
       if not IsConvertibleExt(Ext) then
       begin
         if RenumberPages then
-          KeepEntry(Result, PageNum, PageName(PageNum + 1, Ext), AllEntries[i])
+        begin
+          NewName := PageName(PageNum + 1, Ext);
+          if NewName <> AllEntries[i].Name then AModified := True;
+          KeepEntry(Result, PageNum, NewName, AllEntries[i]);
+        end
         else
           KeepEntry(Result, PageNum, AllEntries[i].Name, AllEntries[i]);
         Continue;
@@ -572,7 +582,11 @@ begin
       if SkipExistingWebP then
       begin
         if RenumberPages then
-          KeepEntry(Result, PageNum, PageName(PageNum + 1, Ext), AllEntries[i])
+        begin
+          NewName := PageName(PageNum + 1, Ext);
+          if NewName <> AllEntries[i].Name then AModified := True;
+          KeepEntry(Result, PageNum, NewName, AllEntries[i]);
+        end
         else
           KeepEntry(Result, PageNum, AllEntries[i].Name, AllEntries[i]);
         Continue;
@@ -590,9 +604,12 @@ begin
 
       if Img = nil then
       begin
-        { Decode failed, keep original }
         if RenumberPages then
-          KeepEntry(Result, PageNum, PageName(PageNum + 1, Ext), AllEntries[i])
+        begin
+          NewName := PageName(PageNum + 1, Ext);
+          if NewName <> AllEntries[i].Name then AModified := True;
+          KeepEntry(Result, PageNum, NewName, AllEntries[i]);
+        end
         else
           KeepEntry(Result, PageNum, AllEntries[i].Name, AllEntries[i]);
         Continue;
@@ -603,9 +620,12 @@ begin
 
       if WebPData = nil then
       begin
-        { Encoding failed, keep original }
         if RenumberPages then
-          KeepEntry(Result, PageNum, PageName(PageNum + 1, Ext), AllEntries[i])
+        begin
+          NewName := PageName(PageNum + 1, Ext);
+          if NewName <> AllEntries[i].Name then AModified := True;
+          KeepEntry(Result, PageNum, NewName, AllEntries[i]);
+        end
         else
           KeepEntry(Result, PageNum, AllEntries[i].Name, AllEntries[i]);
         Continue;
@@ -614,16 +634,20 @@ begin
       { Decide: keep original or adopt WebP }
       if ReplaceOnlyIfSmaller and (WebPData.Size >= AllEntries[i].Data.Size) then
       begin
-        { WebP not smaller, discard it }
         WebPData.Free;
         if RenumberPages then
-          KeepEntry(Result, PageNum, PageName(PageNum + 1, Ext), AllEntries[i])
+        begin
+          NewName := PageName(PageNum + 1, Ext);
+          if NewName <> AllEntries[i].Name then AModified := True;
+          KeepEntry(Result, PageNum, NewName, AllEntries[i]);
+        end
         else
           KeepEntry(Result, PageNum, AllEntries[i].Name, AllEntries[i]);
       end
       else
       begin
-        { Use WebP }
+        AModified := True;
+        Inc(AConvertedCount);
         if RenumberPages then
           AdoptEntry(Result, PageNum, PageName(PageNum + 1, '.webp'), WebPData)
         else

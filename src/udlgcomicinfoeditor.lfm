@@ -1,0 +1,10 @@
+object dlgComicInfoEditor: TdlgComicInfoEditor
+  Left = 300
+  Height = 520
+  Top = 80
+  Width = 560
+  Caption = 'Edit ComicInfo.xml'
+  Position = poOwnerFormCenter
+  LCLVersion = '4.8.0.0'
+  OnCreate = FormCreate
+end

@@ -128,6 +128,7 @@ type
     SepFile2: TMenuItem;
     MnuExit: TMenuItem;
     MnuArchive: TMenuItem;
+    MnuManageComicInfo: TMenuItem;
     MnuRemoveComicInfo: TMenuItem;
     MnuDeleteRows: TMenuItem;
 
@@ -206,6 +207,10 @@ type
     { Popup menus }
     PMFiles: TPopupMenu;
     MnuCtxOpenFile: TMenuItem;
+    MnuCtxRenameFile: TMenuItem;
+    MnuCtxDeleteFile: TMenuItem;
+    SepCtxFile: TMenuItem;
+    MnuCtxManageComicInfo: TMenuItem;
     MnuCtxRemoveComicInfo: TMenuItem;
     MnuCtxDeleteRows: TMenuItem;
     MnuCtxReorder: TMenuItem;
@@ -239,6 +244,8 @@ type
     procedure LVPagesDragDrop(Sender, Source: TObject; X, Y: integer);
     procedure LVPagesDragOver(Sender, Source: TObject; X, Y: integer;
       State: TDragState; var Accept: boolean);
+    procedure MnuCtxRenameFileClick(Sender: TObject);
+    procedure MnuCtxDeleteFileClick(Sender: TObject);
     procedure MnuConvertWebPClick(Sender: TObject);
     procedure ConvertThreadTerminated(Sender: TObject);
 
@@ -258,6 +265,7 @@ type
     procedure MnuPageReverseClick(Sender: TObject);
     procedure MnuPageSortClick(Sender: TObject);
     procedure MnuReloadClick(Sender: TObject);
+    procedure MnuManageComicInfoClick(Sender: TObject);
     procedure MnuRemoveComicInfoClick(Sender: TObject);
     procedure MnuTogglePreviewClick(Sender: TObject);
     procedure MnuValidateClick(Sender: TObject);
@@ -294,6 +302,8 @@ type
     procedure PagesThreadTerminated(Sender: TObject);
     procedure ClearThumbnails;
     procedure SetStatus(const AMsg: string);
+    procedure SetFolderOpsEnabled(AEnabled: boolean);
+    procedure SetPageOpsEnabled(AEnabled: boolean);
     procedure UpdateStageBar;
     procedure AddChange(AKind: TChangeKind; const APageName: string);
     procedure FreePageImages;
@@ -328,6 +338,10 @@ uses
   udlgcomicinfo,
   udlgwebp,
   udlgmerge,
+  udlgconvertresults,
+  udlgcomicinfoeditor,
+  ucomicinfo,
+  uservicecomicinfo,
   uthreadservice;
 
   {$R *.lfm}
@@ -375,6 +389,7 @@ begin
   ZoomScroll.Max := CacheW;
   ZoomScroll.Position := 128;
   HidePreview;
+  SetFolderOpsEnabled(False);
   SetStatus('Ready');
   Log('=== Avvio, log in %s ===', [LogFileName]);
   Log('exe dir: %s', [ExtractFilePath(ParamStr(0))]);
@@ -483,6 +498,33 @@ end;
 procedure TfrmMain.SetStatus(const AMsg: string);
 begin
   LblStatus.Caption := AMsg;
+end;
+
+procedure TfrmMain.SetFolderOpsEnabled(AEnabled: boolean);
+begin
+  TbValidate.Enabled := AEnabled;
+  TbConvertWebP.Enabled := AEnabled;
+  TbMerge.Enabled := AEnabled;
+  MnuValidate.Enabled := AEnabled;
+  MnuConvertWebP.Enabled := AEnabled;
+  MnuMerge.Enabled := AEnabled;
+  MnuManageComicInfo.Enabled := AEnabled;
+  MnuRemoveComicInfo.Enabled := AEnabled;
+  MnuDeleteRows.Enabled := AEnabled;
+end;
+
+procedure TfrmMain.SetPageOpsEnabled(AEnabled: boolean);
+begin
+  PanelPageTools.Enabled := AEnabled;
+  MnuPageDelete.Enabled := AEnabled;
+  MnuPageDeleteRows.Enabled := AEnabled;
+  MnuPageMoveUp.Enabled := AEnabled;
+  MnuPageMoveDown.Enabled := AEnabled;
+  MnuPageMoveStart.Enabled := AEnabled;
+  MnuPageMoveEnd.Enabled := AEnabled;
+  MnuPageSort.Enabled := AEnabled;
+  MnuPageReverse.Enabled := AEnabled;
+  MnuPageRenumber.Enabled := AEnabled;
 end;
 
 {
@@ -806,6 +848,7 @@ begin
   LVPages.LargeImages := ILPages;
 
   FPageFile := IncludeTrailingPathDelimiter(FDir) + AItem.Caption;
+  SetPageOpsEnabled(False);
   FPagesThread := TPagesThread.Create(FPageFile);
   FPagesThread.OnTerminate := @PagesThreadTerminated;
   FPagesThread.ListView := LVPages;
@@ -862,8 +905,20 @@ end;
   Currently only gates MnuOpenFile on whether a file is selected.
 }
 procedure TfrmMain.PMFilesPopup(Sender: TObject);
+var
+  Ready: boolean;
 begin
-  MnuOpenFile.Enabled := LVFiles.Selected <> nil;
+  Ready := FLoadThread = nil;
+  MnuOpenFile.Enabled := (LVFiles.Selected <> nil) and Ready;
+  MnuCtxRenameFile.Enabled := (LVFiles.Selected <> nil) and Ready;
+  MnuCtxDeleteFile.Enabled := (LVFiles.Selected <> nil) and Ready;
+  MnuCtxValidate.Enabled := Ready;
+  MnuCtxConvertWebP.Enabled := Ready;
+  MnuCtxMerge.Enabled := Ready;
+  MnuCtxManageComicInfo.Enabled := (LVFiles.Selected <> nil) and Ready;
+  MnuCtxRemoveComicInfo.Enabled := Ready;
+  MnuCtxDeleteRows.Enabled := Ready;
+  MnuCtxReorder.Enabled := Ready;
 end;
 
 {
@@ -966,13 +1021,18 @@ var
   Dlg: TdlgValidate;
 begin
   Thread := Sender as TValidateThread;
+  StatusProgress.Visible := False;
+  TbValidate.Enabled := True;
+  MnuValidate.Enabled := True;
+  if Thread.FatalException <> nil then
+  begin
+    SetStatus('Validation failed: ' + Exception(Thread.FatalException).Message);
+    Exit;
+  end;
   Dlg := TdlgValidate.Create(Self);
   Dlg.ShowResults(Thread.Result);
   Dlg.ShowModal;
   Dlg.Free;
-  StatusProgress.Visible := False;
-  TbValidate.Enabled := True;
-  MnuValidate.Enabled := True;
   SetStatus(Format('Validation complete: %d files', [Length(Thread.Result)]));
 end;
 
@@ -1032,23 +1092,29 @@ end;
 procedure TfrmMain.ConvertThreadTerminated(Sender: TObject);
 var
   Thread: TConvertThread;
-  i: integer;
+  Dlg: TdlgConvertResults;
 begin
   Thread := Sender as TConvertThread;
-  for i := 0 to High(Thread.Result) do
-  begin
-    if Thread.Result[i].Success then
-      SetStatus(Format('Converted %s: %d pages to WebP',
-        [Thread.Result[i].FileName, Thread.Result[i].PagesConverted]))
-    else
-      SetStatus(Format('%s: %s', [Thread.Result[i].FileName,
-        Thread.Result[i].ErrorMsg]));
-  end;
   LoadDirectory(FDir);
   StatusProgress.Visible := False;
   TbConvertWebP.Enabled := True;
   MnuConvertWebP.Enabled := True;
   SetStatus(Format('WebP conversion complete: %d files', [Length(Thread.Result)]));
+
+  if Thread.FatalException <> nil then
+  begin
+    SetStatus('WebP conversion failed: ' +
+      Exception(Thread.FatalException).Message);
+    Exit;
+  end;
+
+  Dlg := TdlgConvertResults.Create(Self);
+  try
+    Dlg.ShowResults(Thread.Result);
+    Dlg.ShowModal;
+  finally
+    Dlg.Free;
+  end;
 end;
 
 {
@@ -1085,17 +1151,20 @@ begin
   Dlg := TdlgMerge.Create(Self);
   try
     Dlg.LoadChapters(Files, FDir, SeriesName);
+    Dlg.Images := FFirstPages;
     if Dlg.ShowModal <> mrOk then Exit;
 
     Options.SeriesName := Dlg.EditSeries.Text;
     Options.ChapterStart := Dlg.EditChapterStart.Value;
     Options.ChapterEnd := Dlg.EditChapterEnd.Value;
-    if Dlg.CbManualCPV.Checked then
+    Options.ChaptersList := Dlg.ChaptersList;
+    if (Length(Options.ChaptersList) = 0) and Dlg.CbManualCPV.Checked then
       Options.ChaptersPerVolume := Dlg.EditCPV.Value
     else
-      Options.ChaptersPerVolume := 0;  { auto-calculate }
+      Options.ChaptersPerVolume := 0;
     Options.Force := Dlg.CbForce.Checked;
     Options.Delete := Dlg.CbDelete.Checked;
+    Options.GenerateComicInfo := Dlg.GenerateComicInfo;
   finally
     Dlg.Free;
   end;
@@ -1133,13 +1202,101 @@ begin
 end;
 
 
-{
-  MnuRemoveComicInfoClick
-  -----------------------
-  Scans selected .cbz files for ComicInfo.xml metadata and presents a dialog
-  where the user can inspect and optionally remove it.  The dialog itself
-  handles the removal (no background thread needed — it's interactive).
-}
+procedure TfrmMain.MnuCtxRenameFileClick(Sender: TObject);
+var
+  OldName, NewName, OldPath, NewPath: string;
+begin
+  if (FDir = '') or (LVFiles.Selected = nil) then Exit;
+  OldName := LVFiles.Selected.Caption;
+  NewName := ChangeFileExt(OldName, '');
+  if not InputQuery('Rename file', 'New name:', NewName) then Exit;
+  NewName := Trim(NewName);
+  if NewName = '' then Exit;
+  if ExtractFileExt(NewName) = '' then
+    NewName := NewName + '.cbz';
+  if NewName = OldName then Exit;
+  OldPath := IncludeTrailingPathDelimiter(FDir) + OldName;
+  NewPath := IncludeTrailingPathDelimiter(FDir) + NewName;
+  if FileExists(NewPath) then
+  begin
+    SetStatus('A file with that name already exists');
+    Exit;
+  end;
+  if not RenameFile(OldPath, NewPath) then
+  begin
+    SetStatus('Rename failed');
+    Exit;
+  end;
+  HidePreview;
+  LoadDirectory(FDir);
+  SetStatus(Format('Renamed: %s -> %s', [OldName, NewName]));
+end;
+
+procedure TfrmMain.MnuCtxDeleteFileClick(Sender: TObject);
+var
+  FileName, FilePath: string;
+begin
+  if (FDir = '') or (LVFiles.Selected = nil) then Exit;
+  FileName := LVFiles.Selected.Caption;
+  if MessageDlg('Delete file',
+    Format('Permanently delete "%s"?', [FileName]),
+    mtConfirmation, [mbYes, mbNo], 0) <> mrYes then Exit;
+  FilePath := IncludeTrailingPathDelimiter(FDir) + FileName;
+  if not DeleteFile(FilePath) then
+  begin
+    SetStatus('Delete failed');
+    Exit;
+  end;
+  HidePreview;
+  LoadDirectory(FDir);
+  SetStatus(Format('Deleted: %s', [FileName]));
+end;
+
+procedure TfrmMain.MnuManageComicInfoClick(Sender: TObject);
+var
+  FileName, FilePath, SeriesName: string;
+  Dlg: TdlgComicInfoEditor;
+  Info: TComicInfo;
+  PageCnt: integer;
+  Files: TStringArray;
+begin
+  if FDir = '' then
+  begin
+    SetStatus('Open a folder first');
+    Exit;
+  end;
+  if LVFiles.Selected = nil then
+  begin
+    SetStatus('Select a file first');
+    Exit;
+  end;
+  FileName := LVFiles.Selected.Caption;
+  FilePath := IncludeTrailingPathDelimiter(FDir) + FileName;
+  Files := GetFileList(True);
+  SeriesName := TMergeService.DetectSeriesName(Files);
+  PageCnt := GetImageCount(FilePath);
+  Dlg := TdlgComicInfoEditor.Create(Self);
+  try
+    Dlg.LoadFile(FilePath, FileName, SeriesName, PageCnt);
+    if Dlg.ShowModal = mrOK then
+    begin
+      if Dlg.Removed then
+      begin
+        TComicInfoService.Remove([FileName], FDir, Dlg.BackupEnabled);
+        SetStatus('ComicInfo.xml removed from ' + FileName);
+      end
+      else
+      begin
+        Info := Dlg.GetData;
+        WriteComicInfoToCBZ(FilePath, Info, Dlg.BackupEnabled);
+        SetStatus('ComicInfo.xml saved to ' + FileName);
+      end;
+    end;
+  finally
+    Dlg.Free;
+  end;
+end;
+
 procedure TfrmMain.MnuRemoveComicInfoClick(Sender: TObject);
 var
   Files: TStringArray;
@@ -1221,7 +1378,7 @@ begin
     Dlg.Directory := FDir;
     if Dlg.ShowModal = mrOk then
     begin
-      if Dlg.CbBatchAll.Checked and (FDir <> '') then
+      if Dlg.BatchAll and (FDir <> '') then
       begin
         { Batch mode: delegate to background thread }
         Files := GetFileList;
@@ -1230,7 +1387,7 @@ begin
           StatusProgress.Visible := True;
           MnuDeleteRows.Enabled := False;
           Thread := TDeletePagesThread.Create(Files, FDir, Dlg.Selected,
-            Dlg.CbRenumber.Checked, Dlg.CbDeletePerm.Checked, @UpdateProgress);
+            Dlg.Renumber, Dlg.DeletePermanently, @UpdateProgress);
           Thread.OnTerminate := @DeleteRowsThreadTerminated;
           Thread.Start;
         end;
@@ -1244,7 +1401,7 @@ begin
             FPages[i].Gone := True;
             AddChange(ckDeleted, FPages[i].Name);
           end;
-        if Dlg.CbRenumber.Checked then
+        if Dlg.Renumber then
           FRenumber := True;
         RenderPages;
         SetStatus(Format('%d pages deleted', [Length(FPages)]));
@@ -1701,7 +1858,7 @@ end;
 procedure TfrmMain.LVPagesDragOver(Sender, Source: TObject; X, Y: integer;
   State: TDragState; var Accept: boolean);
 begin
-  Accept := Source = LVPages;
+  Accept := (Source = LVPages) and (FPagesThread = nil);
 end;
 
 {
@@ -1809,6 +1966,7 @@ begin
   FDir := ADir;
   HidePreview;
   ClearThumbnails;
+  SetFolderOpsEnabled(False);
   FLoadThread := TLoadThread.Create(ADir);
   FLoadThread.OnTerminate := @ThreadTerminated;
   FLoadThread.ListView := LVFiles;
@@ -1830,10 +1988,10 @@ end;
 }
 procedure TfrmMain.ThreadTerminated(Sender: TObject);
 begin
-  { puo' arrivare da un thread gia' sostituito: non azzerare quello corrente }
   if Sender = FLoadThread then
   begin
     FLoadThread := nil;
+    SetFolderOpsEnabled(True);
     SetStatus(Format('%d .cbz files', [LVFiles.Items.Count]));
     LVFiles.SetFocus;
   end;
@@ -1862,7 +2020,6 @@ begin
   if Sender = FPagesThread then
   begin
     FPagesThread := nil;
-    { Populate the model from thread results }
     SetLength(FPages, FPagePreviews.Count);
     SetLength(FBaseline, FPagePreviews.Count);
     for i := 0 to FPagePreviews.Count - 1 do
@@ -1876,6 +2033,7 @@ begin
     end;
     FChanges := nil;
     FRenumber := True;
+    SetPageOpsEnabled(True);
     LblPageCount.Caption := Format('%d pages', [LVPages.Items.Count]);
     SetStatus(Format('%d pages in preview', [LVPages.Items.Count]));
   end;

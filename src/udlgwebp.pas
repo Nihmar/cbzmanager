@@ -1,12 +1,3 @@
-{
-  udlgwebp — WebP Conversion Options Dialog
-  -----------------------------------------
-  Lets the user configure settings for a batch WebP image conversion
-  run.  Exposes the chosen quality, backup policy, and several
-  behavioural flags (skip existing, replace only if smaller, remove
-  ComicInfo metadata, renumber pages) through public properties that
-  the calling code reads after the dialog is closed with OK.
-}
 unit udlgwebp;
 
 {$mode ObjFPC}{$H+}
@@ -18,32 +9,21 @@ uses
   ExtCtrls, ComCtrls;
 
 type
-
-  {
-    TdlgWebp — Dialog for configuring WebP conversion parameters.
-
-    All user-facing controls are published so the LFM loader can wire
-    them up.  The public properties below are read by the caller after
-    the dialog returns mrOk to learn the user's choices.
-  }
   TdlgWebp = class(TForm)
-    BtnConvert: TButton;
-    BtnClose: TButton;
+    procedure FormCreate(Sender: TObject);
+  private
+    TrackQuality: TTrackBar;
+    LabelQuality: TLabel;
+    LblQualityVal: TLabel;
     CbReplaceOnlySmaller: TCheckBox;
     CbSkipExistingWebP: TCheckBox;
     CbRemoveComicInfo: TCheckBox;
     CbRenumber: TCheckBox;
     GroupBackup: TRadioGroup;
-    LabelQuality: TLabel;
-    LblQualityVal: TLabel;
     PanelBottom: TPanel;
-    TrackQuality: TTrackBar;
-    { Sets default trackbar range and initial quality value. }
-    procedure FormCreate(Sender: TObject);
-    { Updates the quality-percentage label whenever the slider moves. }
+    BtnConvert: TButton;
+    BtnClose: TButton;
     procedure TrackQualityChange(Sender: TObject);
-  private
-    { --- Private getters for public properties --- }
     function GetQuality: integer;
     function GetBackup: boolean;
     function GetReplaceOnlyIfSmaller: boolean;
@@ -51,17 +31,11 @@ type
     function GetRemoveComicInfo: boolean;
     function GetRenumberPages: boolean;
   public
-    { WebP encoding quality, 30–100 (default 75). }
     property Quality: integer read GetQuality;
-    { If true, replace the original image only when the WebP version is smaller. }
     property ReplaceOnlyIfSmaller: boolean read GetReplaceOnlyIfSmaller;
-    { If true, skip conversion when a .webp counterpart already exists. }
     property SkipExistingWebP: boolean read GetSkipExistingWebP;
-    { If true, strip ComicInfo metadata during conversion. }
     property RemoveComicInfo: boolean read GetRemoveComicInfo;
-    { If true, renumber pages sequentially after conversion. }
     property RenumberPages: boolean read GetRenumberPages;
-    { If true, keep a backup copy of the original file. }
     property BackupOld: boolean read GetBackup;
   end;
 
@@ -69,70 +43,142 @@ implementation
 
 {$R *.lfm}
 
-{ TdlgWebp }
-
-{
-  FormCreate — Initialise the quality trackbar with safe defaults.
-  Quality range is 30–100 (below 30 produces unacceptable artefacts).
-  The frequency of 5 makes the trackbar snap to multiples of 5.
-}
 procedure TdlgWebp.FormCreate(Sender: TObject);
 begin
+  BorderStyle := bsDialog;
+  BorderIcons := [biSystemMenu];
+
+  LabelQuality := TLabel.Create(Self);
+  LabelQuality.Parent := Self;
+  LabelQuality.Left := 12;
+  LabelQuality.Top := 12;
+  LabelQuality.Caption := 'Quality';
+  LabelQuality.Font.Height := -13;
+  LabelQuality.Font.Style := [fsBold];
+
+  LblQualityVal := TLabel.Create(Self);
+  LblQualityVal.Parent := Self;
+  LblQualityVal.Left := 400;
+  LblQualityVal.Top := 36;
+  LblQualityVal.Width := 48;
+  LblQualityVal.Alignment := taRightJustify;
+  LblQualityVal.Caption := '75%';
+
+  TrackQuality := TTrackBar.Create(Self);
+  TrackQuality.Parent := Self;
+  TrackQuality.Left := 12;
+  TrackQuality.Top := 32;
+  TrackQuality.Width := 380;
   TrackQuality.Min := 30;
   TrackQuality.Max := 100;
-  TrackQuality.Frequency := 5;       // snap to multiples of 5 %
-  TrackQuality.Position := 75;       // default quality
-  LblQualityVal.Caption := '75%';
+  TrackQuality.Frequency := 5;
+  TrackQuality.Position := 75;
+  TrackQuality.OnChange := @TrackQualityChange;
+
+  CbReplaceOnlySmaller := TCheckBox.Create(Self);
+  CbReplaceOnlySmaller.Parent := Self;
+  CbReplaceOnlySmaller.Left := 12;
+  CbReplaceOnlySmaller.Top := 80;
+  CbReplaceOnlySmaller.Width := 436;
+  CbReplaceOnlySmaller.Caption := 'Replace only if smaller';
+  CbReplaceOnlySmaller.Checked := True;
+
+  CbSkipExistingWebP := TCheckBox.Create(Self);
+  CbSkipExistingWebP.Parent := Self;
+  CbSkipExistingWebP.Left := 12;
+  CbSkipExistingWebP.Top := 108;
+  CbSkipExistingWebP.Width := 436;
+  CbSkipExistingWebP.Caption := 'Skip existing WebP';
+  CbSkipExistingWebP.Checked := True;
+
+  CbRemoveComicInfo := TCheckBox.Create(Self);
+  CbRemoveComicInfo.Parent := Self;
+  CbRemoveComicInfo.Left := 12;
+  CbRemoveComicInfo.Top := 136;
+  CbRemoveComicInfo.Width := 436;
+  CbRemoveComicInfo.Caption := 'Remove ComicInfo.xml';
+  CbRemoveComicInfo.Checked := True;
+
+  CbRenumber := TCheckBox.Create(Self);
+  CbRenumber.Parent := Self;
+  CbRenumber.Left := 12;
+  CbRenumber.Top := 164;
+  CbRenumber.Width := 436;
+  CbRenumber.Caption := 'Rename to page_NNNN.*';
+  CbRenumber.Checked := True;
+
+  GroupBackup := TRadioGroup.Create(Self);
+  GroupBackup.Parent := Self;
+  GroupBackup.Left := 12;
+  GroupBackup.Top := 196;
+  GroupBackup.Width := 436;
+  GroupBackup.Height := 72;
+  GroupBackup.Caption := 'Original file';
+  GroupBackup.Columns := 2;
+  GroupBackup.Items.Add('Create backup (_OLD.cbz)');
+  GroupBackup.Items.Add('Permanently delete');
+  GroupBackup.ItemIndex := 0;
+
+  PanelBottom := TPanel.Create(Self);
+  PanelBottom.Parent := Self;
+  PanelBottom.Align := alBottom;
+  PanelBottom.Height := 44;
+  PanelBottom.BevelOuter := bvNone;
+
+  BtnConvert := TButton.Create(Self);
+  BtnConvert.Parent := PanelBottom;
+  BtnConvert.Caption := 'Convert';
+  BtnConvert.Default := True;
+  BtnConvert.ModalResult := mrOK;
+  BtnConvert.Width := 80;
+  BtnConvert.Height := 30;
+  BtnConvert.Left := 284;
+  BtnConvert.Top := 7;
+
+  BtnClose := TButton.Create(Self);
+  BtnClose.Parent := PanelBottom;
+  BtnClose.Caption := 'Cancel';
+  BtnClose.Cancel := True;
+  BtnClose.ModalResult := mrCancel;
+  BtnClose.Width := 80;
+  BtnClose.Height := 30;
+  BtnClose.Left := 372;
+  BtnClose.Top := 7;
 end;
 
-{
-  TrackQualityChange — Reflect the current slider position in the
-  percentage label so the user always sees the selected quality.
-}
 procedure TdlgWebp.TrackQualityChange(Sender: TObject);
 begin
   LblQualityVal.Caption := IntToStr(TrackQuality.Position) + '%';
 end;
 
-{ Return the WebP encoding quality value from the trackbar (30–100). }
 function TdlgWebp.GetQuality: integer;
 begin
   Result := TrackQuality.Position;
 end;
 
-{ Return whether the user wants to replace originals only when the
-  WebP version is smaller. }
 function TdlgWebp.GetReplaceOnlyIfSmaller: boolean;
 begin
   Result := CbReplaceOnlySmaller.Checked;
 end;
 
-{ Return whether to skip images that already have a .webp counterpart. }
 function TdlgWebp.GetSkipExistingWebP: boolean;
 begin
   Result := CbSkipExistingWebP.Checked;
 end;
 
-{ Return whether ComicInfo metadata should be stripped. }
 function TdlgWebp.GetRemoveComicInfo: boolean;
 begin
   Result := CbRemoveComicInfo.Checked;
 end;
 
-{ Return whether pages should be renumbered sequentially. }
 function TdlgWebp.GetRenumberPages: boolean;
 begin
   Result := CbRenumber.Checked;
 end;
 
-{
-  Return the backup preference.
-  RadioGroup item 0 = "Backup", item 1 = "Delete".
-  Any selection other than "Delete" (index 1) is treated as backup.
-}
 function TdlgWebp.GetBackup: boolean;
 begin
-  Result := GroupBackup.ItemIndex <> 1; // 0=Backup, 1=Delete
+  Result := GroupBackup.ItemIndex <> 1;
 end;
 
 end.

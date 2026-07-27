@@ -26,7 +26,8 @@ interface
 uses
   Classes,
   SysUtils,
-  uZipEditor;
+  uZipEditor,
+  uservicebase;
 
 type
   { TImageCheckResult — Per-image validation outcome.
@@ -104,7 +105,8 @@ type
       image entry in the CBZ using the FPImage readers.  Non-image entries
       (e.g. ComicInfo.xml) are skipped and not reported. }
     class function ValidateDeep(const AFiles: TStringArray;
-      const ADir: string): TValidationResults;
+      const ADir: string;
+      AOnProgress: TProgressEvent = nil): TValidationResults;
   end;
 
 implementation
@@ -188,7 +190,7 @@ end;
   memory-intensive.  Use the quick Validate method for routine scans.
   --------------------------------------------------------------------------- }
 class function TValidateService.ValidateDeep(const AFiles: TStringArray;
-  const ADir: string): TValidationResults;
+  const ADir: string; AOnProgress: TProgressEvent): TValidationResults;
 var
   i: integer;
   FullPath: string;
@@ -202,6 +204,9 @@ begin
   begin
     FullPath := IncludeTrailingPathDelimiter(ADir) + AFiles[i];
     Result[i].FileName := AFiles[i];
+    if Assigned(AOnProgress) then
+      AOnProgress(i * 100 div Length(AFiles),
+        Format('Validating %s (%d/%d)', [AFiles[i], i + 1, Length(AFiles)]));
     try
       { ValidateCBZImages attempts to decode every image and returns both
         the count of successes and a per-entry status array. }

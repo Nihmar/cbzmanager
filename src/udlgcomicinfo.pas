@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls,
-  ComCtrls, ExtCtrls, udlgbase;
+  ComCtrls, ExtCtrls, udlgbase, usettings;
 
 type
 
@@ -21,6 +21,7 @@ type
     FDir: string;
     FFiles: TStringArray;
     procedure BtnRemoveClick(Sender: TObject);
+    procedure FormClose(Sender: TObject; var CloseAction: TCloseAction);
   public
     procedure ScanFiles(const AFiles: TStringArray; const ADir: string);
   end;
@@ -55,7 +56,7 @@ begin
   CbBackup.Parent := PanelBottom;
   CbBackup.SetBounds(12, 8, 540, 24);
   CbBackup.Caption := 'Create backup (_OLD.cbz) before rewriting';
-  CbBackup.Checked := True;
+  CbBackup.Checked := AppSettings.ReadBool('RemoveComicInfo', 'Backup', True);
 
   BtnClose := CreateDialogButton(PanelBottom, 'Close', 472, 44, mrOk, True, True);
   BtnRemove := CreateDialogButton(PanelBottom, 'Remove', 384, 44, mrNone,
@@ -63,6 +64,14 @@ begin
   BtnRemove.OnClick := @BtnRemoveClick;
 
   LVFiles.Clear;
+  OnClose := @FormClose;
+end;
+
+procedure TdlgComicInfo.FormClose(Sender: TObject;
+  var CloseAction: TCloseAction);
+begin
+  AppSettings.WriteBool('RemoveComicInfo', 'Backup', CbBackup.Checked);
+  AppSettings.UpdateFile;
 end;
 
 procedure TdlgComicInfo.ScanFiles(const AFiles: TStringArray;

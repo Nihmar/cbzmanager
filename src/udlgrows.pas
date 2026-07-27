@@ -30,7 +30,8 @@ uses
   Graphics,
   StdCtrls,
   ExtCtrls,
-  udlgbase;
+  udlgbase,
+  usettings;
 
 type
   { TBooleanDynArray - dynamic array of boolean used to represent which pages
@@ -56,6 +57,7 @@ type
     procedure FormCreate(Sender: TObject);
     procedure FormShow(Sender: TObject);
     procedure FormCloseQuery(Sender: TObject; var CanClose: boolean);
+    procedure FormClose(Sender: TObject; var CloseAction: TCloseAction);
   private
     BtnOk: TButton;
     BtnCancel: TButton;
@@ -79,6 +81,8 @@ type
     procedure ParseRanges;
     procedure UpdatePreview;
     procedure EditRangesChange(Sender: TObject);
+    procedure LoadSettings;
+    procedure SaveSettings;
   public
     { Clears the range text, the selection and the preview. Called
       automatically whenever PageCount is assigned. }
@@ -234,6 +238,30 @@ begin
 
   FPageCount := 0;
   FSelected := nil;
+
+  LoadSettings;
+  OnClose := @FormClose;
+end;
+
+procedure TdlgRows.LoadSettings;
+begin
+  CbRenumber.Checked := AppSettings.ReadBool('DeleteRows', 'Renumber', True);
+  CbBatchAll.Checked := AppSettings.ReadBool('DeleteRows', 'BatchAll', False);
+  CbDeletePerm.Checked :=
+    AppSettings.ReadBool('DeleteRows', 'DeletePermanently', False);
+end;
+
+procedure TdlgRows.SaveSettings;
+begin
+  AppSettings.WriteBool('DeleteRows', 'Renumber', CbRenumber.Checked);
+  AppSettings.WriteBool('DeleteRows', 'BatchAll', CbBatchAll.Checked);
+  AppSettings.WriteBool('DeleteRows', 'DeletePermanently', CbDeletePerm.Checked);
+  AppSettings.UpdateFile;
+end;
+
+procedure TdlgRows.FormClose(Sender: TObject; var CloseAction: TCloseAction);
+begin
+  if ModalResult = mrOK then SaveSettings;
 end;
 
 procedure TdlgRows.FormShow(Sender: TObject);

@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls,
-  ExtCtrls, ComCtrls, Spin, uservicemerge, uloaderthread, udlgbase;
+  ExtCtrls, ComCtrls, Spin, uservicemerge, uloaderthread, udlgbase, usettings;
 
 type
 
@@ -35,6 +35,9 @@ type
     procedure RefreshVolumeColumn;
     function GetChaptersList: TIntArray;
     function GetGenerateComicInfo: boolean;
+    procedure LoadSettings;
+    procedure SaveSettings;
+    procedure FormClose(Sender: TObject; var CloseAction: TCloseAction);
   public
     EditSeries: TEdit;
     EditChapterStart: TSpinEdit;
@@ -219,6 +222,38 @@ begin
   Col.Width := 80;
 
   EditCPV.Enabled := False;
+
+  LoadSettings;
+  OnClose := @FormClose;
+end;
+
+procedure TdlgMerge.LoadSettings;
+begin
+  CbForce.Checked := AppSettings.ReadBool('Merge', 'Force', False);
+  CbDelete.Checked := AppSettings.ReadBool('Merge', 'Delete', False);
+  CbGenerateComicInfo.Checked :=
+    AppSettings.ReadBool('Merge', 'GenerateComicInfo', True);
+  CbManualCPV.Checked := AppSettings.ReadBool('Merge', 'ManualCPV', False);
+  EditCPV.Value := AppSettings.ReadInteger('Merge', 'CPV', 7);
+  { Sync the CPV editor's enabled state without invoking the full change
+    handler (which touches the volume column before chapters are loaded). }
+  EditCPV.Enabled := CbManualCPV.Checked;
+end;
+
+procedure TdlgMerge.SaveSettings;
+begin
+  AppSettings.WriteBool('Merge', 'Force', CbForce.Checked);
+  AppSettings.WriteBool('Merge', 'Delete', CbDelete.Checked);
+  AppSettings.WriteBool('Merge', 'GenerateComicInfo',
+    CbGenerateComicInfo.Checked);
+  AppSettings.WriteBool('Merge', 'ManualCPV', CbManualCPV.Checked);
+  AppSettings.WriteInteger('Merge', 'CPV', EditCPV.Value);
+  AppSettings.UpdateFile;
+end;
+
+procedure TdlgMerge.FormClose(Sender: TObject; var CloseAction: TCloseAction);
+begin
+  if ModalResult = mrOK then SaveSettings;
 end;
 
 procedure TdlgMerge.CbManualCPVChange(Sender: TObject);
@@ -384,11 +419,17 @@ begin
   EditSeries.Text := ASeriesName;
   EditChapterEnd.Value := Length(AFiles);
 
-  AutoCPV := TMergeService.CalculateChaptersPerVolume(AFiles, ASeriesName);
-  if AutoCPV >= 1 then
-    EditCPV.Value := AutoCPV
-  else
-    EditCPV.Value := 7;
+  { Auto-fill the chapters-per-volume default from the existing volumes in the
+    directory — but only when the user is not in manual CPV mode, so a
+    remembered manual value (restored by LoadSettings) is preserved. }
+  if not CbManualCPV.Checked then
+  begin
+    AutoCPV := TMergeService.CalculateChaptersPerVolume(AFiles, ASeriesName);
+    if AutoCPV >= 1 then
+      EditCPV.Value := AutoCPV
+    else
+      EditCPV.Value := 7;
+  end;
 
   LVFiles.BeginUpdate;
   try

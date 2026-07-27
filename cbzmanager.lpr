@@ -15,6 +15,7 @@ uses
   { you can add units after this }
   uzipcore,
   udlgbase,
+  usettings,
   uZipEditor,
   uWebP,
   uImgUtil,

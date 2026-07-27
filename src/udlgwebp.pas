@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls,
-  ExtCtrls, ComCtrls, udlgbase;
+  ExtCtrls, ComCtrls, udlgbase, usettings;
 
 type
   TdlgWebp = class(TForm)
@@ -23,6 +23,9 @@ type
     PanelBottom: TPanel;
     BtnConvert: TButton;
     BtnClose: TButton;
+    procedure LoadSettings;
+    procedure SaveSettings;
+    procedure FormClose(Sender: TObject; var CloseAction: TCloseAction);
     procedure TrackQualityChange(Sender: TObject);
     function GetQuality: integer;
     function GetBackup: boolean;
@@ -124,6 +127,40 @@ begin
     True, False);
   BtnClose := CreateDialogButton(PanelBottom, 'Cancel', 372, 7, mrCancel,
     False, True);
+
+  LoadSettings;
+  OnClose := @FormClose;
+end;
+
+procedure TdlgWebp.LoadSettings;
+begin
+  TrackQuality.Position := AppSettings.ReadInteger('WebP', 'Quality', 75);
+  LblQualityVal.Caption := IntToStr(TrackQuality.Position) + '%';
+  CbReplaceOnlySmaller.Checked :=
+    AppSettings.ReadBool('WebP', 'ReplaceOnlyIfSmaller', True);
+  CbSkipExistingWebP.Checked :=
+    AppSettings.ReadBool('WebP', 'SkipExistingWebP', True);
+  CbRemoveComicInfo.Checked :=
+    AppSettings.ReadBool('WebP', 'RemoveComicInfo', True);
+  CbRenumber.Checked := AppSettings.ReadBool('WebP', 'Renumber', True);
+  GroupBackup.ItemIndex := AppSettings.ReadInteger('WebP', 'BackupMode', 0);
+end;
+
+procedure TdlgWebp.SaveSettings;
+begin
+  AppSettings.WriteInteger('WebP', 'Quality', TrackQuality.Position);
+  AppSettings.WriteBool('WebP', 'ReplaceOnlyIfSmaller',
+    CbReplaceOnlySmaller.Checked);
+  AppSettings.WriteBool('WebP', 'SkipExistingWebP', CbSkipExistingWebP.Checked);
+  AppSettings.WriteBool('WebP', 'RemoveComicInfo', CbRemoveComicInfo.Checked);
+  AppSettings.WriteBool('WebP', 'Renumber', CbRenumber.Checked);
+  AppSettings.WriteInteger('WebP', 'BackupMode', GroupBackup.ItemIndex);
+  AppSettings.UpdateFile;
+end;
+
+procedure TdlgWebp.FormClose(Sender: TObject; var CloseAction: TCloseAction);
+begin
+  if ModalResult = mrOK then SaveSettings;
 end;
 
 procedure TdlgWebp.TrackQualityChange(Sender: TObject);

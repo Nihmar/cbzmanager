@@ -90,6 +90,11 @@
         <UnitName Value="udlgbase"/>
       </Unit>
       <Unit>
+        <Filename Value="src\usettings.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="usettings"/>
+      </Unit>
+      <Unit>
         <Filename Value="src\uzipeditor.pas"/>
         <IsPartOfProject Value="True"/>
         <UnitName Value="uZipEditor"/>

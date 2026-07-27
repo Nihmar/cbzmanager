@@ -289,6 +289,20 @@ object frmMain: TfrmMain
           TabOrder = 1
           OnClick = MnuDeleteRowsClick
         end
+        object BtnPgAddFront: TButton
+          Left = 181
+          Height = 28
+          Hint = 'Insert image as first page'
+          Top = 2
+          Width = 90
+          Align = alLeft
+          BorderSpacing.Around = 2
+          Caption = 'Add front'
+          ParentShowHint = False
+          ShowHint = True
+          TabOrder = 2
+          OnClick = MnuPageAddFrontClick
+        end
         object BtnPgMoveUp: TButton
           Left = 282
           Height = 28
@@ -300,7 +314,7 @@ object frmMain: TfrmMain
           Caption = '▲'
           ParentShowHint = False
           ShowHint = True
-          TabOrder = 2
+          TabOrder = 3
           OnClick = MnuPageMoveUpClick
         end
         object BtnPgMoveDown: TButton
@@ -314,7 +328,7 @@ object frmMain: TfrmMain
           Caption = '▼'
           ParentShowHint = False
           ShowHint = True
-          TabOrder = 3
+          TabOrder = 4
           OnClick = MnuPageMoveDownClick
         end
         object BtnPgMoveStart: TButton
@@ -328,7 +342,7 @@ object frmMain: TfrmMain
           Caption = '⏮'
           ParentShowHint = False
           ShowHint = True
-          TabOrder = 4
+          TabOrder = 5
           OnClick = MnuPageMoveStartClick
         end
         object BtnPgMoveEnd: TButton
@@ -342,7 +356,7 @@ object frmMain: TfrmMain
           Caption = '⏭'
           ParentShowHint = False
           ShowHint = True
-          TabOrder = 5
+          TabOrder = 6
           OnClick = MnuPageMoveEndClick
         end
         object SepPt2: TPanel
@@ -352,7 +366,7 @@ object frmMain: TfrmMain
           Width = 4
           Align = alRight
           BorderSpacing.Around = 2
-          TabOrder = 6
+          TabOrder = 7
         end
         object BtnPgSort: TButton
           Left = 416
@@ -365,7 +379,7 @@ object frmMain: TfrmMain
           Caption = '▲▼'
           ParentShowHint = False
           ShowHint = True
-          TabOrder = 7
+          TabOrder = 8
           OnClick = MnuPageSortClick
         end
         object BtnPgReverse: TButton
@@ -379,7 +393,7 @@ object frmMain: TfrmMain
           Caption = '⇆'
           ParentShowHint = False
           ShowHint = True
-          TabOrder = 8
+          TabOrder = 9
           OnClick = MnuPageReverseClick
         end
       end
@@ -728,6 +742,11 @@ object frmMain: TfrmMain
     Interval = 150
     OnTimer = TimerDebounceZoomTimer
     Left = 752
+    Top = 200
+  end
+  object OpenDialog: TOpenDialog
+    Filter = 'Images|*.jpg;*.jpeg;*.png;*.bmp;*.gif;*.webp;*.tif;*.tiff|All files|*'
+    Left = 688
     Top = 200
   end
 end

@@ -188,6 +188,7 @@ type
     PanelPageTools: TPanel;
     BtnPgDelete: TButton;
     BtnPgDeleteRows: TButton;
+    BtnPgAddFront: TButton;
     BtnPgMoveUp: TButton;
     BtnPgMoveDown: TButton;
     BtnPgMoveStart: TButton;
@@ -204,6 +205,7 @@ type
     LVPages: TListView;
     { Dialogs }
     SelectDialog: TSelectDirectoryDialog;
+    OpenDialog: TOpenDialog;
     { Image lists }
     ILFilesFirstPages: TImageList;
     ILPages: TImageList;
@@ -267,6 +269,7 @@ type
     procedure MnuPageMoveStartClick(Sender: TObject);
     procedure MnuPageMoveUpClick(Sender: TObject);
     procedure MnuPageRenumberClick(Sender: TObject);
+    procedure MnuPageAddFrontClick(Sender: TObject);
     procedure MnuPageReverseClick(Sender: TObject);
     procedure MnuPageSortClick(Sender: TObject);
     procedure MnuReloadClick(Sender: TObject);
@@ -341,6 +344,7 @@ uses
   LCLType,
   uImgUtil,
   uLog,
+  uWebp,
   uzipcore,
   uZipEditor,
   userviceconvert,
@@ -842,6 +846,8 @@ end;
   - Resets the stage bar and the preview-file label.
 }
 procedure TfrmMain.ClearPreview;
+var
+  i: integer;
 begin
   if FPagesThread <> nil then
   begin
@@ -850,6 +856,8 @@ begin
     FreeAndNil(FPagesThread);
   end;
   FreePageImages;
+  for i := 0 to High(FPages) do
+    FPages[i].Data.Free;
   FPages := nil;
   FBaseline := nil;
   FChanges := nil;
@@ -1658,6 +1666,72 @@ begin
   SetStatus(Format('Pages renumbered (%d)', [Count]));
 end;
 
+{
+  MnuPageAddFrontClick
+  --------------------
+  Lets the user select an image file from disk and inserts it as page 0
+  (the first page) of the currently open CBZ.  The image is decoded,
+  cached as a TLazIntfImage thumbnail, and the raw bytes are stored in
+  a TMemoryStream attached to the new TPageState.  When saved, the new
+  page will be written into the CBZ as the first entry.
+
+  After insertion the stage bar appears; the user can then move the page
+  elsewhere using the existing reorder buttons if desired.
+}
+procedure TfrmMain.MnuPageAddFrontClick(Sender: TObject);
+var
+  MemStream: TMemoryStream;
+  Img: TLazIntfImage;
+  PageExt, PageName: string;
+  NewPage: TPageState;
+begin
+  if not PanelSingleFile.Visible then Exit;
+
+  if not OpenDialog.Execute then Exit;
+
+  { Load the entire file into a memory stream for decoding and later save }
+  PageExt := ExtractFileExt(OpenDialog.FileName);
+  MemStream := TMemoryStream.Create;
+  try
+    MemStream.LoadFromFile(OpenDialog.FileName);
+
+    { Decode the image for the thumbnail cache }
+    if SameText(PageExt, '.webp') then
+      Img := WebPToIntfImage(MemStream.Memory, MemStream.Size)
+    else
+    begin
+      MemStream.Position := 0;
+      Img := StreamToIntfImage(MemStream, ReaderClassForExt(PageExt));
+    end;
+
+    if Img = nil then
+    begin
+      SetStatus(Format('Cannot decode image: %s', [ExtractFileName(OpenDialog.FileName)]));
+      Exit;
+    end;
+
+    { Build a TPageState for the new front page }
+    PageName := 'frontispiece' + PageExt;
+    NewPage.Name := PageName;
+    NewPage.OrigName := PageName;
+    NewPage.Image := Img;
+    NewPage.Gone := False;
+    NewPage.OrigIndex := 0;
+    NewPage.Data := TMemoryStream.Create;
+    MemStream.Position := 0;
+    NewPage.Data.CopyFrom(MemStream, MemStream.Size);
+
+    { Insert at position 0 }
+    PageInsertFront(FPages, FChanges, NewPage);
+    FRenumber := True;
+    UpdateStageBar;
+    RenderPages;
+    SetStatus(Format('Inserted %s as page 1', [ExtractFileName(OpenDialog.FileName)]));
+  finally
+    MemStream.Free;
+  end;
+end;
+
 { ---------------------------------------------------------------------------
   Stage bar — Save / Revert
   --------------------------------------------------------------------------- }
@@ -1679,6 +1753,10 @@ begin
   Thread := Sender as TSaveChangesThread;
   if Thread.Result.Success then
   begin
+    { Free the Data streams of inserted pages — no longer needed after save }
+    for i := 0 to High(FPages) do
+      FreeAndNil(FPages[i].Data);
+
     { Step 4: Update model in-memory (same logic as original synchronous path) }
     j := 0;
     for i := 0 to High(FPages) do
@@ -1758,6 +1836,7 @@ begin
     Snapshot[i].Name := FPages[i].Name;
     Snapshot[i].OrigName := FPages[i].OrigName;
     Snapshot[i].Gone := FPages[i].Gone;
+    Snapshot[i].Data := FPages[i].Data;
   end;
 
   { Disable stage bar during save }
@@ -1788,6 +1867,10 @@ begin
   if MessageDlg('Discard changes',
     'Discard all pending changes? This cannot be undone.', mtConfirmation,
     mbYesNo, 0) <> mrYes then Exit;
+  { Free any Data streams from inserted pages before restoring baseline }
+  for i := 0 to High(FPages) do
+    FreeAndNil(FPages[i].Data);
+
   { Restore from baseline }
   SetLength(FPages, Length(FBaseline));
   for i := 0 to High(FBaseline) do

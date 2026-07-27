@@ -7,9 +7,10 @@ A FreePascal / Lazarus desktop application for managing CBZ (Comic Book ZIP) fil
 - **Validate** — verify CBZ archives are valid ZIPs with non-corrupted images (JPEG, PNG, BMP, GIF, WebP)
 - **Convert to WebP** — re-encode images as WebP (configurable quality), keeping originals only when smaller; rename to `page_NNNN.*`; optional `_OLD.cbz` backup
 - **Merge chapters** — combine chapter files (`Title - NNNN.cbz`) into volumes (`Title VNNN.cbz`) with auto-calculated chapters-per-volume
-- **In-place page editor** — delete, reorder, sort, reverse, and renumber pages inside a single CBZ with live preview and save/revert workflow
+- **In-place page editor** — delete, reorder, sort, reverse, and renumber pages inside a single CBZ with live preview, stage bar (save/revert), and optional backup toggle
 - **ComicInfo.xml** — view, edit, remove, or generate `ComicInfo.xml` metadata embedded in CBZ archives
-- **Sequence builder** — define custom volume/chapter grouping sequences for non-standard merge layouts
+- **Sequence builder** — define custom volume/chapter grouping sequences for non-standard merge layouts; resizable, with zoomable thumbnails and keyboard shortcuts
+- **Job Monitor** — non-modal progress window showing real-time progress bar, current task, elapsed time, and scrolling log for all background operations
 
 ## Building
 
@@ -84,13 +85,24 @@ src/
   uservicecomicinfo.pas          ComicInfo.xml management service
   uthreadservice.pas             Background thread runner for services
   uzipeditor.pas                 ZIP/CBZ read/write operations
+  uzipcore.pas                   Low-level ZIP entry handling
   ucomicinfo.pas                 ComicInfo.xml parsing/generation
   uPageEditModel.pas             In-memory page editing model
   uimgutil.pas                   Image utility functions
   uwebp.pas                      libwebp FFI dynamic loader
   uloaderthread.pas              Background thumbnail loader
   ulog.pas                       Thread-safe file logger
-  udlg*.pas / udlg*.lfm         Operation dialogs (7 dialogs)
+  usettings.pas                  Persisted application settings
+  udlgbase.pas                   Shared dialog chrome and helpers
+  udlgvalidate.pas / .lfm       Validate CBZ dialog
+  udlgwebp.pas / .lfm           Convert to WebP dialog
+  udlgmerge.pas / .lfm          Merge chapters dialog
+  udlgcomicinfo.pas / .lfm      Remove ComicInfo.xml dialog
+  udlgcomicinfoeditor.pas / .lfm  View/edit ComicInfo.xml dialog
+  udlgseqbuilder.pas / .lfm     Volume sequence builder dialog
+  udlgrows.pas / .lfm           Delete pages by range dialog
+  udlgconvertresults.pas / .lfm  Conversion summary dialog
+  ufrmjobmonitor.pas / .lfm     Non-modal job monitor window
 tests/
   testrunner.pp                  FPCUnit test runner
   test_helpers.pas               Shared test utilities
@@ -98,6 +110,7 @@ tests/
   test_uservicevalidate.pas      Validation service tests
   test_uservicemerge.pas         Merge service tests
   test_uservicecomicinfo.pas     ComicInfo service tests
+  test_ucomicinfo.pas            ComicInfo XML parsing tests
 ```
 
 ## License

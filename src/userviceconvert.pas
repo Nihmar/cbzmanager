@@ -1,3 +1,15 @@
+{ ============================================================================
+  userviceconvert – Image-to-WebP conversion service for CBZ archives.
+
+  This unit provides TConvertService, a stateless class that batch-converts
+  image pages inside CBZ files to the WebP format.  Each input file is
+  processed independently; the actual conversion work is delegated to
+  ConvertCBZToWebP (defined in uZipEditor).
+
+  Conversion options (TConvertOptions) control quality, conditional
+  replacement, ComicInfo.xml removal, page renumbering, and backup
+  behaviour.  Results are reported per-file through TConvertResults.
+  ============================================================================ }
 unit userviceconvert;
 {$mode objfpc}{$h+}
 interface
@@ -6,6 +18,22 @@ uses
   Classes, SysUtils, uZipEditor, uservicebase;
 
 type
+  { ------------------------------------------------------------------------
+    TConvertOptions – Settings controlling the WebP conversion.
+
+    @field Quality              WebP quality setting (0–100).  Higher values
+                                produce larger files with better fidelity.
+    @field ReplaceOnlyIfSmaller When True, a converted image replaces the
+                                original only if the WebP version is smaller.
+    @field SkipExistingWebP     When True, images already in WebP format are
+                                left untouched.
+    @field RemoveComicInfo      When True, ComicInfo.xml is stripped from the
+                                output archive.
+    @field RenumberPages        When True, pages are renamed sequentially
+                                (e.g. "001.webp", "002.webp", …).
+    @field BackupOld            When True, the original CBZ is renamed to
+                                *_OLD.cbz before writing the converted version.
+    ------------------------------------------------------------------------ }
   TConvertOptions = record
     Quality: integer;
     ReplaceOnlyIfSmaller: boolean;
@@ -15,17 +43,53 @@ type
     BackupOld: boolean;
   end;
 
+  { ------------------------------------------------------------------------
+    TConvertEntry – Per-file result of a conversion operation.
+
+    @field FileName        Name of the CBZ file processed.
+    @field Success         True if the operation completed without error.
+    @field PagesConverted  Number of image pages that were converted to WebP.
+    @field ErrorMsg        Error description if Success is False, or an
+                           informational message (e.g. "No convertible images
+                           found") when no pages were converted.
+    ------------------------------------------------------------------------ }
   TConvertEntry = record
     FileName: string;
     Success: boolean;
     PagesConverted: integer;
     ErrorMsg: string;
   end;
+
+  { ------------------------------------------------------------------------
+    TConvertResults – Dynamic array of per-file conversion results.
+    ------------------------------------------------------------------------ }
   TConvertResults = array of TConvertEntry;
 
-  { TConvertService }
+  { ------------------------------------------------------------------------
+    TConvertService – Stateless service for batch WebP conversion.
+
+    The single class method Convert processes a list of CBZ files from a
+    common directory, applying the supplied TConvertOptions to each.
+    Progress is reported via an optional TProgressEvent callback.
+    ------------------------------------------------------------------------ }
   TConvertService = class
   public
+    { ------------------------------------------------------------------------
+      Convert – Batch-convert images inside CBZ archives to WebP.
+
+      Calls ConvertCBZToWebP (from uZipEditor) for each input file.  When
+      at least one page was converted, the archive is rebuilt and (if
+      Options.BackupOld is True) the original is backed up first.  If no
+      pages were converted (NewCount = 0) the file is left untouched and
+      the result carries an informational message rather than an error.
+
+      @param  AFiles      Array of CBZ filenames to process (bare names).
+      @param  ADir        Directory containing the files.
+      @param  Options     Conversion settings (quality, renumbering, etc.).
+      @param  AOnProgress Optional progress callback (percentage + message).
+      @return An array of TConvertEntry, one per input file, with Success,
+              PagesConverted, and ErrorMsg populated.
+      ------------------------------------------------------------------------ }
     class function Convert(const AFiles: TStringArray; const ADir: string;
       const Options: TConvertOptions;
       AOnProgress: TProgressEvent = nil): TConvertResults;
@@ -33,6 +97,15 @@ type
 
 implementation
 
+{ ----------------------------------------------------------------------------
+  Convert
+
+  For each file: delegates to ConvertCBZToWebP (which returns new ZIP
+  entries and an out-parameter NewCount of converted pages).  If any pages
+  were converted and backup is requested, the original file is renamed
+  before the new archive is written.  Exceptions are caught per-file so
+  one failure does not abort the batch.
+  ---------------------------------------------------------------------------- }
 class function TConvertService.Convert(const AFiles: TStringArray;
   const ADir: string; const Options: TConvertOptions;
   AOnProgress: TProgressEvent = nil): TConvertResults;
@@ -60,15 +133,18 @@ begin
       try
         if NewCount > 0 then
         begin
+          { Backup the original before overwriting, if requested }
           if Options.BackupOld then
             BackupFile(FullPath);
-          { Write new CBZ }
-        WriteZipFromEntriesDeflated(FullPath, NewEntries);
+          { Write the converted archive back to disk }
+          WriteZipFromEntriesDeflated(FullPath, NewEntries);
           Result[i].Success := True;
           Result[i].PagesConverted := NewCount;
         end
         else
         begin
+          { Nothing was converted — still a success, but flag it so the UI
+            can show a meaningful message. }
           Result[i].Success := True;
           Result[i].PagesConverted := 0;
           Result[i].ErrorMsg := 'No convertible images found';

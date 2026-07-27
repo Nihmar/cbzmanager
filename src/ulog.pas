@@ -1,12 +1,22 @@
 unit uLog;
 
 {
-  Logger minimale thread-safe su file, accanto all'eseguibile.
-  Il file viene troncato ad ogni avvio dell'applicazione.
+  uLog — Logger minimale thread-safe su file.
+  ---------------------------------------------------------------------------
+  Scrive messaggi con timestamp e thread-id nel file "cbzmanager.log",
+  creato accanto all'eseguibile (o nella directory temporanea di sistema
+  se quella dell'exe non è scrivibile).
 
-  Lo stream resta aperto per tutta la sessione: una riga scritta e' una riga
+  Il file viene troncato ad ogni avvio dell'applicazione.
+  Lo stream resta aperto per tutta la sessione: una riga scritta è una riga
   che l'applicazione ha davvero raggiunto. Le scritture non sono bufferizzate
   in spazio utente, quindi il log sopravvive anche a un crash del processo.
+
+  Tutte le scritture sono serializzate da una critical section: il logging
+  è safe da qualsiasi thread senza rischio di deadlock.
+
+  Il modulo non genera mai eccezioni verso il chiamante: se la scrittura
+  fallisce l'errore viene silenziosamente ignorato.
 }
 
 {$mode ObjFPC}{$H+}
@@ -26,11 +36,18 @@ uses
   Classes, SysUtils;
 
 var
+  { Mutex condiviso: serializza InitLog e tutte le scritture. }
   LogLock: TRTLCriticalSection;
+  { Stream aperto per tutta la sessione; nil se non inizializzato o fallito. }
   LogStream: TFileStream = nil;
+  { Percorso effettivo del file di log (può essere nella temp). }
   LogPath: string = '';
+  { Diventa True dopo il primo tentativo di apertura, anche se fallito. }
   LogReady: boolean = False;
 
+{ Tenta di creare/azzerare il file di log in APath.
+  Restituisce True e imposta LogStream + LogPath in caso di successo;
+  False (con LogStream = nil) altrimenti. Non solleva eccezioni. }
 function TryOpen(const APath: string): boolean;
 begin
   Result := False;
@@ -43,7 +60,9 @@ begin
   end;
 end;
 
-{ Da chiamare con LogLock gia' acquisito. }
+{ Inizializzazione lazy e thread-safe del logger.
+  Chiamata internamente da ogni funzione pubblica; idempotente.
+  PRE: il chiamante deve aver già acquisito LogLock. }
 procedure InitLog;
 begin
   if LogReady then Exit;
@@ -53,6 +72,8 @@ begin
   TryOpen(GetTempDir + 'cbzmanager.log');
 end;
 
+{ Restituisce il percorso del file di log effettivamente in uso,
+  oppure stringa vuota se l'apertura non è riuscita. }
 function LogFileName: string;
 begin
   EnterCriticalSection(LogLock);
@@ -64,6 +85,8 @@ begin
   end;
 end;
 
+{ Scrive Msg nel log preceduto da timestamp e thread-id.
+  Thread-safe; se il log non è disponibile ritorna silenziosamente. }
 procedure Log(const Msg: string);
 var
   Line: rawbytestring;
@@ -84,6 +107,8 @@ begin
   end;
 end;
 
+{ Formatta Fmt con Args tramite Format() e scrive il risultato nel log.
+  Se la formattazione fallisce (es. placeholder errati), scrive Fmt tal quale. }
 procedure Log(const Fmt: string; const Args: array of const);
 begin
   try

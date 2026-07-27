@@ -43,8 +43,17 @@ function GetFirstImageAsIntfImage(const FileName: string): TLazIntfImage;
   thread secondari. }
 procedure ForEachImage(const FileName: string; ACallback: TImageEntryProc);
 
+{ Returns the number of image entries found in a CBZ archive.
+  Directories and non-image files (e.g. ComicInfo.xml) are not counted.
+  Returns 0 if the archive is unreadable or contains no images. }
 function GetImageCount(const FileName: string): integer;
+
+{ Returns the file names of all image entries inside the CBZ, in the order
+  they appear in the archive.  Returns nil for invalid or empty archives. }
 function GetImageFileNames(const FileName: string): TStringArray;
+
+{ Quick validity check: returns True when the CBZ contains at least one
+  entry whose extension is recognised as an image format. }
 function IsValidCBZ(const FileName: string): boolean;
 
 type
@@ -108,30 +117,49 @@ uses
   uLog;
 
 type
-  { TZipImageWalker }
+  { TZipImageWalker – streams a CBZ entry by entry through a callback.
+  OnCreateStream / OnDoneStream redirect TUnZipper output into memory
+  streams.  Each image entry is decoded and handed to FCallback; the
+  stream is freed immediately afterwards.  No temporary files are used. }
 
   TZipImageWalker = class
   private
     FCallback: TImageEntryProc;
     FZip: TUnZipper;
     FCancel: boolean;
+    { Allocates a TMemoryStream to receive the decompressed entry data. }
     procedure DoCreateStream(Sender: TObject; var AStream: TStream;
       AItem: TFullZipFileEntry);
+    { Decodes the just-decompressed entry and passes the result to the
+      callback.  Frees the stream afterwards – ownership is never
+      transferred to the caller. }
     procedure DoDoneStream(Sender: TObject; var AStream: TStream;
       AItem: TFullZipFileEntry);
   public
+    { Runs the full extraction/decoding loop for FileName, calling
+      ACallback for every image entry found. }
     procedure Run(const FileName: string; ACallback: TImageEntryProc);
   end;
 
-  { TFirstImageGrabber: si ferma alla prima immagine incontrata. }
+  { TFirstImageGrabber – keeps only the first successfully decoded image
+    and immediately cancels further scanning.  Any subsequent images
+    passed to Grab are freed on the spot. }
 
   TFirstImageGrabber = class
   private
     FImage: TLazIntfImage;
+    { Saves the first non-nil image and signals cancellation. }
     procedure Grab(const AName: string; AImage: TLazIntfImage;
       var ACancel: boolean);
   end;
 
+{ Decodes raw image bytes held in a TMemoryStream into a TLazIntfImage.
+  Parameters:
+    Stream – the uncompressed image data positioned at offset 0.
+    Ext    – lowercased extension (e.g. '.webp', '.jpg') used to select
+             the correct decoder class.
+  Returns a new TLazIntfImage (caller owns it) or nil on failure.
+  Exceptions during decoding are caught and logged; nil is returned. }
 function DecodeImage(Stream: TMemoryStream; const Ext: string): TLazIntfImage;
 begin
   Result := nil;
@@ -296,13 +324,17 @@ begin
   Result := GetImageCount(FileName) > 0;
 end;
 
-{ TImageValidator }
+{ TImageValidator – receives each decoded image from ForEachImage and
+  builds a per-entry report (TImageCheck) recording success or the
+  reason for failure. }
 
 type
   TImageValidator = class
   private
     FResults: TImageChecks;
     FValidCount: integer;
+    { Appends a TImageCheck for AName to FResults, incrementing
+      FValidCount when AImage is valid (non-nil). }
     procedure CheckImage(const AName: string; AImage: TLazIntfImage;
       var ACancel: boolean);
   end;
@@ -356,13 +388,18 @@ begin
   end;
 end;
 
-{ TZipCollector: cattura tutte le entry in RAM }
+{ TZipCollector – extracts every entry of a CBZ into memory without
+  decoding images.  Each entry's raw bytes are stored in a TMemoryStream;
+  the resulting TZipEntries array is returned to the caller, who becomes
+  the owner and must call FreeZipEntries to release the streams. }
 type
   TZipCollector = class
   private
     FEntries: TZipEntries;
+    { Allocates a TMemoryStream for the incoming entry. }
     procedure DoCreateStream(Sender: TObject; var AStream: TStream;
       AItem: TFullZipFileEntry);
+    { Transfers ownership of the filled stream into FEntries. }
     procedure DoDoneStream(Sender: TObject; var AStream: TStream;
       AItem: TFullZipFileEntry);
   end;
@@ -449,6 +486,9 @@ begin
   Result := 'page_' + Format('%.*d', [Padding, PageNum]) + Ext;
 end;
 
+{ Returns True when Ext belongs to a raster format that can be re-encoded
+  as WebP (JPEG, PNG, GIF, BMP, TIFF).  Extensions already matching .webp
+  are NOT convertible – they are already in the target format. }
 function IsConvertibleExt(const Ext: string): boolean;
 begin
   Result := SameText(Ext, '.jpg') or SameText(Ext, '.jpeg') or

@@ -2,6 +2,17 @@ unit udlgrows;
 
 {$mode ObjFPC}{$H+}
 
+{
+  udlgrows.pas - Page Range Selection Dialog
+
+  Provides TdlgRows, a dialog that lets the user specify which pages should
+  be selected (typically for deletion) from a comic archive. The user enters
+  page ranges in a compact notation (e.g. "1, 4, 7-10, 15") and the dialog
+  parses them into a boolean array where True entries mark selected pages.
+  A live preview panel shows the expanded selection so the user can verify
+  the result before confirming.
+}
+
 interface
 
 uses
@@ -9,9 +20,21 @@ uses
   ComCtrls, Math;
 
 type
+  { TBooleanDynArray - dynamic array of boolean used to represent which pages
+    are selected. Index i (0-based) is True when page (i+1) is selected. }
   TBooleanDynArray = array of boolean;
 
-  { TdlgRows }
+  { TdlgRows - Page range selection dialog.
+
+    The user types range expressions into an edit box; the dialog parses them
+    on every keystroke and shows a preview of the resulting page list.
+    Checkboxes control optional behaviours such as renumbering after deletion,
+    batching across all files, and permanent (non-recoverable) deletion.
+
+    Properties:
+      PageCount - total number of pages in the archive (set before showing)
+      Directory - path to the archive directory (for contextual actions)
+      Selected  - read-only boolean array marking selected pages }
 
   TdlgRows = class(TForm)
     BtnOk: TButton;
@@ -22,7 +45,7 @@ type
     EditRanges: TEdit;
     Label1: TLabel;
     Label2: TLabel;
-    LblPreview: TLabel;
+    MemoPreview: TMemo;
     PanelBottom: TPanel;
     PanelPreview: TPanel;
     procedure EditRangesChange(Sender: TObject);
@@ -50,7 +73,7 @@ procedure ParseRangeString(const S: string; ATotal: integer;
   out ASelected: array of boolean);
 var
   Parts: TStringArray;
-  i, Lo, Hi, Code: integer;
+  i, Lo, Hi, Code, DashPos: integer;
   Token: string;
 begin
   for i := 0 to ATotal - 1 do
@@ -67,9 +90,10 @@ begin
     Code := Token.IndexOf('-');
     if Code >= 0 then
     begin
-      Val(Trim(Token.Substring(0, Code)), Lo, Code);
+      DashPos := Code;
+      Val(Trim(Token.Substring(0, DashPos)), Lo, Code);
       if Code <> 0 then Lo := 1;
-      Val(Trim(Token.Substring(Code + 1)), Hi, Code);
+      Val(Trim(Token.Substring(DashPos + 1)), Hi, Code);
       if Code <> 0 then Hi := Lo;
     end
     else
@@ -92,6 +116,8 @@ end;
 
 { TdlgRows }
 
+{ Initialise the dialog: zero the page count, clear the selection array,
+  and reset the range edit so no pages are selected on open. }
 procedure TdlgRows.FormCreate(Sender: TObject);
 begin
   FPageCount := 0;
@@ -99,12 +125,16 @@ begin
   EditRanges.Text := '';
 end;
 
+{ Fired on every change to the range edit box. Re-parses the input string
+  and updates the preview panel so the user sees instant feedback. }
 procedure TdlgRows.EditRangesChange(Sender: TObject);
 begin
   ParseRanges;
   UpdatePreview;
 end;
 
+{ Allocate the selection array (if PageCount > 0) and parse the current
+  range text into it by calling the standalone ParseRangeString helper. }
 procedure TdlgRows.ParseRanges;
 begin
   if FPageCount <= 0 then Exit;
@@ -112,6 +142,9 @@ begin
   ParseRangeString(EditRanges.Text, FPageCount, FSelected);
 end;
 
+{ Build a human-readable summary of the current selection and display it
+  in the MemoPreview control. Shows either "No pages selected", the single
+  selected page number, or a count followed by the comma-separated list. }
 procedure TdlgRows.UpdatePreview;
 var
   i, Count: integer;
@@ -123,16 +156,17 @@ begin
     if FSelected[i] then
     begin
       Inc(Count);
+      // Build comma-separated list of 1-based page numbers
       if Parts <> '' then Parts := Parts + ', ';
       Parts := Parts + IntToStr(i + 1);
     end;
 
   if Count = 0 then
-    LblPreview.Caption := 'No pages selected'
+    MemoPreview.Lines.Text := 'No pages selected'
   else if Count = 1 then
-    LblPreview.Caption := '1 page: ' + Parts
+    MemoPreview.Lines.Text := '1 page: ' + Parts
   else
-    LblPreview.Caption := Format('%d pages: %s', [Count, Parts]);
+    MemoPreview.Lines.Text := Format('%d pages: %s', [Count, Parts]);
 end;
 
 end.

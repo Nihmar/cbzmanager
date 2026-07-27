@@ -32,8 +32,13 @@ const
   CacheH = 400;
 
 type
+  { A managed list of TLazIntfImage that owns its elements.
+    Freeing the list also frees every contained image automatically. }
   TLazIntfImageList = specialize TObjectList<TLazIntfImage>;
 
+  { One decoded image together with its archive entry name.
+    The Image pointer may be nil when decoding failed; the consumer
+    must check before using it. }
   TLoadedItem = record
     Name: string;
     Image: TLazIntfImage;
@@ -49,7 +54,14 @@ type
     FImages: TImageList;
     FListView: TListView;
     FPages: TLazIntfImageList;
+    { Frees every image remaining in the unsent batch.  Called on
+      abnormal termination (exception or early Terminated) to prevent
+      memory leaks. }
     procedure FreeBatch;
+    { Publishes the current batch to the main thread via Synchronize.
+      If the batch is empty this is a no-op.  After the call the batch
+      array is cleared and ownership of all images is transferred to
+      the main thread (or freed, if Terminated). }
     procedure SyncAddThumbs;
   protected
     { Eseguita nel thread secondario: produce le immagini chiamando Emit e
@@ -57,6 +69,10 @@ type
     procedure Produce; virtual; abstract;
     { Accoda un'immagine (anche nil) al lotto corrente; ne cede la proprieta'. }
     procedure Emit(const AName: string; AImage: TLazIntfImage);
+    { Flushes the accumulated batch to the main thread immediately.
+      Normally called automatically once BatchSize images have been
+      emitted; also called at the end of Produce to flush any
+      remainder. }
     procedure Flush;
     procedure Execute; override;
   public
@@ -74,6 +90,8 @@ type
   protected
     procedure Produce; override;
   public
+    { Constructs the thread in a suspended state; the caller must set
+      ListView, Pages, and Images before calling Start. }
     constructor Create(const ADir: string);
   end;
 
@@ -193,12 +211,17 @@ end;
 
 { TLoadThread }
 
+{ Constructs the thread in a suspended state; the caller must set
+  ListView, Pages, and Images before calling Start. }
 constructor TLoadThread.Create(const ADir: string);
 begin
   inherited Create;
   FDir := ADir;
 end;
 
+{ Iterates over every .cbz file in FDir in sorted order, extracts the
+  first image of each via GetFirstImageAsIntfImage, scales it to
+  CacheW×CacheH, and emits the thumbnail.  Respects Terminated. }
 procedure TLoadThread.Produce;
 var
   Dir, FilePath: string;
@@ -244,18 +267,24 @@ end;
 
 { TPagesThread }
 
+{ Stores the single CBZ file whose pages should be loaded. }
 constructor TPagesThread.Create(const AFile: string);
 begin
   inherited Create;
   FFile := AFile;
 end;
 
+{ Opens the single CBZ file and iterates over every page via
+  ForEachImage.  HandlePage receives each decoded page. }
 procedure TPagesThread.Produce;
 begin
   Log('Pages: apertura %s', [ExtractFileName(FFile)]);
   ForEachImage(FFile, @HandlePage);
 end;
 
+{ ForEachImage callback: scales the decoded full-size image to the
+  thumbnail cache dimensions (CacheW×CacheH), emits the result, and
+  respects Terminated to abort early. }
 procedure TPagesThread.HandlePage(const AName: string; AImage: TLazIntfImage;
   var ACancel: boolean);
 var

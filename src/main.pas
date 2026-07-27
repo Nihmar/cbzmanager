@@ -1,5 +1,84 @@
 unit main;
 
+{
+  =============================================================================
+  CBZ Manager — Main Form Unit
+  =============================================================================
+
+  This unit implements TfrmMain, the central hub of the CBZ Manager application.
+  CBZ Manager is a desktop tool for managing comic book archive (.cbz) files.
+  A .cbz file is a ZIP archive containing sequentially named image pages (PNG,
+  JPEG, WebP, etc.).
+
+  Architecture overview
+  ---------------------
+  The UI is split into two panes controlled by a TSplitter:
+
+  1. Left pane (LVFiles) — File browser
+     Lists every .cbz file found in the currently open directory.  Each item
+     shows a thumbnail of the first page so the user can visually identify
+     the comic at a glance.
+
+  2. Right pane (LVPages) — Page preview & editor
+     Opens when the user double-clicks a file.  Displays every page inside
+     that .cbz as thumbnails.  The user can delete, reorder, sort, reverse,
+     renumber, or drag-and-drop pages.  Edits are staged (not written to disk
+     immediately) and can be reverted or committed via a stage bar.
+
+  Threading model
+  ---------------
+  All heavy I/O runs on background threads so the UI never blocks:
+
+  • TLoadThread (uloaderthread)   — scans a directory, extracts the first page
+    of every .cbz, and populates LVFiles.
+  • TPagesThread (uloaderthread)  — opens a single .cbz and extracts every
+    page into LVPages.
+  • TSaveChangesThread (uPageEditModel) — writes staged page edits back to the
+    .cbz (delete + reorder + rename), creating a _OLD.cbz backup first.
+  • TServiceThread descendants (uthreadservice) — validation, WebP conversion,
+    chapter merge, ComicInfo.xml removal, and batch page deletion.  Each
+    carries its own result record and communicates progress via TThread.Queue.
+
+  Thread results are consumed in OnTerminate handlers that run on the main
+  thread (safe for UI access).  The form disables the relevant menu item while
+  a service thread is running to prevent overlapping operations.
+
+  Page editing model (in-memory, staging)
+  ---------------------------------------
+  When a .cbz is opened for preview the form builds three data structures:
+
+  • FPages    — the current (working) state: TPageStates[0..N-1].
+    Each TPageState holds Name, OrigName, Image (thumbnail), Gone flag,
+    and OrigIndex.
+  • FBaseline — a copy of FPages at open time, used for "revert".
+  • FChanges  — a linear log of every delete/move since the last save.
+
+  The stage bar (PanelStageBar) becomes visible as soon as FChanges is
+  non-empty.  "Save" launches TSaveChangesThread; "Revert" restores FPages
+  from FBaseline and clears FChanges.
+
+  The FRenumber flag controls whether pages are sequentially renamed (e.g.
+  "0001.jpg", "0002.jpg", …) when the .cbz is rewritten.  It defaults to True
+  and is set whenever the user performs a delete, sort, or explicit renumber.
+
+  Coordinate system & zoom
+  ------------------------
+  Thumbnails are stored at CacheW×CacheH (320×400) resolution in
+  TLazIntfImageList instances (FFirstPages for the file list, FPagePreviews
+  for the page list).  The zoom slider (ZoomScroll) rebuilds the TImageList
+  icons on-the-fly via RebuildThumbs.  A debounce timer (TimerDebounceZoom)
+  prevents rapid rebuilds while the user drags the slider.
+
+  Keyboard shortcuts
+  ------------------
+  F4          — toggle preview pane
+  F5          — reload current directory
+  F8          — validate all .cbz files
+  Ctrl+S      — save staged changes
+  Ctrl+A      — select all items in the active list
+  Esc         — close preview pane
+  Del         — delete selected page(s)
+}
 {$mode ObjFPC}{$H+}
 
 interface
@@ -23,8 +102,19 @@ uses
   uPageEditModel;
 
 type
-  { TfrmMain }
+  {
+    TfrmMain — Application main form.
 
+    Owns two TLazIntfImageList instances (FFirstPages, FPagePreviews) that
+    cache decoded page images at CacheW×CacheH resolution.  All thumbnail
+    rendering in the TListViews reads from these caches, so zoom changes never
+    re-read ZIP archives.
+
+    The form manages at most one TLoadThread and one TPagesThread at a time.
+    Service threads (validate / convert / merge / delete-rows) are fire-and-
+    forget with FreeOnTerminate = True; the form only needs to re-enable UI
+    controls in their OnTerminate callbacks.
+  }
   TfrmMain = class(TForm)
     { Menu }
     MainMenu: TMainMenu;
@@ -95,7 +185,6 @@ type
     PanelPageTools: TPanel;
     BtnPgDelete: TButton;
     BtnPgDeleteRows: TButton;
-    SepPt1: TPanel;
     BtnPgMoveUp: TButton;
     BtnPgMoveDown: TButton;
     BtnPgMoveStart: TButton;
@@ -183,12 +272,18 @@ type
     procedure ZoomScrollMouseWheel(Sender: TObject; Shift: TShiftState;
       WheelDelta: integer; MousePos: TPoint; var Handled: boolean);
   private
+    { Currently open directory (the one shown in LVFiles). }
     FDir: string;
+    { Background thread that scans FDir and loads first-page thumbnails. }
     FLoadThread: TLoadThread;
+    { Background thread that opens a single .cbz for page preview. }
     FPagesThread: TPagesThread;
+    { Default thumbnail dimensions (unscaled). }
     FThumbW: integer;
     FThumbH: integer;
+    { Full-resolution cached images for the file-list pane (one per .cbz). }
     FFirstPages: TLazIntfImageList;
+    { Full-resolution cached images for the page-preview pane (all pages of one .cbz). }
     FPagePreviews: TLazIntfImageList;
     { In-memory editing model }
     FPages: TPageStates;
@@ -241,6 +336,17 @@ uses
 
   { TfrmMain }
 
+{
+  FormCreate
+  ----------
+  Initialises the form on startup.
+  - Creates the two TLazIntfImageList caches (FFirstPages, FPagePreviews) with
+    ownership (True) so images are freed automatically.
+  - Sets thumbnail dimensions and the initial zoom position (128, mid-range).
+  - Configures both TListViews in vsIcon mode with double-buffering.
+  - Hides the preview pane on startup.  If a directory was passed as a command-
+    line argument it is loaded immediately.
+}
 procedure TfrmMain.FormCreate(Sender: TObject);
 begin
   Caption := 'CBZ Manager';
@@ -260,9 +366,11 @@ begin
   ILPages.Width := 128;
   ILPages.Height := 160;
   LVFiles.DoubleBuffered := True;
+  LVFiles.ReadOnly := True;
   LVFiles.ViewStyle := vsIcon;
   LVFiles.LargeImages := ILFilesFirstPages;
   LVPages.DoubleBuffered := True;
+  LVPages.ReadOnly := True;
   LVPages.ViewStyle := vsIcon;
   LVPages.LargeImages := ILPages;
   ZoomScroll.Min := 48;
@@ -285,6 +393,14 @@ begin
   BtnClosePreview.Hint := 'Close preview';
 end;
 
+{
+  FormDestroy
+  -----------
+  Gracefully shuts down any running background threads before the form is
+  destroyed.  Terminate + WaitFor ensures the thread exits its Execute loop
+  cleanly.  The two TLazIntfImageList caches are freed explicitly (they are
+  not owned by the form).
+}
 procedure TfrmMain.FormDestroy(Sender: TObject);
 begin
   if FLoadThread <> nil then
@@ -303,6 +419,21 @@ begin
   FPagePreviews.Free;
 end;
 
+{
+  FormKeyDown
+  -----------
+  Central keyboard-shortcut dispatcher.  Key is set to 0 after handling to
+  prevent the LCL from forwarding it further (e.g. to menu accelerators).
+
+  Shortcuts:
+    Esc          — close preview pane
+    Del          — delete selected page(s) (preview must be visible)
+    F4           — toggle preview
+    F5           — reload current directory
+    F8           — validate all .cbz files
+    Ctrl+S       — save staged changes
+    Ctrl+A       — select all in the currently-focused list view
+}
 procedure TfrmMain.FormKeyDown(Sender: TObject; var Key: word; Shift: TShiftState);
 begin
   if (Key = VK_ESCAPE) and PanelSingleFile.Visible then
@@ -345,11 +476,33 @@ begin
   end;
 end;
 
+{
+  SetStatus
+  ---------
+  Updates the status-bar label.  All user-visible messages flow through here
+  so the status bar acts as a single point of feedback.
+}
 procedure TfrmMain.SetStatus(const AMsg: string);
 begin
   LblStatus.Caption := AMsg;
 end;
 
+{
+  RebuildThumbs
+  -------------
+  Re-creates thumbnails for a given TListView + TImageList pair at the
+  requested size.  Used by the zoom debounce timer.
+
+  The procedure:
+  1. Detaches LargeImages from the ListView (otherwise the image list refuses
+     to clear while it is assigned).
+  2. Clears and resizes the TImageList.
+  3. Iterates the TLazIntfImageList, calls MakeThumb to produce a TBitmap at
+     the target size, adds it to the TImageList, then frees the bitmap.
+  4. Reattaches LargeImages.
+
+  BeginUpdate / EndUpdate suppress per-item repaints for performance.
+}
 procedure TfrmMain.RebuildThumbs(ALV: TListView; AIL: TImageList;
   APages: TLazIntfImageList; ASize: integer);
 var
@@ -377,6 +530,17 @@ begin
   end;
 end;
 
+{
+  RenderPages
+  -----------
+  Rebuilds the LVPages content from the in-memory FPages array, skipping
+  entries marked as Gone.  This is the only way the page-preview ListView is
+  repopulated after edits — there is no separate "model → view" binding.
+
+  Each surviving page gets a new thumbnail built from its cached TLazIntfImage
+  (FPages[i].Image), resized to the current zoom level.  The page count label
+  is updated to reflect the number of visible pages.
+}
 procedure TfrmMain.RenderPages;
 var
   i: integer;
@@ -386,6 +550,7 @@ var
 begin
   LVPages.BeginUpdate;
   try
+    LVPages.Items.Clear;
     LVPages.LargeImages := nil;
     ILPages.Clear;
     Sz := Max(16, ZoomScroll.Position);
@@ -411,6 +576,15 @@ begin
   LblPageCount.Caption := Format('%d pages', [LVPages.Items.Count]);
 end;
 
+{
+  FreePageImages
+  --------------
+  Nils out the Image references in both FPages and FBaseline without freeing
+  the underlying TLazIntfImage objects.  This is called from ClearPreview
+  before the arrays are discarded, because the actual image objects are owned
+  by FPagePreviews (a TLazIntfImageList with OwnsObjects=True).  If we left
+  dangling references the list would double-free them.
+}
 procedure TfrmMain.FreePageImages;
 var
   i: integer;
@@ -421,6 +595,14 @@ begin
     FBaseline[i].Image := nil;
 end;
 
+{
+  UpdateStageBar
+  --------------
+  Counts deletions and moves in FChanges and shows/hides the stage bar
+  (PanelStageBar) accordingly.  Called by AddChange after every mutation.
+  The stage bar is the coloured strip at the top of the preview pane that
+  warns the user of unsaved edits and offers Save / Revert buttons.
+}
 procedure TfrmMain.UpdateStageBar;
 var
   nDel, nMov, nTotal: integer;
@@ -443,6 +625,12 @@ begin
   end;
 end;
 
+{
+  AddChange
+  ---------
+  Appends a change record to FChanges and refreshes the stage bar.
+  This is the single entry point for recording mutations to the page model.
+}
 procedure TfrmMain.AddChange(AKind: TChangeKind; const APageName: string);
 var
   n: integer;
@@ -454,6 +642,14 @@ begin
   UpdateStageBar;
 end;
 
+{
+  TimerDebounceZoomTimer
+  ----------------------
+  Debounce timer tick handler.  When the user drags the zoom slider we
+  restart the timer on every Change event; only when the slider stops moving
+  for ~300 ms does the timer fire and rebuild both thumbnail sets at the new
+  size.  This avoids dozens of expensive RebuildThumbs calls during a drag.
+}
 procedure TfrmMain.TimerDebounceZoomTimer(Sender: TObject);
 var
   Sz: integer;
@@ -466,6 +662,13 @@ begin
   LblZoomVal.Caption := IntToStr(ZoomScroll.Position);
 end;
 
+{
+  ZoomScrollChange
+  ----------------
+  Restarts the debounce timer every time the zoom slider position changes.
+  The label is updated immediately for snappy feedback even though the actual
+  thumbnail rebuild is deferred.
+}
 procedure TfrmMain.ZoomScrollChange(Sender: TObject);
 begin
   TimerDebounceZoom.Enabled := False;
@@ -473,6 +676,12 @@ begin
   LblZoomVal.Caption := IntToStr(ZoomScroll.Position);
 end;
 
+{
+  ZoomScrollMouseWheel
+  --------------------
+  Allows the mouse wheel to change the zoom slider in discrete steps equal to
+  the slider's Frequency property.
+}
 procedure TfrmMain.ZoomScrollMouseWheel(Sender: TObject; Shift: TShiftState;
   WheelDelta: integer; MousePos: TPoint; var Handled: boolean);
 begin
@@ -482,6 +691,15 @@ begin
     ZoomScroll.Position := ZoomScroll.Position - ZoomScroll.Frequency;
 end;
 
+{
+  ClearThumbnails
+  ---------------
+  Terminates the running TLoadThread (if any) and clears the file-list view
+  and its associated caches.  Called before loading a new directory, so the
+  old content is discarded before the new scan starts.
+
+  The thread is waited on (WaitFor) so its memory can be freed safely.
+}
 procedure TfrmMain.ClearThumbnails;
 begin
   if FLoadThread <> nil then
@@ -495,6 +713,12 @@ begin
   FFirstPages.Clear;
 end;
 
+{
+  BtnBrowseClick
+  --------------
+  Opens a directory-selection dialog.  On OK the edit box is updated and
+  LoadDirectory is called to scan the chosen folder.
+}
 procedure TfrmMain.BtnBrowseClick(Sender: TObject);
 begin
   if SelectDialog.Execute then
@@ -504,6 +728,17 @@ begin
   end;
 end;
 
+{
+  ClearPreview
+  ------------
+  Tears down everything related to the page-preview pane:
+  - Terminates any running TPagesThread.
+  - Nils out image references (FreePageImages) so the TLazIntfImageList can
+    safely free the actual objects.
+  - Discards FPages, FBaseline, FChanges.
+  - Clears the LVPages ListView, its TImageList, and the FPagePreviews cache.
+  - Resets the stage bar and the preview-file label.
+}
 procedure TfrmMain.ClearPreview;
 begin
   if FPagesThread <> nil then
@@ -526,6 +761,13 @@ begin
   LblPageCount.Caption := '';
 end;
 
+{
+  HidePreview
+  -----------
+  Hides the entire preview pane (PanelSingleFile + Splitter), calling
+  ClearPreview first to release resources.  The file-list pane then expands
+  to fill the window.
+}
 procedure TfrmMain.HidePreview;
 begin
   ClearPreview;
@@ -533,6 +775,21 @@ begin
   SplitterPreview.Visible := False;
 end;
 
+{
+  OpenPreview
+  -----------
+  Opens the given CBZ file in the page-preview pane.
+
+  1. Clears any previous preview state.
+  2. Makes the preview panel and splitter visible.
+  3. Derives the full file path from FDir + the item caption.
+  4. Creates a TPagesThread to extract every page in the background.
+     The thread populates LVPages and FPagePreviews; when it finishes
+     PagesThreadTerminated builds the FPages/FBaseline model.
+
+  The ListView image list is pre-sized to the current zoom level before
+  starting the thread so items appear at the right size as they arrive.
+}
 procedure TfrmMain.OpenPreview(AItem: TListItem);
 var
   Sz: integer;
@@ -550,8 +807,8 @@ begin
   ILPages.Height := Round(Sz * 1.25);
   LVPages.LargeImages := ILPages;
 
-  FPagesThread := TPagesThread.Create(IncludeTrailingPathDelimiter(FDir) +
-    AItem.Caption);
+  FPageFile := IncludeTrailingPathDelimiter(FDir) + AItem.Caption;
+  FPagesThread := TPagesThread.Create(FPageFile);
   FPagesThread.OnTerminate := @PagesThreadTerminated;
   FPagesThread.ListView := LVPages;
   FPagesThread.Images := ILPages;
@@ -559,39 +816,83 @@ begin
   FPagesThread.Start;
 end;
 
+{
+  LVFilesDblClick
+  ---------------
+  Opens the currently selected file in the preview pane on double-click.
+}
 procedure TfrmMain.LVFilesDblClick(Sender: TObject);
 begin
   OpenPreview(LVFiles.Selected);
 end;
 
+{
+  LVFilesMouseDown
+  ----------------
+  Ensures the right-clicked item is selected before the popup menu appears.
+  With ReadOnly=True the first left click may only focus the control without
+  selecting an item, so we force selection on left-click as well (unless
+  Ctrl/Shift are held for multi-select).
+}
 procedure TfrmMain.LVFilesMouseDown(Sender: TObject; Button: TMouseButton;
   Shift: TShiftState; X, Y: integer);
 var
   It: TListItem;
 begin
-  { il tasto destro non sposta la selezione da solo: il menu deve pero'
-    agire sulla voce effettivamente cliccata }
-  if Button <> mbRight then Exit;
   It := LVFiles.GetItemAt(X, Y);
-  if (It <> nil) and not It.Selected then
+  if It = nil then Exit;
+
+  if Button = mbRight then
+  begin
+    { il tasto destro non sposta la selezione da solo: il menu deve pero'
+      agire sulla voce effettivamente cliccata }
+    if not It.Selected then
+      LVFiles.Selected := It;
+  end
+  else if (Button = mbLeft) and not (ssCtrl in Shift) and not (ssShift in Shift) then
+  begin
+    { With ReadOnly=True the first click may only give focus without selecting;
+      force selection so DblClick sees LVFiles.Selected. }
     LVFiles.Selected := It;
+  end;
 end;
 
+{
+  PMFilesPopup
+  ------------
+  Enables/disables context-menu items just before the popup appears.
+  Currently only gates MnuOpenFile on whether a file is selected.
+}
 procedure TfrmMain.PMFilesPopup(Sender: TObject);
 begin
   MnuOpenFile.Enabled := LVFiles.Selected <> nil;
 end;
 
+{
+  PMPagesPopup
+  ------------
+  Adjusts the page context menu caption before it pops up.
+}
 procedure TfrmMain.PMPagesPopup(Sender: TObject);
 begin
   MnuPgDelete.Caption := 'Delete page(s)';
 end;
 
+{
+  MnuOpenFileClick
+  ----------------
+  Opens the selected file in the preview pane (same as double-click).
+}
 procedure TfrmMain.MnuOpenFileClick(Sender: TObject);
 begin
   OpenPreview(LVFiles.Selected);
 end;
 
+{
+  BtnClosePreviewClick
+  --------------------
+  Closes the preview pane and returns to the file-list-only layout.
+}
 procedure TfrmMain.BtnClosePreviewClick(Sender: TObject);
 begin
   HidePreview;
@@ -599,17 +900,36 @@ end;
 
 { Menu stubs }
 
+{
+  MnuExitClick
+  ------------
+  Closes the application.  FormDestroy handles thread cleanup.
+}
 procedure TfrmMain.MnuExitClick(Sender: TObject);
 begin
   Close;
 end;
 
+{
+  MnuReloadClick
+  --------------
+  Re-scans the current directory.  Useful after external changes (e.g. the
+  user added or removed .cbz files in the file manager).
+}
 procedure TfrmMain.MnuReloadClick(Sender: TObject);
 begin
   if FDir <> '' then
     LoadDirectory(FDir);
 end;
 
+{
+  MnuValidateClick
+  ----------------
+  Validates all selected (or all, if none selected) .cbz files in the current
+  directory.  Launches a TValidateThread that checks archive integrity and
+  reports issues.  Results are shown in a TdlgValidate dialog when the thread
+  finishes.
+}
 procedure TfrmMain.MnuValidateClick(Sender: TObject);
 var
   Files: TStringArray;
@@ -636,6 +956,12 @@ begin
   Thread.Start;
 end;
 
+{
+  ValidateThreadTerminated
+  ------------------------
+  OnTerminate handler for TValidateThread.  Shows results in a modal dialog,
+  then re-enables the UI controls and refreshes the status bar.
+}
 procedure TfrmMain.ValidateThreadTerminated(Sender: TObject);
 var
   Thread: TValidateThread;
@@ -652,6 +978,13 @@ begin
   SetStatus(Format('Validation complete: %d files', [Length(Thread.Result)]));
 end;
 
+{
+  MnuConvertWebPClick
+  -------------------
+  Opens the WebP conversion dialog, collects user options (quality, whether to
+  replace only if smaller, skip existing WebP, etc.), then launches a
+  TConvertThread to perform the conversion in the background.
+}
 procedure TfrmMain.MnuConvertWebPClick(Sender: TObject);
 var
   Dlg: TdlgWebp;
@@ -691,6 +1024,13 @@ begin
   Thread.Start;
 end;
 
+{
+  ConvertThreadTerminated
+  -----------------------
+  OnTerminate handler for TConvertThread.  Iterates per-file results, logs
+  outcomes, reloads the directory to pick up any renamed/regenerated files,
+  and re-enables UI controls.
+}
 procedure TfrmMain.ConvertThreadTerminated(Sender: TObject);
 var
   Thread: TConvertThread;
@@ -713,6 +1053,16 @@ begin
   SetStatus(Format('WebP conversion complete: %d files', [Length(Thread.Result)]));
 end;
 
+{
+  MnuMergeClick
+  -------------
+  Opens the merge dialog for combining multiple .cbz chapters into volumes.
+  Auto-detects a series name from file names, lets the user configure chapter
+  ranges and chapters-per-volume, then launches TMergeThread in the background.
+
+  When Options.ChaptersPerVolume = 0 the service auto-calculates the split
+  points to keep volumes under a target size.
+}
 procedure TfrmMain.MnuMergeClick(Sender: TObject);
 var
   Dlg: TdlgMerge;
@@ -762,6 +1112,12 @@ begin
   Thread.Start;
 end;
 
+{
+  MergeThreadTerminated
+  ---------------------
+  OnTerminate handler for TMergeThread.  Reloads the directory so the newly
+  created volume files appear, re-enables UI, and reports outcome.
+}
 procedure TfrmMain.MergeThreadTerminated(Sender: TObject);
 var
   Thread: TMergeThread;
@@ -779,6 +1135,13 @@ begin
 end;
 
 
+{
+  MnuRemoveComicInfoClick
+  -----------------------
+  Scans selected .cbz files for ComicInfo.xml metadata and presents a dialog
+  where the user can inspect and optionally remove it.  The dialog itself
+  handles the removal (no background thread needed — it's interactive).
+}
 procedure TfrmMain.MnuRemoveComicInfoClick(Sender: TObject);
 var
   Files: TStringArray;
@@ -803,6 +1166,13 @@ begin
   SetStatus(Format('ComicInfo.xml: %d files processed', [Length(Files)]));
 end;
 
+{
+  DeleteRowsThreadTerminated
+  --------------------------
+  OnTerminate handler for the batch page-deletion thread (TDeletePagesThread).
+  On success the directory is reloaded so the file list reflects any renamed
+  files.  On failure the error message is displayed in the status bar.
+}
 procedure TfrmMain.DeleteRowsThreadTerminated(Sender: TObject);
 var
   Thread: TDeletePagesThread;
@@ -820,6 +1190,21 @@ begin
     SetStatus(Format('Batch delete failed: %s', [Thread.Result.ErrorMsg]));
 end;
 
+{
+  MnuDeleteRowsClick
+  ------------------
+  Opens the "delete rows" dialog (TdlgRows), which lets the user select page
+  indices to remove.  Supports two modes:
+
+  1. Single-file mode (preview pane open, batch unchecked):
+     Marks pages as Gone in the in-memory model and adds ckDeleted changes.
+     The actual .cbz is not modified until the user clicks "Save changes".
+
+  2. Batch mode (batch checkbox checked):
+     Launches TDeletePagesThread to apply the same page-index selection to
+     *every* .cbz in the directory.  Each file is rewritten immediately in
+     the background thread (not staged).
+}
 procedure TfrmMain.MnuDeleteRowsClick(Sender: TObject);
 var
   Dlg: TdlgRows;
@@ -873,6 +1258,12 @@ begin
 end;
 
 
+{
+  MnuTogglePreviewClick
+  ---------------------
+  Toggles the preview pane: if it is visible it is hidden; otherwise the
+  currently selected file in LVFiles is opened for preview.
+}
 procedure TfrmMain.MnuTogglePreviewClick(Sender: TObject);
 begin
   if PanelSingleFile.Visible then
@@ -881,18 +1272,41 @@ begin
     OpenPreview(LVFiles.Selected);
 end;
 
+{
+  MnuZoomInClick
+  --------------
+  Increases zoom by 32 units (clamped to ZoomScroll.Max).
+}
 procedure TfrmMain.MnuZoomInClick(Sender: TObject);
 begin
   ZoomScroll.Position := Min(ZoomScroll.Max, ZoomScroll.Position + 32);
 end;
 
+{
+  MnuZoomOutClick
+  ---------------
+  Decreases zoom by 32 units (clamped to ZoomScroll.Min).
+}
 procedure TfrmMain.MnuZoomOutClick(Sender: TObject);
 begin
   ZoomScroll.Position := Max(ZoomScroll.Min, ZoomScroll.Position - 32);
 end;
 
-{ Page operations }
+{ ---------------------------------------------------------------------------
+  Page operations
+  All of the following operate on the in-memory FPages array and record
+  changes in FChanges.  They call RenderPages to refresh the ListView and
+  set FRenumber := True where appropriate so pages will be renamed on save.
+  --------------------------------------------------------------------------- }
 
+{
+  MnuPageDeleteClick
+  ------------------
+  Deletes all selected pages from the preview pane.  Selected indices are
+  collected first, then Gone flags are set from highest to lowest index so
+  that earlier deletions do not invalidate later indices.  Setting
+  FRenumber := True ensures the remaining pages are renumbered on save.
+}
 procedure TfrmMain.MnuPageDeleteClick(Sender: TObject);
 var
   i, n: integer;
@@ -900,6 +1314,7 @@ var
 begin
   if not PanelSingleFile.Visible then Exit;
   Sel := nil;
+  { Collect selected indices }
   for i := 0 to LVPages.Items.Count - 1 do
     if LVPages.Items[i].Selected then
     begin
@@ -926,6 +1341,12 @@ begin
   SetStatus(Format('%d pages deleted', [Length(Sel)]));
 end;
 
+{
+  MnuPageMoveUpClick
+  ------------------
+  Moves each selected page up by one position (swap with predecessor).
+  Processed in index order so contiguous selections shift correctly.
+}
 procedure TfrmMain.MnuPageMoveUpClick(Sender: TObject);
 var
   i, n: integer;
@@ -956,6 +1377,13 @@ begin
   RenderPages;
 end;
 
+{
+  MnuPageMoveDownClick
+  --------------------
+  Moves each selected page down by one position.  Processed in reverse index
+  order so contiguous selections shift correctly without interfering with
+  each other.
+}
 procedure TfrmMain.MnuPageMoveDownClick(Sender: TObject);
 var
   i, n: integer;
@@ -986,6 +1414,12 @@ begin
   RenderPages;
 end;
 
+{
+  MnuPageMoveStartClick
+  ---------------------
+  Moves the single selected page to position 0 (the start of the list).
+  All items between index 0 and the selected index shift right by one.
+}
 procedure TfrmMain.MnuPageMoveStartClick(Sender: TObject);
 var
   i, n: integer;
@@ -1003,6 +1437,12 @@ begin
   RenderPages;
 end;
 
+{
+  MnuPageMoveEndClick
+  -------------------
+  Moves the single selected page to the last position.  All items between
+  the selected index and the end shift left by one.
+}
 procedure TfrmMain.MnuPageMoveEndClick(Sender: TObject);
 var
   i, n, Last: integer;
@@ -1021,6 +1461,14 @@ begin
   RenderPages;
 end;
 
+{
+  MnuPageSortClick
+  ----------------
+  Sorts pages alphabetically by file name using a TStringList (which provides
+  an O(n log n) in-place sort).  The original indices are stored as TObject
+  cast to PtrInt so we can rebuild FPages in sorted order without losing the
+  associated TLazIntfImage references.
+}
 procedure TfrmMain.MnuPageSortClick(Sender: TObject);
 var
   i: integer;
@@ -1051,6 +1499,11 @@ begin
   SetStatus('Pages sorted by name');
 end;
 
+{
+  MnuPageReverseClick
+  -------------------
+  Reverses the page order in-place using two-pointer swap (O(n/2)).
+}
 procedure TfrmMain.MnuPageReverseClick(Sender: TObject);
 var
   i, j: integer;
@@ -1072,6 +1525,15 @@ begin
   SetStatus('Order reversed');
 end;
 
+{
+  MnuPageRenumberClick
+  --------------------
+  Renames every non-Gone page to a zero-padded sequential number with the
+  original file extension preserved (e.g. "0001.jpg", "0002.png", …).
+  The page names are updated in FPages but the .cbz is not touched until
+  the user saves.  FRenumber is also set globally so the save thread will
+  renumber again (idempotent).
+}
 procedure TfrmMain.MnuPageRenumberClick(Sender: TObject);
 var
   i, PageNum: integer;
@@ -1092,8 +1554,18 @@ begin
   SetStatus(Format('Pages renumbered (%d)', [PageNum - 1]));
 end;
 
-{ Stage bar }
+{ ---------------------------------------------------------------------------
+  Stage bar — Save / Revert
+  --------------------------------------------------------------------------- }
 
+{
+  SaveChangesThreadTerminated
+  ---------------------------
+  OnTerminate handler for TSaveChangesThread.  On success the in-memory model
+  is compacted (Gone entries removed, renumber applied if requested) and the
+  baseline is reset to match the new state.  On failure the error is shown in
+  the status bar.  UI controls are re-enabled in both cases.
+}
 procedure TfrmMain.SaveChangesThreadTerminated(Sender: TObject);
 var
   Thread: TSaveChangesThread;
@@ -1138,6 +1610,23 @@ begin
   BtnStageRevert.Enabled := True;
 end;
 
+{
+  BtnStageSaveClick
+  -----------------
+  Commits all staged changes to the .cbz file on disk.
+
+  1. Confirms with the user (the original .cbz is renamed to _OLD.cbz as a
+     safety backup).
+  2. Takes a snapshot of the current FPages state (Name, OrigName, Gone) so
+     the background thread can work on a stable copy while the user may
+     continue interacting with the UI (though Save/Revert buttons are
+     disabled to prevent concurrent edits).
+  3. Creates and starts TSaveChangesThread.
+
+  The snapshot does NOT include TLazIntfImage references — the thread only
+  needs name and deletion metadata; it re-reads image data from the original
+  ZIP.
+}
 procedure TfrmMain.BtnStageSaveClick(Sender: TObject);
 var
   i: integer;
@@ -1171,6 +1660,13 @@ begin
   Thread.Start;
 end;
 
+{
+  BtnStageRevertClick
+  -------------------
+  Discards all pending changes and restores FPages from the baseline snapshot.
+  The user is asked for confirmation because this action cannot be undone.
+  After revert the stage bar is hidden and the preview is re-rendered.
+}
 procedure TfrmMain.BtnStageRevertClick(Sender: TObject);
 var
   i: integer;
@@ -1194,14 +1690,31 @@ begin
   SetStatus('Changes discarded');
 end;
 
-{ Drag and drop }
+{ ---------------------------------------------------------------------------
+  Drag and drop (page reordering)
+  --------------------------------------------------------------------------- }
 
+{
+  LVPagesDragOver
+  ---------------
+  Accepts drag operations only when the source is LVPages itself (internal
+  reorder, no external file drops).
+}
 procedure TfrmMain.LVPagesDragOver(Sender, Source: TObject; X, Y: integer;
   State: TDragState; var Accept: boolean);
 begin
   Accept := Source = LVPages;
 end;
 
+{
+  LVPagesDragDrop
+  ---------------
+  Handles drag-and-drop reorder within the page list.  The selected page is
+  moved to the drop target position.  The in-place shift uses a temporary
+  variable to avoid issues with managed-string reference counting in the
+  dynamic array — direct Swap or intermediate assignments could leave strings
+  in an inconsistent state.
+}
 procedure TfrmMain.LVPagesDragDrop(Sender, Source: TObject; X, Y: integer);
 var
   FromIdx, ToIdx, d: integer;
@@ -1229,10 +1742,23 @@ begin
   SetStatus(Format('%s moved to position %d', [Tmp.Name, ToIdx + 1]));
 end;
 
-{ Thread callbacks }
+{ ---------------------------------------------------------------------------
+  Thread callbacks and helpers
+  --------------------------------------------------------------------------- }
 
-{ File list helper }
+{
+  GetFileList
+  -----------
+  Collects file names from LVFiles into a TStringArray.
 
+  When AAll = True: returns every file in the list.
+  When AAll = False (default): returns selected files, or ALL files if
+    nothing is selected (SelCount = 0).  This "all or selected" pattern is
+    used by service operations so the user can either explicitly select a
+    subset or apply the operation to the whole directory.
+
+  The result array is tightly packed (no gaps).
+}
 function TfrmMain.GetFileList(AAll: boolean = False): TStringArray;
 var
   i, n: integer;
@@ -1249,6 +1775,14 @@ begin
   SetLength(Result, n);
 end;
 
+{
+  UpdateProgress
+  --------------
+  Progress callback passed to service threads.  Updates the progress bar and
+  status label on the main thread via TThread.Queue (the call is marshalled
+  by the thread's SyncProgress → FOnProgress chain).  The progress bar is
+  hidden when APercent reaches 100.
+}
 procedure TfrmMain.UpdateProgress(APercent: integer; const AMsg: string);
 begin
   StatusProgress.Position := APercent;
@@ -1256,6 +1790,21 @@ begin
   LblStatus.Caption := AMsg;
 end;
 
+{
+  LoadDirectory
+  -------------
+  Starts loading a directory of .cbz files into the file-list pane.
+
+  1. Logs the path.
+  2. Saves FDir and hides any open preview.
+  3. Clears previous thumbnails (terminating the old TLoadThread if needed).
+  4. Creates a new TLoadThread and wires it to LVFiles / ILFilesFirstPages /
+     FFirstPages.  The thread scans the directory, extracts the first page of
+     each .cbz, and emits items in batches to the main thread via Synchronize.
+  5. When the thread finishes, ThreadTerminated sets the status.
+
+  This method returns immediately — loading proceeds asynchronously.
+}
 procedure TfrmMain.LoadDirectory(const ADir: string);
 begin
   Log('LoadDirectory: %s', [ADir]);
@@ -1271,6 +1820,16 @@ begin
   SetStatus(Format('Loading: %s', [ADir]));
 end;
 
+{
+  ThreadTerminated
+  ----------------
+  OnTerminate handler for TLoadThread.
+
+  Guards against stale threads: if a new LoadDirectory call replaced
+  FLoadThread before the old thread finished, the stale thread's OnTerminate
+  will still fire, but Sender will not equal FLoadThread (which now points
+  to the new thread or nil).  We only update the UI for the current thread.
+}
 procedure TfrmMain.ThreadTerminated(Sender: TObject);
 begin
   { puo' arrivare da un thread gia' sostituito: non azzerare quello corrente }
@@ -1278,9 +1837,26 @@ begin
   begin
     FLoadThread := nil;
     SetStatus(Format('%d .cbz files', [LVFiles.Items.Count]));
+    LVFiles.SetFocus;
   end;
 end;
 
+{
+  PagesThreadTerminated
+  ---------------------
+  OnTerminate handler for TPagesThread.
+
+  When the background extraction of all pages from a single .cbz completes,
+  this handler builds the in-memory editing model:
+
+  - FPages[i] is initialised from the ListView item caption (entry name)
+    and the cached TLazIntfImage from FPagePreviews[i].
+  - FBaseline is set to an identical copy so "Revert" can restore this state.
+  - FChanges is cleared and FRenumber is reset.
+
+  Same stale-thread guard as ThreadTerminated — only acts if Sender matches
+  the current FPagesThread.
+}
 procedure TfrmMain.PagesThreadTerminated(Sender: TObject);
 var
   i: integer;

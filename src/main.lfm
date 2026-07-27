@@ -181,11 +181,14 @@ object frmMain: TfrmMain
       Align = alClient
       BorderSpacing.Around = 4
       Columns = <>
+      ColumnClick = False
       GridLines = True
+      HideSelection = False
       IconOptions.AutoArrange = True
       LargeImages = ILFilesFirstPages
       MultiSelect = True
       PopupMenu = PMFiles
+      ReadOnly = True
       ScrollBars = ssAutoVertical
       TabOrder = 0
       ViewStyle = vsIcon
@@ -254,179 +257,180 @@ object frmMain: TfrmMain
       end
       object PanelPageTools: TPanel
         Left = 0
-        Height = 30
+        Height = 32
         Top = 30
         Width = 480
         Align = alTop
-        AutoSize = True
         BevelOuter = bvNone
-        ClientHeight = 30
+        ClientHeight = 32
         ClientWidth = 480
         ParentShowHint = False
         ShowHint = True
         TabOrder = 1
         object BtnPgDelete: TButton
           Left = 2
-          Height = 26
+          Height = 28
           Top = 2
           Width = 85
+          Align = alLeft
           BorderSpacing.Around = 2
           Caption = 'Delete'
           TabOrder = 0
           OnClick = MnuPageDeleteClick
         end
         object BtnPgDeleteRows: TButton
-          Left = 86
-          Height = 26
+          Left = 89
+          Height = 28
           Top = 2
           Width = 90
+          Align = alLeft
           BorderSpacing.Around = 2
           Caption = 'Delete rows'
           TabOrder = 1
           OnClick = MnuDeleteRowsClick
         end
-        object SepPt1: TPanel
-          Left = 170
-          Height = 26
-          Top = 2
-          Width = 4
-          BorderSpacing.Around = 2
-          TabOrder = 2
-        end
         object BtnPgMoveUp: TButton
-          Left = 178
-          Height = 26
+          Left = 282
+          Height = 28
           Hint = 'Move page up'
           Top = 2
           Width = 30
+          Align = alRight
           BorderSpacing.Around = 2
           Caption = '▲'
           ParentShowHint = False
           ShowHint = True
-          TabOrder = 3
+          TabOrder = 2
           OnClick = MnuPageMoveUpClick
         end
         object BtnPgMoveDown: TButton
-          Left = 212
-          Height = 26
+          Left = 314
+          Height = 28
           Hint = 'Move down|Move page down'
           Top = 2
           Width = 30
+          Align = alRight
           BorderSpacing.Around = 2
           Caption = '▼'
           ParentShowHint = False
           ShowHint = True
-          TabOrder = 4
+          TabOrder = 3
           OnClick = MnuPageMoveDownClick
         end
         object BtnPgMoveStart: TButton
-          Left = 246
-          Height = 26
+          Left = 346
+          Height = 28
           Hint = 'Move to start'
           Top = 2
           Width = 30
+          Align = alRight
           BorderSpacing.Around = 2
           Caption = '⏮'
           ParentShowHint = False
           ShowHint = True
-          TabOrder = 5
+          TabOrder = 4
           OnClick = MnuPageMoveStartClick
         end
         object BtnPgMoveEnd: TButton
-          Left = 280
-          Height = 26
+          Left = 378
+          Height = 28
           Hint = 'Move to end'
           Top = 2
           Width = 30
+          Align = alRight
           BorderSpacing.Around = 2
           Caption = '⏭'
           ParentShowHint = False
           ShowHint = True
-          TabOrder = 6
+          TabOrder = 5
           OnClick = MnuPageMoveEndClick
         end
         object SepPt2: TPanel
-          Left = 314
-          Height = 26
+          Left = 410
+          Height = 28
           Top = 2
           Width = 4
+          Align = alRight
           BorderSpacing.Around = 2
-          TabOrder = 7
+          TabOrder = 6
         end
         object BtnPgSort: TButton
-          Left = 322
-          Height = 26
+          Left = 416
+          Height = 28
           Hint = 'Sort by name'
           Top = 2
           Width = 30
+          Align = alRight
           BorderSpacing.Around = 2
           Caption = '▲▼'
           ParentShowHint = False
           ShowHint = True
-          TabOrder = 8
+          TabOrder = 7
           OnClick = MnuPageSortClick
         end
         object BtnPgReverse: TButton
-          Left = 356
-          Height = 26
+          Left = 448
+          Height = 28
           Hint = 'Reverse order'
           Top = 2
           Width = 30
+          Align = alRight
           BorderSpacing.Around = 2
           Caption = '⇆'
           ParentShowHint = False
           ShowHint = True
-          TabOrder = 9
+          TabOrder = 8
           OnClick = MnuPageReverseClick
         end
       end
       object PanelStageBar: TPanel
         Left = 0
-        Height = 34
-        Top = 60
+        Height = 32
+        Top = 62
         Width = 480
         Align = alTop
-        AutoSize = True
         BevelOuter = bvNone
-        ClientHeight = 34
+        ClientHeight = 32
         ClientWidth = 480
         TabOrder = 2
         Visible = False
         object ShapeStageDot: TShape
           Left = 0
           Height = 10
-          Top = 12
+          Top = 0
           Width = 10
           Brush.Color = 10311296
           Shape = stCircle
         end
         object LblStageMsg: TLabel
           Left = 6
-          Height = 22
+          Height = 20
           Top = 6
-          Width = 468
+          Width = 320
           Align = alClient
           BorderSpacing.Around = 6
           Caption = 'Pending changes: 2 deleted, 3 moved'
           Layout = tlCenter
         end
         object BtnStageRevert: TButton
-          Left = 318
-          Height = 26
+          Left = 332
+          Height = 24
           Top = 4
           Width = 70
+          Align = alRight
           BorderSpacing.Around = 4
           Caption = 'Undo'
           TabOrder = 0
           OnClick = BtnStageRevertClick
         end
         object BtnStageSave: TButton
-          Left = 392
-          Height = 26
+          Left = 406
+          Height = 24
           Top = 4
-          Width = 76
+          Width = 70
+          Align = alRight
           BorderSpacing.Around = 4
-          Caption = 'Save changes'
+          Caption = 'Save'
           TabOrder = 1
           OnClick = BtnStageSaveClick
         end
@@ -444,6 +448,7 @@ object frmMain: TfrmMain
         LargeImages = ILPages
         MultiSelect = True
         PopupMenu = PMPages
+        ReadOnly = True
         ScrollBars = ssAutoVertical
         TabOrder = 3
         ViewStyle = vsIcon

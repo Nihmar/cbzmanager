@@ -30,18 +30,6 @@ uses
   uservicebase;
 
 type
-  { TImageCheckResult — Per-image validation outcome.
-
-    NOTE: This type is currently unused within the unit; the actual per-image
-    results are stored as TImageCheck records (from uZipEditor) inside the
-    TValidationEntry.ImageChecks array.  TImageCheckResult is retained for
-    potential forward compatibility with external consumers. }
-  TImageCheckResult = record
-    EntryName: string;      // Name of the image entry inside the CBZ
-    Valid: boolean;         // True if the image decoded successfully
-    ErrorMsg: string;       // Decoder error message when Valid = False
-  end;
-
   { TValidationEntry — Validation result for a single CBZ file.
 
     Fields:

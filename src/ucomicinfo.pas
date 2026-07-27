@@ -332,7 +332,7 @@ begin
     if not ReplaceCBZ(AFilePath, Entries) then
       raise Exception.CreateFmt('Failed to write %s', [ExtractFileName(AFilePath)]);
     if not ABackup then
-      DeleteFile(ChangeFileExt(AFilePath, '') + '_OLD.cbz');
+      DeleteFile(ChangeFileExt(AFilePath, '') + BACKUP_SUFFIX);
   finally
     FreeZipEntries(Entries);
   end;

@@ -285,9 +285,6 @@ type
     FLoadThread: TLoadThread;
     { Background thread that opens a single .cbz for page preview. }
     FPagesThread: TPagesThread;
-    { Default thumbnail dimensions (unscaled). }
-    FThumbW: integer;
-    FThumbH: integer;
     { Full-resolution cached images for the file-list pane (one per .cbz). }
     FFirstPages: TLazIntfImageList;
     { Full-resolution cached images for the page-preview pane (all pages of one .cbz). }
@@ -355,6 +352,11 @@ uses
 
   {$R *.lfm}
 
+const
+  { Thumbnail height-to-width ratio: comic pages are taller than wide, so a
+    thumbnail of width W is given height Round(W * PAGE_ASPECT_RATIO). }
+  PAGE_ASPECT_RATIO = 1.25;
+
   { TfrmMain }
 
 {
@@ -380,8 +382,6 @@ begin
   FChanges := nil;
   FRenumber := True;
   FPageFile := '';
-  FThumbW := 150;
-  FThumbH := 180;
   ILFilesFirstPages.Width := 128;
   ILFilesFirstPages.Height := 160;
   ILPages.Width := 128;
@@ -582,7 +582,7 @@ begin
     ALV.LargeImages := nil;
     AIL.Clear;
     AIL.Width := ASize;
-    AIL.Height := Round(ASize * 1.25);
+    AIL.Height := Round(ASize * PAGE_ASPECT_RATIO);
     for i := 0 to APages.Count - 1 do
     begin
       Thumb := MakeThumb(APages[i], AIL.Width, AIL.Height);
@@ -623,7 +623,7 @@ begin
     ILPages.Clear;
     Sz := Max(16, ZoomScroll.Position);
     ILPages.Width := Sz;
-    ILPages.Height := Round(Sz * 1.25);
+    ILPages.Height := Round(Sz * PAGE_ASPECT_RATIO);
     for i := 0 to High(FPages) do
     begin
       if FPages[i].Gone then Continue;
@@ -887,7 +887,7 @@ begin
 
   LVPages.LargeImages := nil;
   ILPages.Width := Sz;
-  ILPages.Height := Round(Sz * 1.25);
+  ILPages.Height := Round(Sz * PAGE_ASPECT_RATIO);
   LVPages.LargeImages := ILPages;
 
   FPageFile := IncludeTrailingPathDelimiter(FDir) + AItem.Caption;

@@ -4,7 +4,7 @@ unit uservicebase;
   uservicebase – Shared service-layer types, callbacks, and I/O utilities.
 
   This unit defines:
-    - TServiceResult: the standard result record returned by all services.
+    - BACKUP_SUFFIX: the suffix used for _OLD.cbz backup files.
     - TProgressEvent / TProgressProc: progress-reporting callback types.
     - BackupFile:      renames a file to a _OLD.cbz backup.
     - CollectCBZFiles: collects *.cbz filenames from a directory.
@@ -21,24 +21,13 @@ interface
 uses
   Classes, SysUtils, uzipcore;
 
+const
+  { Suffix that identifies a backup copy of a CBZ.  A file "manga.cbz" is
+    backed up as "manga_OLD.cbz".  Single source of truth for the backup
+    naming convention used by BackupFile and ReplaceCBZ. }
+  BACKUP_SUFFIX = '_OLD.cbz';
+
 type
-  { ------------------------------------------------------------------------
-    TServiceResult – Standard outcome record returned by every service.
-
-    All service-level operations (convert, merge, validate, etc.) return a
-    result through a record of this shape so the UI can handle success and
-    failure uniformly.
-
-    @field Success   True when the operation completed without error.
-    @field Processed Number of files/entries actually processed.
-    @field Message   Human-readable summary or error description.
-    ------------------------------------------------------------------------ }
-  TServiceResult = record
-    Success: boolean;
-    Processed: integer;
-    Message: string;
-  end;
-
   { ------------------------------------------------------------------------
     TProgressEvent – Method-pointer callback for progress reporting.
 
@@ -109,8 +98,8 @@ function BackupFile(const AFilePath: string): boolean;
 var
   OldFile: string;
 begin
-  // Build the backup name: strip extension, append "_OLD.cbz".
-  OldFile := ChangeFileExt(AFilePath, '') + '_OLD.cbz';
+  // Build the backup name: strip extension, append the backup suffix.
+  OldFile := ChangeFileExt(AFilePath, '') + BACKUP_SUFFIX;
   // Remove any stale backup first — DeleteFile returns False if the file
   // doesn't exist, which is harmless.
   if FileExists(OldFile) then
@@ -150,7 +139,7 @@ var
   OldFile, NewFile: string;
 begin
   // Compute derived filenames.
-  OldFile := ChangeFileExt(AFilePath, '') + '_OLD.cbz';       // backup destination
+  OldFile := ChangeFileExt(AFilePath, '') + BACKUP_SUFFIX;     // backup destination
   NewFile := AFilePath + '.new';                               // temporary new file
 
   { Step 1: write new CBZ to a temp file. If this fails, original is intact. }

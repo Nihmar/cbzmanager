@@ -67,7 +67,7 @@ begin
   Results := TComicInfoService.Scan(Files, FTempDir);
   AssertEquals('1 result', 1, Length(Results));
   AssertTrue('has ComicInfo', Results[0].HasComicInfo);
-  AssertEquals('no error', '', Results[0].Error);
+  AssertEquals('no error', '', Results[0].ErrorMsg);
 end;
 
 procedure TComicInfoServiceTest.Scan_NoComicInfo;
@@ -92,7 +92,7 @@ begin
   Files[0] := 'with_ci.cbz';
   Results := TComicInfoService.Remove(Files, FTempDir, False);
   AssertTrue('removed', Results[0].Removed);
-  AssertEquals('no error', '', Results[0].Error);
+  AssertEquals('no error', '', Results[0].ErrorMsg);
 
   { Verify ComicInfo.xml is gone }
   ScanAfter := TComicInfoService.Scan(Files, FTempDir);

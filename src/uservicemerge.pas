@@ -244,7 +244,6 @@ var
   SeriesName, VolName, FullPath: string;
   ChBatch, Batch: TStringArray;
   VolEntries: TZipEntries;
-  CreatedFiles: TStringArray;
   CI: TComicInfo;
   XML: string;
   k, ChFirst, ChLast: integer;
@@ -299,7 +298,6 @@ begin
 
   TotalCreated := 0;
   VolNum := 1;
-  CreatedFiles := nil;
   ChIdx := 0;
   ListIdx := 0;
 
@@ -368,8 +366,6 @@ begin
           VolEntries[k].Data.Position := 0;
         end;
         WriteZipFromEntriesDeflated(FullPath, VolEntries);
-        SetLength(CreatedFiles, Length(CreatedFiles) + 1);
-        CreatedFiles[High(CreatedFiles)] := FullPath;
         Inc(TotalCreated);
       end;
     finally

@@ -82,7 +82,7 @@ begin
     begin
       It := LVFiles.Items.Add;
       It.Caption := Results[i].FileName;
-      if Results[i].Error <> '' then
+      if Results[i].ErrorMsg <> '' then
       begin
         It.SubItems.Add('Error');
         It.Checked := False;

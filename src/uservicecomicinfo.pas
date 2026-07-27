@@ -28,14 +28,14 @@ type
     @field HasComicInfo True when ComicInfo.xml was found inside the archive.
     @field Removed      True when ComicInfo.xml was successfully removed
                         (always False after a Scan; set by Remove).
-    @field Error        Error message if the operation failed on this file;
+    @field ErrorMsg     Error message if the operation failed on this file;
                         empty string on success.
     ------------------------------------------------------------------------ }
   TComicInfoEntry = record
     FileName: string;
     HasComicInfo: boolean;
     Removed: boolean;
-    Error: string;
+    ErrorMsg: string;
   end;
 
   { ------------------------------------------------------------------------
@@ -60,7 +60,7 @@ type
       @param  AFiles Array of CBZ filenames (bare names, not full paths).
       @param  ADir   Directory containing the files.
       @return An array of TComicInfoEntry, one per input file, with the
-              HasComicInfo and Error fields populated.
+              HasComicInfo and ErrorMsg fields populated.
       ------------------------------------------------------------------------ }
     class function Scan(const AFiles: TStringArray;
       const ADir: string): TComicInfoResults;
@@ -120,7 +120,7 @@ begin
     except
       on E: Exception do
       begin
-        Result[i].Error := E.Message;
+        Result[i].ErrorMsg := E.Message;
       end;
     end;
   end;
@@ -208,7 +208,7 @@ begin
     except
       on E: Exception do
       begin
-        Result[i].Error := E.Message;
+        Result[i].ErrorMsg := E.Message;
       end;
     end;
   end;

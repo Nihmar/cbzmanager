@@ -79,6 +79,9 @@ Desktop.ini
 # Claude
 .claude/
 
+# Reasonix
+reasonix.toml
+
 # ─── Project-specific suggestions (uncomment as needed) ──────────────────────
 
 # Ignore all output binaries in a dedicated directory

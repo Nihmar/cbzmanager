@@ -80,11 +80,6 @@
         <ResourceBaseClass Value="Form"/>
       </Unit>
       <Unit>
-        <Filename Value="src\uzipcore.pas"/>
-        <IsPartOfProject Value="True"/>
-        <UnitName Value="uzipcore"/>
-      </Unit>
-      <Unit>
         <Filename Value="src\uzipeditor.pas"/>
         <IsPartOfProject Value="True"/>
         <UnitName Value="uZipEditor"/>
@@ -145,6 +140,12 @@
         <IsPartOfProject Value="True"/>
         <ComponentName Value="dlgComicInfoEditor"/>
         <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\udlgmerge.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="dlgMerge"/>
         <ResourceBaseClass Value="Form"/>
       </Unit>
     </Units>

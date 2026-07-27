@@ -24,7 +24,9 @@ unit uservicevalidate;
 interface
 
 uses
-  Classes, SysUtils, uZipEditor, uservicebase;
+  Classes,
+  SysUtils,
+  uZipEditor;
 
 type
   { TImageCheckResult — Per-image validation outcome.
@@ -223,8 +225,8 @@ begin
         for j := 0 to High(Checks) do
           if not Checks[j].Valid then
           begin
-            Result[i].ErrorMsg := Format('%d/%d images valid',
-              [TotalValid, Length(Checks)]);
+            Result[i].ErrorMsg :=
+              Format('%d/%d images valid', [TotalValid, Length(Checks)]);
             Break;                          // one summary is enough
           end;
       end;

@@ -98,7 +98,6 @@ uses
   IntfGraphics,
   Types,
   uloaderthread,
-  uservicebase,
   uPageEditModel;
 
 type
@@ -324,7 +323,6 @@ uses
   uZipEditor,
   userviceconvert,
   uservicemerge,
-  uservicecomicinfo,
   udlgrows,
   udlgvalidate,
   udlgcomicinfo,

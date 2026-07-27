@@ -4,7 +4,7 @@ object frmMain: TfrmMain
   Top = 100
   Width = 1000
   Caption = 'CBZ Manager'
-  ClientHeight = 620
+  ClientHeight = 650
   ClientWidth = 1000
   KeyPreview = True
   Menu = MainMenu
@@ -35,7 +35,7 @@ object frmMain: TfrmMain
     end
     object TbSep1: TToolButton
       Left = 54
-      Height = 22
+      Height = 8
       Top = 0
       Style = tbsSeparator
     end
@@ -59,7 +59,7 @@ object frmMain: TfrmMain
     end
     object TbSep2: TToolButton
       Left = 261
-      Height = 22
+      Height = 8
       Top = 0
       Style = tbsSeparator
     end

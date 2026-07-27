@@ -16,8 +16,15 @@ unit udlgrows;
 interface
 
 uses
-  Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls,
-  ComCtrls, Math;
+  Classes,
+  SysUtils,
+  Forms,
+  Controls,
+  Graphics,
+  Dialogs,
+  StdCtrls,
+  ExtCtrls,
+  ComCtrls;
 
 type
   { TBooleanDynArray - dynamic array of boolean used to represent which pages
@@ -105,7 +112,9 @@ begin
 
     if Lo > Hi then
     begin
-      Code := Lo; Lo := Hi; Hi := Code;
+      Code := Lo;
+      Lo := Hi;
+      Hi := Code;
     end;
 
     for Code := Lo to Hi do

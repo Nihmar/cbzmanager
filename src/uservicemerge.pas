@@ -99,7 +99,7 @@ type
 implementation
 
 uses
-  Math, StrUtils;
+  StrUtils;
 
 { ---------------------------------------------------------------------------
   DetectSeriesName

@@ -64,7 +64,6 @@ object dlgRows: TdlgRows
       ReadOnly = True
       ScrollBars = ssAutoVertical
       TabOrder = 0
-      Text = 'No pages selected'
     end
   end
   object CbRenumber: TCheckBox

@@ -83,8 +83,7 @@ function MergeIntoVolume(const SourceFiles: TStringArray;
   Restituisce True se il file e' stato modificato.
   I parametri controllano la qualita' e le opzioni di conversione. }
 function ConvertCBZToWebP(const FileName: string; Quality: integer;
-  ReplaceOnlyIfSmaller, SkipExistingWebP,
-  RemoveComicInfo, RenumberPages: boolean;
+  ReplaceOnlyIfSmaller, SkipExistingWebP, RemoveComicInfo, RenumberPages: boolean;
   out NewEntryCount: integer): TZipEntries;
 
 { Filter pages from a CBZ by 1-indexed position.
@@ -93,8 +92,7 @@ function ConvertCBZToWebP(const FileName: string; Quality: integer;
   renumbers survivors as page_NNNN.ext, returns the new entries.
   Caller must FreeZipEntries the result and write via WriteZipFromEntriesDeflated. }
 function FilterPagesFromCBZ(const FileName: string;
-  const PagesToDelete: array of boolean;
-  Renumber: boolean): TZipEntries;
+  const PagesToDelete: array of boolean; Renumber: boolean): TZipEntries;
 
 { Format a page name with zero-padded number: page_NNNN.ext }
 function FormatPageName(PageNum, Padding: integer; const Ext: string): string;
@@ -309,8 +307,8 @@ type
       var ACancel: boolean);
   end;
 
-procedure TImageValidator.CheckImage(const AName: string;
-  AImage: TLazIntfImage; var ACancel: boolean);
+procedure TImageValidator.CheckImage(const AName: string; AImage: TLazIntfImage;
+  var ACancel: boolean);
 var
   n: integer;
 begin
@@ -454,40 +452,38 @@ end;
 function IsConvertibleExt(const Ext: string): boolean;
 begin
   Result := SameText(Ext, '.jpg') or SameText(Ext, '.jpeg') or
-    SameText(Ext, '.png') or SameText(Ext, '.gif') or
-    SameText(Ext, '.bmp') or SameText(Ext, '.tiff') or
-    SameText(Ext, '.tif');
+    SameText(Ext, '.png') or SameText(Ext, '.gif') or SameText(Ext, '.bmp') or
+    SameText(Ext, '.tiff') or SameText(Ext, '.tif');
 end;
 
 function ConvertCBZToWebP(const FileName: string; Quality: integer;
-  ReplaceOnlyIfSmaller, SkipExistingWebP,
-  RemoveComicInfo, RenumberPages: boolean;
+  ReplaceOnlyIfSmaller, SkipExistingWebP, RemoveComicInfo, RenumberPages: boolean;
   out NewEntryCount: integer): TZipEntries;
 
-{ Copy entry from source into Result[Count], increment Count }
-procedure KeepEntry(var Result: TZipEntries; var Count: integer;
+  { Copy entry from source into Result[Count], increment Count }
+  procedure KeepEntry(var Result: TZipEntries; var Count: integer;
   const AName: string; const Source: TZipEntryData);
-begin
-  Inc(Count);
-  Result[Count - 1].Name := AName;
-  Result[Count - 1].Data := TMemoryStream.Create;
-  Source.Data.Position := 0;
-  Result[Count - 1].Data.CopyFrom(Source.Data, Source.Data.Size);
-end;
+  begin
+    Inc(Count);
+    Result[Count - 1].Name := AName;
+    Result[Count - 1].Data := TMemoryStream.Create;
+    Source.Data.Position := 0;
+    Result[Count - 1].Data.CopyFrom(Source.Data, Source.Data.Size);
+  end;
 
-{ Transfer ownership of AData into Result[Count], increment Count }
-procedure AdoptEntry(var Result: TZipEntries; var Count: integer;
+  { Transfer ownership of AData into Result[Count], increment Count }
+  procedure AdoptEntry(var Result: TZipEntries; var Count: integer;
   const AName: string; AData: TMemoryStream);
-begin
-  Inc(Count);
-  Result[Count - 1].Name := AName;
-  Result[Count - 1].Data := AData;
-end;
+  begin
+    Inc(Count);
+    Result[Count - 1].Name := AName;
+    Result[Count - 1].Data := AData;
+  end;
 
-function PageName(ANum: integer; const AExt: string): string;
-begin
-  Result := Format('page_%.4d%s', [ANum, AExt]);
-end;
+  function PageName(ANum: integer; const AExt: string): string;
+  begin
+    Result := Format('page_%.4d%s', [ANum, AExt]);
+  end;
 
 var
   AllEntries: TZipEntries;

@@ -21,6 +21,7 @@ type
     Gone: boolean;         // marked for deletion
     OrigIndex: integer;    // original position at open time
   end;
+
   TPageStates = array of TPageState;
 
   TChangeKind = (ckDeleted, ckMoved);
@@ -63,8 +64,7 @@ implementation
 { TSaveChangesThread }
 
 constructor TSaveChangesThread.Create(const APageFile: string;
-  const APages: TPageStates; ARenumber: boolean;
-  AOnProgress: TProgressEvent);
+  const APages: TPageStates; ARenumber: boolean; AOnProgress: TProgressEvent);
 var
   i: integer;
 begin

@@ -303,8 +303,7 @@ begin
   FPagePreviews.Free;
 end;
 
-procedure TfrmMain.FormKeyDown(Sender: TObject; var Key: word;
-  Shift: TShiftState);
+procedure TfrmMain.FormKeyDown(Sender: TObject; var Key: word; Shift: TShiftState);
 begin
   if (Key = VK_ESCAPE) and PanelSingleFile.Visible then
   begin
@@ -551,8 +550,8 @@ begin
   ILPages.Height := Round(Sz * 1.25);
   LVPages.LargeImages := ILPages;
 
-  FPagesThread := TPagesThread.Create(
-    IncludeTrailingPathDelimiter(FDir) + AItem.Caption);
+  FPagesThread := TPagesThread.Create(IncludeTrailingPathDelimiter(FDir) +
+    AItem.Caption);
   FPagesThread.OnTerminate := @PagesThreadTerminated;
   FPagesThread.ListView := LVPages;
   FPagesThread.Images := ILPages;
@@ -704,7 +703,8 @@ begin
       SetStatus(Format('Converted %s: %d pages to WebP',
         [Thread.Result[i].FileName, Thread.Result[i].PagesConverted]))
     else
-      SetStatus(Format('%s: %s', [Thread.Result[i].FileName, Thread.Result[i].ErrorMsg]));
+      SetStatus(Format('%s: %s', [Thread.Result[i].FileName,
+        Thread.Result[i].ErrorMsg]));
   end;
   LoadDirectory(FDir);
   StatusProgress.Visible := False;
@@ -768,7 +768,8 @@ var
 begin
   Thread := Sender as TMergeThread;
   if Thread.Result.Success then
-    SetStatus(Format('Merge complete: %d volumes created', [Thread.Result.VolumesCreated]))
+    SetStatus(Format('Merge complete: %d volumes created',
+      [Thread.Result.VolumesCreated]))
   else
     SetStatus(Format('Merge failed: %s', [Thread.Result.ErrorMsg]));
   LoadDirectory(FDir);
@@ -812,7 +813,8 @@ begin
   if Thread.Result.Success then
   begin
     LoadDirectory(FDir);
-    SetStatus(Format('Batch delete complete: %d files processed', [Thread.Result.Processed]));
+    SetStatus(Format('Batch delete complete: %d files processed',
+      [Thread.Result.Processed]));
   end
   else
     SetStatus(Format('Batch delete failed: %s', [Thread.Result.ErrorMsg]));
@@ -844,9 +846,8 @@ begin
         begin
           StatusProgress.Visible := True;
           MnuDeleteRows.Enabled := False;
-          Thread := TDeletePagesThread.Create(Files, FDir,
-            Dlg.Selected, Dlg.CbRenumber.Checked, Dlg.CbDeletePerm.Checked,
-            @UpdateProgress);
+          Thread := TDeletePagesThread.Create(Files, FDir, Dlg.Selected,
+            Dlg.CbRenumber.Checked, Dlg.CbDeletePerm.Checked, @UpdateProgress);
           Thread.OnTerminate := @DeleteRowsThreadTerminated;
           Thread.Start;
         end;
@@ -935,7 +936,10 @@ begin
   Sel := nil;
   for i := 0 to LVPages.Items.Count - 1 do
     if LVPages.Items[i].Selected then
-      begin SetLength(Sel, Length(Sel) + 1); Sel[High(Sel)] := i; end;
+    begin
+      SetLength(Sel, Length(Sel) + 1);
+      Sel[High(Sel)] := i;
+    end;
   if Length(Sel) = 0 then Exit;
   { Move each selected page up by one (process in order) }
   for i := 0 to High(Sel) do
@@ -962,7 +966,10 @@ begin
   Sel := nil;
   for i := 0 to LVPages.Items.Count - 1 do
     if LVPages.Items[i].Selected then
-      begin SetLength(Sel, Length(Sel) + 1); Sel[High(Sel)] := i; end;
+    begin
+      SetLength(Sel, Length(Sel) + 1);
+      Sel[High(Sel)] := i;
+    end;
   if Length(Sel) = 0 then Exit;
   { Move each selected page down by one (process in reverse) }
   for i := High(Sel) downto 0 do
@@ -1142,8 +1149,7 @@ begin
 
   if MessageDlg('Save changes',
     Format('Save %d pending changes? The original will be backed up as _OLD.cbz.',
-      [Length(FChanges)]),
-    mtConfirmation, mbYesNo, 0) <> mrYes then Exit;
+    [Length(FChanges)]), mtConfirmation, mbYesNo, 0) <> mrYes then Exit;
 
   { Take a snapshot of the page state for the background thread }
   SetLength(Snapshot, Length(FPages));
@@ -1171,8 +1177,8 @@ var
 begin
   if Length(FChanges) = 0 then Exit;
   if MessageDlg('Discard changes',
-    'Discard all pending changes? This cannot be undone.',
-    mtConfirmation, mbYesNo, 0) <> mrYes then Exit;
+    'Discard all pending changes? This cannot be undone.', mtConfirmation,
+    mbYesNo, 0) <> mrYes then Exit;
   { Restore from baseline }
   SetLength(FPages, Length(FBaseline));
   for i := 0 to High(FBaseline) do

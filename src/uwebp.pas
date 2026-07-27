@@ -72,7 +72,7 @@ type
   TWebPDecodeBGRA = function(Data: pbyte; data_size: PtrUInt;
     Width, Height: PInteger): pbyte; cdecl;
   TWebPFree = procedure(ptr: Pointer); cdecl;
-  TWebPEncodeBGRA = function(bgra: pbyte; width, height, stride: integer;
+  TWebPEncodeBGRA = function(bgra: pbyte; Width, Height, stride: integer;
     quality: single; var output: pbyte): PtrUInt; cdecl;
 
 var

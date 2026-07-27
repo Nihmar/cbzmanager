@@ -66,13 +66,13 @@ end;
 
 procedure Log(const Msg: string);
 var
-  Line: RawByteString;
+  Line: rawbytestring;
 begin
   EnterCriticalSection(LogLock);
   try
     InitLog;
     if LogStream = nil then Exit;
-    Line := RawByteString(FormatDateTime('hh:nn:ss.zzz', Now) + ' [t' +
+    Line := rawbytestring(FormatDateTime('hh:nn:ss.zzz', Now) + ' [t' +
       IntToStr(PtrUInt(GetCurrentThreadId)) + '] ' + Msg + LineEnding);
     try
       LogStream.WriteBuffer(Line[1], Length(Line));

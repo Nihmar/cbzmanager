@@ -29,7 +29,8 @@ uses
   Controls,
   Graphics,
   StdCtrls,
-  ExtCtrls;
+  ExtCtrls,
+  udlgbase;
 
 type
   { TBooleanDynArray - dynamic array of boolean used to represent which pages
@@ -159,8 +160,7 @@ end;
 
 procedure TdlgRows.FormCreate(Sender: TObject);
 begin
-  BorderStyle := bsDialog;
-  BorderIcons := [biSystemMenu];
+  InitDialogChrome(Self);
 
   Label1 := TLabel.Create(Self);
   Label1.Parent := Self;
@@ -226,31 +226,11 @@ begin
   CbDeletePerm.Width := 239;
   CbDeletePerm.Caption := 'Permanently delete (no _OLD.cbz backup)';
 
-  PanelBottom := TPanel.Create(Self);
-  PanelBottom.Parent := Self;
-  PanelBottom.Align := alBottom;
-  PanelBottom.Height := 48;
-  PanelBottom.BevelOuter := bvNone;
+  PanelBottom := CreateBottomPanel(Self, 48);
 
-  BtnOk := TButton.Create(Self);
-  BtnOk.Parent := PanelBottom;
-  BtnOk.Left := 324;
-  BtnOk.Top := 9;
-  BtnOk.Width := 80;
-  BtnOk.Height := 30;
-  BtnOk.Caption := 'Delete';
-  BtnOk.Default := True;
-  BtnOk.ModalResult := mrOK;
-
-  BtnCancel := TButton.Create(Self);
-  BtnCancel.Parent := PanelBottom;
-  BtnCancel.Left := 412;
-  BtnCancel.Top := 9;
-  BtnCancel.Width := 80;
-  BtnCancel.Height := 30;
-  BtnCancel.Cancel := True;
-  BtnCancel.Caption := 'Cancel';
-  BtnCancel.ModalResult := mrCancel;
+  BtnOk := CreateDialogButton(PanelBottom, 'Delete', 324, 9, mrOK, True, False);
+  BtnCancel := CreateDialogButton(PanelBottom, 'Cancel', 412, 9, mrCancel,
+    False, True);
 
   FPageCount := 0;
   FSelected := nil;

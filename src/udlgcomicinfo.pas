@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls,
-  ComCtrls, ExtCtrls;
+  ComCtrls, ExtCtrls, udlgbase;
 
 type
 
@@ -39,18 +39,9 @@ procedure TdlgComicInfo.FormCreate(Sender: TObject);
 var
   Col: TListColumn;
 begin
-  BorderStyle := bsDialog;
-  BorderIcons := [biSystemMenu];
+  InitDialogChrome(Self);
 
-  LVFiles := TListView.Create(Self);
-  LVFiles.Parent := Self;
-  LVFiles.Align := alClient;
-  LVFiles.BorderSpacing.Around := 8;
-  LVFiles.Checkboxes := True;
-  LVFiles.GridLines := True;
-  LVFiles.ReadOnly := True;
-  LVFiles.RowSelect := True;
-  LVFiles.ViewStyle := vsReport;
+  LVFiles := CreateReportListView(Self, True);
   Col := LVFiles.Columns.Add;
   Col.Caption := 'File';
   Col.AutoSize := True;
@@ -58,11 +49,7 @@ begin
   Col.Caption := 'ComicInfo.xml';
   Col.Width := 120;
 
-  PanelBottom := TPanel.Create(Self);
-  PanelBottom.Parent := Self;
-  PanelBottom.Align := alBottom;
-  PanelBottom.Height := 88;
-  PanelBottom.BevelOuter := bvNone;
+  PanelBottom := CreateBottomPanel(Self, 88);
 
   CbBackup := TCheckBox.Create(Self);
   CbBackup.Parent := PanelBottom;
@@ -70,18 +57,9 @@ begin
   CbBackup.Caption := 'Create backup (_OLD.cbz) before rewriting';
   CbBackup.Checked := True;
 
-  BtnClose := TButton.Create(Self);
-  BtnClose.Parent := PanelBottom;
-  BtnClose.SetBounds(472, 44, 80, 30);
-  BtnClose.Cancel := True;
-  BtnClose.Caption := 'Close';
-  BtnClose.Default := True;
-  BtnClose.ModalResult := mrOk;
-
-  BtnRemove := TButton.Create(Self);
-  BtnRemove.Parent := PanelBottom;
-  BtnRemove.SetBounds(384, 44, 80, 30);
-  BtnRemove.Caption := 'Remove';
+  BtnClose := CreateDialogButton(PanelBottom, 'Close', 472, 44, mrOk, True, True);
+  BtnRemove := CreateDialogButton(PanelBottom, 'Remove', 384, 44, mrNone,
+    False, False);
   BtnRemove.OnClick := @BtnRemoveClick;
 
   LVFiles.Clear;

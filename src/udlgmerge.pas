@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls,
-  ExtCtrls, ComCtrls, Spin, uservicemerge, uloaderthread;
+  ExtCtrls, ComCtrls, Spin, uservicemerge, uloaderthread, udlgbase;
 
 type
 
@@ -66,8 +66,7 @@ procedure TdlgMerge.FormCreate(Sender: TObject);
 var
   Col: TListColumn;
 begin
-  BorderStyle := bsDialog;
-  BorderIcons := [biSystemMenu];
+  InitDialogChrome(Self);
 
   PanelTop := TPanel.Create(Self);
   PanelTop.Parent := Self;
@@ -192,11 +191,7 @@ begin
   CbGenerateComicInfo.Caption := 'Generate ComicInfo.xml per volume';
   CbGenerateComicInfo.Checked := True;
 
-  PanelBottom := TPanel.Create(Self);
-  PanelBottom.Parent := Self;
-  PanelBottom.Align := alBottom;
-  PanelBottom.Height := 44;
-  PanelBottom.BevelOuter := bvNone;
+  PanelBottom := CreateBottomPanel(Self, 44);
 
   CbDelete := TCheckBox.Create(Self);
   CbDelete.Parent := PanelBottom;
@@ -205,34 +200,11 @@ begin
   CbDelete.Width := 260;
   CbDelete.Caption := 'Permanently delete original chapters';
 
-  BtnMerge := TButton.Create(Self);
-  BtnMerge.Parent := PanelBottom;
-  BtnMerge.Left := 388;
-  BtnMerge.Top := 7;
-  BtnMerge.Width := 80;
-  BtnMerge.Height := 30;
-  BtnMerge.Caption := 'Merge';
-  BtnMerge.Default := True;
-  BtnMerge.ModalResult := mrOK;
+  BtnMerge := CreateDialogButton(PanelBottom, 'Merge', 388, 7, mrOK, True, False);
+  BtnClose := CreateDialogButton(PanelBottom, 'Cancel', 476, 7, mrCancel,
+    False, True);
 
-  BtnClose := TButton.Create(Self);
-  BtnClose.Parent := PanelBottom;
-  BtnClose.Left := 476;
-  BtnClose.Top := 7;
-  BtnClose.Width := 80;
-  BtnClose.Height := 30;
-  BtnClose.Cancel := True;
-  BtnClose.Caption := 'Cancel';
-  BtnClose.ModalResult := mrCancel;
-
-  LVFiles := TListView.Create(Self);
-  LVFiles.Parent := Self;
-  LVFiles.Align := alClient;
-  LVFiles.BorderSpacing.Around := 8;
-  LVFiles.GridLines := True;
-  LVFiles.ReadOnly := True;
-  LVFiles.RowSelect := True;
-  LVFiles.ViewStyle := vsReport;
+  LVFiles := CreateReportListView(Self, False);
 
   Col := LVFiles.Columns.Add;
   Col.Caption := '#';

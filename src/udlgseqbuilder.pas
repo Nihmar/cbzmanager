@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, StdCtrls, ExtCtrls, ComCtrls,
-  IntfGraphics, uloaderthread, uimgutil, uservicemerge;
+  IntfGraphics, uloaderthread, uimgutil, uservicemerge, udlgbase;
 
 type
   TPreviewLoader = class(TThread)
@@ -140,8 +140,7 @@ procedure TdlgSeqBuilder.FormCreate(Sender: TObject);
 var
   PanelBtns: TPanel;
 begin
-  BorderStyle := bsDialog;
-  BorderIcons := [biSystemMenu];
+  InitDialogChrome(Self);
   OnShow := @FormShow;
 
   PanelTop := TPanel.Create(Self);
@@ -168,11 +167,7 @@ begin
   LblSequence.Font.Style := [fsBold];
   LblSequence.Caption := 'Sequence: (none yet)';
 
-  PanelBottom := TPanel.Create(Self);
-  PanelBottom.Parent := Self;
-  PanelBottom.Align := alBottom;
-  PanelBottom.Height := 44;
-  PanelBottom.BevelOuter := bvNone;
+  PanelBottom := CreateBottomPanel(Self, 44);
 
   BtnAddVolume := TButton.Create(Self);
   BtnAddVolume.Parent := PanelBottom;
@@ -200,25 +195,9 @@ begin
   PanelBtns.Width := 176;
   PanelBtns.BevelOuter := bvNone;
 
-  BtnConfirm := TButton.Create(Self);
-  BtnConfirm.Parent := PanelBtns;
-  BtnConfirm.Left := 4;
-  BtnConfirm.Top := 7;
-  BtnConfirm.Width := 80;
-  BtnConfirm.Height := 30;
-  BtnConfirm.Caption := 'Confirm';
-  BtnConfirm.Default := True;
-  BtnConfirm.ModalResult := mrOK;
-
-  BtnCancel := TButton.Create(Self);
-  BtnCancel.Parent := PanelBtns;
-  BtnCancel.Left := 92;
-  BtnCancel.Top := 7;
-  BtnCancel.Width := 80;
-  BtnCancel.Height := 30;
-  BtnCancel.Caption := 'Cancel';
-  BtnCancel.Cancel := True;
-  BtnCancel.ModalResult := mrCancel;
+  BtnConfirm := CreateDialogButton(PanelBtns, 'Confirm', 4, 7, mrOK, True, False);
+  BtnCancel := CreateDialogButton(PanelBtns, 'Cancel', 92, 7, mrCancel,
+    False, True);
 
   PanelPreview := TPanel.Create(Self);
   PanelPreview.Parent := Self;

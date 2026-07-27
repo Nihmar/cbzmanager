@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls,
-  ExtCtrls, ComCtrls;
+  ExtCtrls, ComCtrls, udlgbase;
 
 type
   TdlgWebp = class(TForm)
@@ -45,8 +45,7 @@ implementation
 
 procedure TdlgWebp.FormCreate(Sender: TObject);
 begin
-  BorderStyle := bsDialog;
-  BorderIcons := [biSystemMenu];
+  InitDialogChrome(Self);
 
   LabelQuality := TLabel.Create(Self);
   LabelQuality.Parent := Self;
@@ -119,31 +118,12 @@ begin
   GroupBackup.Items.Add('Permanently delete');
   GroupBackup.ItemIndex := 0;
 
-  PanelBottom := TPanel.Create(Self);
-  PanelBottom.Parent := Self;
-  PanelBottom.Align := alBottom;
-  PanelBottom.Height := 44;
-  PanelBottom.BevelOuter := bvNone;
+  PanelBottom := CreateBottomPanel(Self, 44);
 
-  BtnConvert := TButton.Create(Self);
-  BtnConvert.Parent := PanelBottom;
-  BtnConvert.Caption := 'Convert';
-  BtnConvert.Default := True;
-  BtnConvert.ModalResult := mrOK;
-  BtnConvert.Width := 80;
-  BtnConvert.Height := 30;
-  BtnConvert.Left := 284;
-  BtnConvert.Top := 7;
-
-  BtnClose := TButton.Create(Self);
-  BtnClose.Parent := PanelBottom;
-  BtnClose.Caption := 'Cancel';
-  BtnClose.Cancel := True;
-  BtnClose.ModalResult := mrCancel;
-  BtnClose.Width := 80;
-  BtnClose.Height := 30;
-  BtnClose.Left := 372;
-  BtnClose.Top := 7;
+  BtnConvert := CreateDialogButton(PanelBottom, 'Convert', 284, 7, mrOK,
+    True, False);
+  BtnClose := CreateDialogButton(PanelBottom, 'Cancel', 372, 7, mrCancel,
+    False, True);
 end;
 
 procedure TdlgWebp.TrackQualityChange(Sender: TObject);

@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, StrUtils, Forms, Controls, Graphics, Dialogs, StdCtrls,
-  ExtCtrls, ComCtrls, Spin, ucomicinfo;
+  ExtCtrls, ComCtrls, Spin, ucomicinfo, udlgbase;
 
 type
   TdlgComicInfoEditor = class(TForm)
@@ -117,14 +117,9 @@ procedure TdlgComicInfoEditor.FormCreate(Sender: TObject);
 var
   Tab: TTabSheet;
 begin
-  BorderStyle := bsDialog;
-  BorderIcons := [biSystemMenu];
+  InitDialogChrome(Self);
 
-  PanelBottom := TPanel.Create(Self);
-  PanelBottom.Parent := Self;
-  PanelBottom.Align := alBottom;
-  PanelBottom.Height := 44;
-  PanelBottom.BevelOuter := bvNone;
+  PanelBottom := CreateBottomPanel(Self, 44);
 
   CbBackup := TCheckBox.Create(Self);
   CbBackup.Parent := PanelBottom;
@@ -134,35 +129,14 @@ begin
   CbBackup.Caption := 'Backup before saving';
   CbBackup.Checked := True;
 
-  BtnRemove := TButton.Create(Self);
-  BtnRemove.Parent := PanelBottom;
-  BtnRemove.Left := 272;
-  BtnRemove.Top := 7;
-  BtnRemove.Width := 80;
-  BtnRemove.Height := 30;
-  BtnRemove.Caption := 'Remove';
+  BtnRemove := CreateDialogButton(PanelBottom, 'Remove', 272, 7, mrNone,
+    False, False);
   BtnRemove.Enabled := False;
   BtnRemove.OnClick := @BtnRemoveClick;
 
-  BtnSave := TButton.Create(Self);
-  BtnSave.Parent := PanelBottom;
-  BtnSave.Left := 368;
-  BtnSave.Top := 7;
-  BtnSave.Width := 80;
-  BtnSave.Height := 30;
-  BtnSave.Caption := 'Save';
-  BtnSave.Default := True;
-  BtnSave.ModalResult := mrOK;
-
-  BtnCancel := TButton.Create(Self);
-  BtnCancel.Parent := PanelBottom;
-  BtnCancel.Left := 456;
-  BtnCancel.Top := 7;
-  BtnCancel.Width := 80;
-  BtnCancel.Height := 30;
-  BtnCancel.Caption := 'Cancel';
-  BtnCancel.Cancel := True;
-  BtnCancel.ModalResult := mrCancel;
+  BtnSave := CreateDialogButton(PanelBottom, 'Save', 368, 7, mrOK, True, False);
+  BtnCancel := CreateDialogButton(PanelBottom, 'Cancel', 456, 7, mrCancel,
+    False, True);
 
   Pages := TPageControl.Create(Self);
   Pages.Parent := Self;

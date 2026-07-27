@@ -304,6 +304,13 @@ type
     procedure SetStatus(const AMsg: string);
     procedure SetFolderOpsEnabled(AEnabled: boolean);
     procedure SetPageOpsEnabled(AEnabled: boolean);
+    { Wires OnTerminate, disables the triggering controls, shows the progress
+      indicator, and starts an already-constructed service thread. }
+    procedure BeginServiceThread(AThread: TThread; const AStatus: string;
+      ATerminate: TNotifyEvent; AToolButton: TToolButton; AMenuItem: TMenuItem);
+    { Re-enables the triggering controls and hides the progress indicator.
+      Called at the top of every service OnTerminate handler. }
+    procedure FinishServiceThread(AToolButton: TToolButton; AMenuItem: TMenuItem);
     procedure UpdateStageBar;
     procedure AddChange(AKind: TChangeKind; const APageName: string);
     function GetSelectedPageIndices: TIntegerDynArray;
@@ -527,6 +534,25 @@ begin
   MnuPageSort.Enabled := AEnabled;
   MnuPageReverse.Enabled := AEnabled;
   MnuPageRenumber.Enabled := AEnabled;
+end;
+
+procedure TfrmMain.BeginServiceThread(AThread: TThread; const AStatus: string;
+  ATerminate: TNotifyEvent; AToolButton: TToolButton; AMenuItem: TMenuItem);
+begin
+  SetStatus(AStatus);
+  StatusProgress.Visible := True;
+  if AToolButton <> nil then AToolButton.Enabled := False;
+  if AMenuItem <> nil then AMenuItem.Enabled := False;
+  AThread.OnTerminate := ATerminate;
+  AThread.Start;
+end;
+
+procedure TfrmMain.FinishServiceThread(AToolButton: TToolButton;
+  AMenuItem: TMenuItem);
+begin
+  StatusProgress.Visible := False;
+  if AToolButton <> nil then AToolButton.Enabled := True;
+  if AMenuItem <> nil then AMenuItem.Enabled := True;
 end;
 
 {
@@ -1017,13 +1043,9 @@ begin
     Exit;
   end;
 
-  SetStatus('Validating...');
-  StatusProgress.Visible := True;
-  TbValidate.Enabled := False;
-  MnuValidate.Enabled := False;
   Thread := TValidateThread.Create(Files, FDir, @UpdateProgress);
-  Thread.OnTerminate := @ValidateThreadTerminated;
-  Thread.Start;
+  BeginServiceThread(Thread, 'Validating...', @ValidateThreadTerminated,
+    TbValidate, MnuValidate);
 end;
 
 {
@@ -1038,9 +1060,7 @@ var
   Dlg: TdlgValidate;
 begin
   Thread := Sender as TValidateThread;
-  StatusProgress.Visible := False;
-  TbValidate.Enabled := True;
-  MnuValidate.Enabled := True;
+  FinishServiceThread(TbValidate, MnuValidate);
   if Thread.FatalException <> nil then
   begin
     SetStatus('Validation failed: ' + Exception(Thread.FatalException).Message);
@@ -1090,13 +1110,9 @@ begin
   end;
 
   { Run conversion in background thread }
-  SetStatus('WebP conversion started...');
-  StatusProgress.Visible := True;
-  TbConvertWebP.Enabled := False;
-  MnuConvertWebP.Enabled := False;
   Thread := TConvertThread.Create(Files, FDir, Options, @UpdateProgress);
-  Thread.OnTerminate := @ConvertThreadTerminated;
-  Thread.Start;
+  BeginServiceThread(Thread, 'WebP conversion started...',
+    @ConvertThreadTerminated, TbConvertWebP, MnuConvertWebP);
 end;
 
 {
@@ -1113,10 +1129,7 @@ var
 begin
   Thread := Sender as TConvertThread;
   LoadDirectory(FDir);
-  StatusProgress.Visible := False;
-  TbConvertWebP.Enabled := True;
-  MnuConvertWebP.Enabled := True;
-  SetStatus(Format('WebP conversion complete: %d files', [Length(Thread.Result)]));
+  FinishServiceThread(TbConvertWebP, MnuConvertWebP);
 
   if Thread.FatalException <> nil then
   begin
@@ -1124,6 +1137,7 @@ begin
       Exception(Thread.FatalException).Message);
     Exit;
   end;
+  SetStatus(Format('WebP conversion complete: %d files', [Length(Thread.Result)]));
 
   Dlg := TdlgConvertResults.Create(Self);
   try
@@ -1187,13 +1201,9 @@ begin
   end;
 
   { Run merge in background thread }
-  SetStatus('Merge started...');
-  StatusProgress.Visible := True;
-  TbMerge.Enabled := False;
-  MnuMerge.Enabled := False;
   Thread := TMergeThread.Create(Files, FDir, Options, @UpdateProgress);
-  Thread.OnTerminate := @MergeThreadTerminated;
-  Thread.Start;
+  BeginServiceThread(Thread, 'Merge started...', @MergeThreadTerminated,
+    TbMerge, MnuMerge);
 end;
 
 {
@@ -1213,9 +1223,7 @@ begin
   else
     SetStatus(Format('Merge failed: %s', [Thread.Result.ErrorMsg]));
   LoadDirectory(FDir);
-  StatusProgress.Visible := False;
-  TbMerge.Enabled := True;
-  MnuMerge.Enabled := True;
+  FinishServiceThread(TbMerge, MnuMerge);
 end;
 
 
@@ -1350,8 +1358,7 @@ var
   Thread: TDeletePagesThread;
 begin
   Thread := Sender as TDeletePagesThread;
-  StatusProgress.Visible := False;
-  MnuDeleteRows.Enabled := True;
+  FinishServiceThread(nil, MnuDeleteRows);
   if Thread.Result.Success then
   begin
     LoadDirectory(FDir);
@@ -1401,12 +1408,10 @@ begin
         Files := GetFileList;
         if Length(Files) > 0 then
         begin
-          StatusProgress.Visible := True;
-          MnuDeleteRows.Enabled := False;
           Thread := TDeletePagesThread.Create(Files, FDir, Dlg.Selected,
             Dlg.Renumber, Dlg.DeletePermanently, @UpdateProgress);
-          Thread.OnTerminate := @DeleteRowsThreadTerminated;
-          Thread.Start;
+          BeginServiceThread(Thread, 'Deleting pages...',
+            @DeleteRowsThreadTerminated, nil, MnuDeleteRows);
         end;
       end
       else

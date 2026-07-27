@@ -14,6 +14,7 @@ uses
   main,
   { you can add units after this }
   uzipcore,
+  udlgbase,
   uZipEditor,
   uWebP,
   uImgUtil,

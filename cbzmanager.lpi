@@ -80,6 +80,16 @@
         <ResourceBaseClass Value="Form"/>
       </Unit>
       <Unit>
+        <Filename Value="src\uzipcore.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="uzipcore"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\udlgbase.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="udlgbase"/>
+      </Unit>
+      <Unit>
         <Filename Value="src\uzipeditor.pas"/>
         <IsPartOfProject Value="True"/>
         <UnitName Value="uZipEditor"/>

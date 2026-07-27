@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, Math, Forms, Controls, Graphics, StdCtrls,
-  ComCtrls, ExtCtrls, userviceconvert;
+  ComCtrls, ExtCtrls, userviceconvert, udlgbase;
 
 type
   TdlgConvertResults = class(TForm)
@@ -38,14 +38,9 @@ procedure TdlgConvertResults.FormCreate(Sender: TObject);
 var
   Col: TListColumn;
 begin
-  BorderStyle := bsDialog;
-  BorderIcons := [biSystemMenu];
+  InitDialogChrome(Self);
 
-  PanelBottom := TPanel.Create(Self);
-  PanelBottom.Parent := Self;
-  PanelBottom.Align := alBottom;
-  PanelBottom.Height := 64;
-  PanelBottom.BevelOuter := bvNone;
+  PanelBottom := CreateBottomPanel(Self, 64);
 
   LblSummary := TLabel.Create(Self);
   LblSummary.Parent := PanelBottom;
@@ -55,26 +50,11 @@ begin
   LblSummary.Font.Height := -13;
   LblSummary.Font.Style := [fsBold];
 
-  BtnClose := TButton.Create(Self);
-  BtnClose.Parent := PanelBottom;
-  BtnClose.Caption := 'Close';
-  BtnClose.Cancel := True;
-  BtnClose.Default := True;
-  BtnClose.ModalResult := mrOK;
-  BtnClose.Width := 80;
-  BtnClose.Height := 30;
-  BtnClose.Left := PanelBottom.ClientWidth - BtnClose.Width - 8;
-  BtnClose.Top := 26;
+  BtnClose := CreateDialogButton(PanelBottom, 'Close',
+    PanelBottom.ClientWidth - DLG_BTN_WIDTH - 8, 26, mrOK, True, True);
   BtnClose.Anchors := [akTop, akRight];
 
-  LVResult := TListView.Create(Self);
-  LVResult.Parent := Self;
-  LVResult.Align := alClient;
-  LVResult.BorderSpacing.Around := 8;
-  LVResult.ViewStyle := vsReport;
-  LVResult.ReadOnly := True;
-  LVResult.RowSelect := True;
-  LVResult.GridLines := True;
+  LVResult := CreateReportListView(Self, False);
 
   Col := LVResult.Columns.Add;
   Col.Caption := 'File';

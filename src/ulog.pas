@@ -23,8 +23,18 @@ unit uLog;
 
 interface
 
+type
+  { Callback invoked for every log message written.  Called from the logging
+    thread inside the critical section — keep it fast (e.g. TThread.Queue). }
+  TLogObserver = procedure(const AMsg: string) of object;
+
 { Percorso del file di log effettivamente usato. }
 function LogFileName: string;
+
+{ Registra / rimuovi un observer che riceve ogni messaggio di log.
+  Solo un observer alla volta — registrazioni successive sovrascrivono. }
+procedure RegisterLogObserver(AObserver: TLogObserver);
+procedure UnregisterLogObserver;
 
 { Scrive una riga con timestamp e id del thread chiamante. }
 procedure Log(const Msg: string);
@@ -44,6 +54,8 @@ var
   LogPath: string = '';
   { Diventa True dopo il primo tentativo di apertura, anche se fallito. }
   LogReady: boolean = False;
+  { Observer registrato (nil = nessuno).  Chiamato dentro LogLock. }
+  LogObserver: TLogObserver = nil;
 
 { Tenta di creare/azzerare il file di log in APath.
   Restituisce True e imposta LogStream + LogPath in caso di successo;
@@ -85,16 +97,49 @@ begin
   end;
 end;
 
+{ Registra un observer che riceverà ogni messaggio di log (incluso timestamp).
+  La callback è invocata dentro LogLock — deve essere veloce. }
+procedure RegisterLogObserver(AObserver: TLogObserver);
+begin
+  EnterCriticalSection(LogLock);
+  try
+    LogObserver := AObserver;
+  finally
+    LeaveCriticalSection(LogLock);
+  end;
+end;
+
+{ Rimuove l'observer registrato.  Thread-safe e idempotente. }
+procedure UnregisterLogObserver;
+begin
+  EnterCriticalSection(LogLock);
+  try
+    LogObserver := nil;
+  finally
+    LeaveCriticalSection(LogLock);
+  end;
+end;
+
 { Scrive Msg nel log preceduto da timestamp e thread-id.
   Thread-safe; se il log non è disponibile ritorna silenziosamente. }
 procedure Log(const Msg: string);
 var
   Line: rawbytestring;
+  Obs: TLogObserver;
 begin
   EnterCriticalSection(LogLock);
   try
     InitLog;
-    if LogStream = nil then Exit;
+    Obs := LogObserver;  // snapshot inside the lock
+    if LogStream = nil then
+    begin
+      if not Assigned(Obs) then Exit;
+      // Still notify the observer even if the file log is unavailable.
+      // Use the raw message sans timestamp so the UI can still show it.
+      // We can't build Line below, so just deliver the raw Msg.
+      Obs(Msg);
+      Exit;
+    end;
     Line := rawbytestring(FormatDateTime('hh:nn:ss.zzz', Now) + ' [t' +
       IntToStr(PtrUInt(GetCurrentThreadId)) + '] ' + Msg + LineEnding);
     try
@@ -102,6 +147,8 @@ begin
     except
       { il logging non deve mai far fallire il chiamante }
     end;
+    if Assigned(Obs) then
+      Obs(string(Line));
   finally
     LeaveCriticalSection(LogLock);
   end;

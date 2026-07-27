@@ -57,7 +57,7 @@ type
     ------------------------------------------------------------------------ }
   TServiceThread = class(TThread)
   private
-    FOnProgress: TProgressEvent;     // user-supplied callback (may be nil)
+    FOnProgress: TServiceProgressEvent;     // user-supplied callback (may be nil)
     FPendingPct: integer;            // latest percent value from Execute
     FPendingMsg: string;             // latest message from Execute
     procedure SyncProgress;          // fires FOnProgress on the main thread
@@ -69,7 +69,7 @@ type
   public
     { Create a suspended thread.
       @param AOnProgress Optional progress callback (nil to skip progress). }
-    constructor Create(AOnProgress: TProgressEvent);
+    constructor Create(AOnProgress: TServiceProgressEvent);
   end;
 
   { ------------------------------------------------------------------------
@@ -92,7 +92,7 @@ type
       @param AOptions    Conversion settings (quality, resize, etc.).
       @param AOnProgress Optional progress callback. }
     constructor Create(const AFiles: TStringArray; const ADir: string;
-      const AOptions: TConvertOptions; AOnProgress: TProgressEvent);
+      const AOptions: TConvertOptions; AOnProgress: TServiceProgressEvent);
     property Result: TConvertResults read FResult;
   end;
 
@@ -116,7 +116,7 @@ type
       @param AOptions    Merge configuration.
       @param AOnProgress Optional progress callback. }
     constructor Create(const AFiles: TStringArray; const ADir: string;
-      const AOptions: TMergeOptions; AOnProgress: TProgressEvent);
+      const AOptions: TMergeOptions; AOnProgress: TServiceProgressEvent);
     property Result: TMergeResult read FResult;
   end;
 
@@ -138,7 +138,7 @@ type
       @param ADir        Directory containing the files.
       @param AOnProgress Optional progress callback. }
     constructor Create(const AFiles: TStringArray; const ADir: string;
-      AOnProgress: TProgressEvent);
+      AOnProgress: TServiceProgressEvent);
     property Result: TValidationResults read FResult;
   end;
 
@@ -162,7 +162,7 @@ type
       @param ABackup     If True, create a _OLD.cbz backup before modifying.
       @param AOnProgress Optional progress callback. }
     constructor Create(const AFiles: TStringArray; const ADir: string;
-      ABackup: boolean; AOnProgress: TProgressEvent);
+      ABackup: boolean; AOnProgress: TServiceProgressEvent);
     property Result: TComicInfoResults read FResult;
   end;
 
@@ -196,7 +196,7 @@ type
     constructor Create(const AFiles: TStringArray; const ADir: string;
       const APagesToDelete: array of boolean;
       ARenumber, ADeletePerm: boolean;
-      AOnProgress: TProgressEvent);
+      AOnProgress: TServiceProgressEvent);
     property Result: TDeletePagesResult read FResult;
   end;
 
@@ -213,7 +213,7 @@ implementation
   reference counting and the dynamic array is duplicated element-by-element. }
 constructor TDeletePagesThread.Create(const AFiles: TStringArray;
   const ADir: string; const APagesToDelete: array of boolean;
-  ARenumber, ADeletePerm: boolean; AOnProgress: TProgressEvent);
+  ARenumber, ADeletePerm: boolean; AOnProgress: TServiceProgressEvent);
 var
   i: integer;
 begin
@@ -287,7 +287,7 @@ end;
 
   Creates the thread suspended so the caller can set additional properties
   before calling Start.  The thread frees itself when Execute returns. }
-constructor TServiceThread.Create(AOnProgress: TProgressEvent);
+constructor TServiceThread.Create(AOnProgress: TServiceProgressEvent);
 begin
   inherited Create(True);  { Start suspended — caller must call Start }
   FreeOnTerminate := True; { auto-free after Execute finishes }
@@ -328,7 +328,7 @@ end;
   The actual work is deferred to Execute. }
 constructor TConvertThread.Create(const AFiles: TStringArray;
   const ADir: string; const AOptions: TConvertOptions;
-  AOnProgress: TProgressEvent);
+  AOnProgress: TServiceProgressEvent);
 begin
   inherited Create(AOnProgress);
   FFiles := AFiles;
@@ -355,7 +355,7 @@ end;
   Copies merge parameters into thread-owned fields. }
 constructor TMergeThread.Create(const AFiles: TStringArray;
   const ADir: string; const AOptions: TMergeOptions;
-  AOnProgress: TProgressEvent);
+  AOnProgress: TServiceProgressEvent);
 begin
   inherited Create(AOnProgress);
   FFiles := AFiles;
@@ -381,7 +381,7 @@ end;
   Copies the file list and directory.  Validation does not have extra
   options beyond the file list. }
 constructor TValidateThread.Create(const AFiles: TStringArray;
-  const ADir: string; AOnProgress: TProgressEvent);
+  const ADir: string; AOnProgress: TServiceProgressEvent);
 begin
   inherited Create(AOnProgress);
   FFiles := AFiles;
@@ -401,7 +401,7 @@ end;
 
   Copies the file list, directory, and backup flag. }
 constructor TComicInfoRemoveThread.Create(const AFiles: TStringArray;
-  const ADir: string; ABackup: boolean; AOnProgress: TProgressEvent);
+  const ADir: string; ABackup: boolean; AOnProgress: TServiceProgressEvent);
 begin
   inherited Create(AOnProgress);
   FFiles := AFiles;

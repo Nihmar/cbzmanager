@@ -34,7 +34,6 @@
           <CodeGeneration>
             <SmartLinkUnit Value="True"/>
             <TargetCPU Value="x86_64"/>
-            <TargetOS Value="win64"/>
             <Optimizations>
               <OptimizationLevel Value="3"/>
             </Optimizations>
@@ -82,17 +81,14 @@
       <Unit>
         <Filename Value="src\uzipcore.pas"/>
         <IsPartOfProject Value="True"/>
-        <UnitName Value="uzipcore"/>
       </Unit>
       <Unit>
         <Filename Value="src\udlgbase.pas"/>
         <IsPartOfProject Value="True"/>
-        <UnitName Value="udlgbase"/>
       </Unit>
       <Unit>
         <Filename Value="src\usettings.pas"/>
         <IsPartOfProject Value="True"/>
-        <UnitName Value="usettings"/>
       </Unit>
       <Unit>
         <Filename Value="src\uzipeditor.pas"/>
@@ -161,6 +157,7 @@
         <Filename Value="src\udlgmerge.pas"/>
         <IsPartOfProject Value="True"/>
         <ComponentName Value="dlgMerge"/>
+        <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
       </Unit>
     </Units>

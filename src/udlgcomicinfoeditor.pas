@@ -129,13 +129,13 @@ begin
   CbBackup.Caption := 'Backup before saving';
   CbBackup.Checked := True;
 
-  BtnRemove := CreateDialogButton(PanelBottom, 'Remove', 272, 7, mrNone,
+  BtnRemove := CreateDialogButton(PanelBottom, '&Remove', 272, 7, mrNone,
     False, False);
   BtnRemove.Enabled := False;
   BtnRemove.OnClick := @BtnRemoveClick;
 
-  BtnSave := CreateDialogButton(PanelBottom, 'Save', 368, 7, mrOK, True, False);
-  BtnCancel := CreateDialogButton(PanelBottom, 'Cancel', 456, 7, mrCancel,
+  BtnSave := CreateDialogButton(PanelBottom, '&Save', 368, 7, mrOK, True, False);
+  BtnCancel := CreateDialogButton(PanelBottom, '&Cancel', 456, 7, mrCancel,
     False, True);
 
   Pages := TPageControl.Create(Self);

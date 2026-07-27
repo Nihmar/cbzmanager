@@ -406,11 +406,22 @@ object frmMain: TfrmMain
           Left = 6
           Height = 20
           Top = 6
-          Width = 320
+          Width = 160
           Align = alClient
           BorderSpacing.Around = 6
           Caption = 'Pending changes: 2 deleted, 3 moved'
           Layout = tlCenter
+        end
+        object CbBackup: TCheckBox
+          Left = 172
+          Height = 22
+          Top = 5
+          Width = 100
+          BorderSpacing.Around = 4
+          Caption = 'Keep backup'
+          Checked = True
+          State = cbChecked
+          TabOrder = 2
         end
         object BtnStageRevert: TButton
           Left = 332
@@ -497,6 +508,13 @@ object frmMain: TfrmMain
         OnClick = MnuMergeClick
       end
       object SepFile2: TMenuItem
+        Caption = '-'
+      end
+      object MnuClear: TMenuItem
+        Caption = 'Clear'
+        OnClick = MnuClearClick
+      end
+      object SepFile3: TMenuItem
         Caption = '-'
       end
       object MnuExit: TMenuItem

@@ -232,8 +232,8 @@ begin
 
   PanelBottom := CreateBottomPanel(Self, 48);
 
-  BtnOk := CreateDialogButton(PanelBottom, 'Delete', 324, 9, mrOK, True, False);
-  BtnCancel := CreateDialogButton(PanelBottom, 'Cancel', 412, 9, mrCancel,
+  BtnOk := CreateDialogButton(PanelBottom, '&Delete', 324, 9, mrOK, True, False);
+  BtnCancel := CreateDialogButton(PanelBottom, '&Cancel', 412, 9, mrCancel,
     False, True);
 
   FPageCount := 0;

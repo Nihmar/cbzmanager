@@ -17,7 +17,7 @@
       renamed to *_OLD.cbz (depending on the Delete option).
 
   The unit depends on uZipEditor (for CBZ read/write/merge primitives) and
-  uservicebase (for TProgressEvent, BackupFile, and TStringArray).
+  uservicebase (for TServiceProgressEvent, BackupFile, and TStringArray).
 }
 unit uservicemerge;
 {$mode objfpc}{$h+}
@@ -97,7 +97,7 @@ type
       Returns a TMergeResult with Success, VolumesCreated, and ErrorMsg. }
     class function Merge(const AFiles: TStringArray; const ADir: string;
       const Options: TMergeOptions;
-      AOnProgress: TProgressEvent = nil): TMergeResult;
+      AOnProgress: TServiceProgressEvent = nil): TMergeResult;
   end;
 
 implementation
@@ -115,6 +115,10 @@ begin
   if p > 0 then
   begin
     S := Trim(Copy(Base, p + 2, Length(Base)));
+    { Strip leading underscore: "_0000" → "0000" }
+    if (Length(S) > 0) and (S[1] = '_') then
+      Delete(S, 1, 1);
+    { Strip trailing suffix after underscore: "0001_extra" → "0001" }
     p := Pos('_', S);
     if p > 0 then
       S := Copy(S, 1, p - 1);
@@ -122,6 +126,27 @@ begin
   end
   else
     Result := 0;
+end;
+
+{ Simple insertion sort — stable, adequate for typical chapter counts. }
+procedure SortChaptersByNumber(var AChapters: TStringArray);
+var
+  i, j: integer;
+  Key: string;
+  KeyNum: integer;
+begin
+  for i := 1 to High(AChapters) do
+  begin
+    Key := AChapters[i];
+    KeyNum := ExtractChapterNum(Key);
+    j := i - 1;
+    while (j >= 0) and (ExtractChapterNum(AChapters[j]) > KeyNum) do
+    begin
+      AChapters[j + 1] := AChapters[j];
+      Dec(j);
+    end;
+    AChapters[j + 1] := Key;
+  end;
 end;
 
 { ---------------------------------------------------------------------------
@@ -195,11 +220,11 @@ begin
       Continue;
     end;
     ChNum := ExtractChapterNum(AFiles[i]);
-    if (ChNum > 0) and (ChNum < LowestCh) then
+    if (ChNum >= 0) and (ChNum < LowestCh) then
       LowestCh := ChNum;
   end;
 
-  { If we have at least one volume and the lowest chapter is > 1,
+  { If we have at least one volume and the lowest chapter is >= 1,
     the existing volumes cover chapters 1..(LowestCh-1). }
   if (VolCount > 0) and (LowestCh > 1) then
     Result := (LowestCh - 1) div VolCount;
@@ -236,7 +261,7 @@ end;
   --------------------------------------------------------------------------- }
 class function TMergeService.Merge(const AFiles: TStringArray;
   const ADir: string; const Options: TMergeOptions;
-  AOnProgress: TProgressEvent = nil): TMergeResult;
+  AOnProgress: TServiceProgressEvent = nil): TMergeResult;
 var
   i, n, ChNum, CPV, VolNum, TotalCreated, Remaining, TotalBatches: integer;
   ChIdx, ListIdx, BatchSize: integer;
@@ -287,6 +312,10 @@ begin
     Exit;
   end;
 
+  { Sort chapters by extracted number so filesystem order doesn't matter.
+    A simple insertion sort suffices — chapter lists are rarely huge. }
+  SortChaptersByNumber(ChBatch);
+
   { ---- Phase 2: Volume creation ----------------------------------------- }
 
   UseList := Length(Options.ChaptersList) > 0;
@@ -294,7 +323,11 @@ begin
   if UseList then
     TotalBatches := Length(Options.ChaptersList)
   else
-    TotalBatches := (Length(ChBatch) + CPV - 1) div CPV;
+  begin
+    { Only full volumes are created.  With Force, leftover chapters are
+      absorbed into the last volume — the count stays the same. }
+    TotalBatches := Length(ChBatch) div CPV;
+  end;
 
   TotalCreated := 0;
   VolNum := 1;
@@ -306,6 +339,12 @@ begin
 
   while ChIdx < Length(ChBatch) do
   begin
+    { Without Force: stop after full volumes, leaving leftovers untouched }
+    if not Options.Force then
+      if TotalBatches > 0 then
+        if TotalCreated >= TotalBatches then
+          Break;
+
     Remaining := Length(ChBatch) - ChIdx;
 
     if Assigned(AOnProgress) and (TotalBatches > 0) then
@@ -325,9 +364,18 @@ begin
     begin
       BatchSize := CPV;
       if BatchSize > Remaining then
+      begin
+        if Options.Force then
+          BatchSize := Remaining   // absorb remainder into last volume
+        else
+          Break;                   // skip incomplete final volume
+      end
+      else if Options.Force and (TotalBatches > 0) and
+        (TotalCreated + 1 >= TotalBatches) then
+      begin
+        { Last full batch with Force: absorb any trailing leftovers now }
         BatchSize := Remaining;
-      if Options.Force and (Remaining > CPV) and (Remaining - CPV < CPV) then
-        BatchSize := Remaining;
+      end;
     end;
 
     Batch := nil;
@@ -338,7 +386,7 @@ begin
     VolName := Format('%s V%.3d.cbz', [SeriesName, VolNum]);
     FullPath := IncludeTrailingPathDelimiter(ADir) + VolName;
 
-    VolEntries := MergeIntoVolume(Batch, ADir);
+    VolEntries := MergeIntoVolume(Batch, ADir, AOnProgress);
     try
       if Length(VolEntries) > 0 then
       begin

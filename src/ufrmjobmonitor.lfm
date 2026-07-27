@@ -1,0 +1,116 @@
+object frmJobMonitor: TfrmJobMonitor
+  Left = 400
+  Height = 420
+  Top = 150
+  Width = 580
+  Caption = 'Job Monitor'
+  ClientHeight = 420
+  ClientWidth = 580
+  LCLVersion = '4.8.0.0'
+  OnClose = FormClose
+  OnDestroy = FormDestroy
+  object PanelTop: TPanel
+    Left = 0
+    Height = 80
+    Top = 0
+    Width = 580
+    Align = alTop
+    BevelOuter = bvNone
+    ClientHeight = 80
+    ClientWidth = 580
+    TabOrder = 0
+    object LblTitle: TLabel
+      Left = 12
+      Height = 22
+      Top = 8
+      Width = 556
+      Align = alTop
+      BorderSpacing.Left = 12
+      BorderSpacing.Right = 12
+      BorderSpacing.Top = 8
+      Caption = 'Ready'
+      Font.Height = -13
+      Font.Style = [fsBold]
+      ParentFont = False
+      Layout = tlCenter
+    end
+    object ProgressBar: TProgressBar
+      Left = 12
+      Height = 22
+      Top = 34
+      Width = 556
+      Align = alTop
+      BorderSpacing.Left = 12
+      BorderSpacing.Right = 12
+      BorderSpacing.Top = 4
+      TabOrder = 0
+    end
+    object LblTask: TLabel
+      Left = 12
+      Height = 17
+      Top = 60
+      Width = 500
+      BorderSpacing.Left = 12
+      BorderSpacing.Top = 4
+      Caption = ' '
+      Layout = tlCenter
+    end
+    object LblElapsed: TLabel
+      Left = 516
+      Height = 17
+      Top = 60
+      Width = 52
+      Alignment = taRightJustify
+      BorderSpacing.Right = 12
+      BorderSpacing.Top = 4
+      Caption = '00:00'
+      Layout = tlCenter
+    end
+  end
+  object MemoLog: TMemo
+    Left = 0
+    Height = 292
+    Top = 80
+    Width = 580
+    Align = alClient
+    BorderSpacing.Left = 8
+    BorderSpacing.Right = 8
+    BorderSpacing.Bottom = 8
+    Font.Name = 'Cascadia Code'
+    Font.Pitch = fpFixed
+    Font.Height = -11
+    ParentFont = False
+    ReadOnly = True
+    ScrollBars = ssAutoVertical
+    TabOrder = 1
+    WordWrap = False
+  end
+  object PanelBottom: TPanel
+    Left = 0
+    Height = 40
+    Top = 380
+    Width = 580
+    Align = alBottom
+    BevelOuter = bvNone
+    ClientHeight = 40
+    ClientWidth = 580
+    TabOrder = 2
+    object BtnClose: TButton
+      Left = 484
+      Height = 30
+      Top = 5
+      Width = 84
+      Anchors = [akTop, akRight]
+      BorderSpacing.Right = 12
+      Caption = 'Close'
+      Enabled = False
+      TabOrder = 0
+      OnClick = BtnCloseClick
+    end
+  end
+  object TimerElapsed: TTimer
+    Interval = 500
+    OnTimer = TimerElapsedTimer
+    Enabled = False
+  end
+end

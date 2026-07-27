@@ -10,7 +10,7 @@
                creating a backup before modification.
 
   Both operations are static class methods that report progress through a
-  TProgressEvent callback (may be nil).  Errors are captured per-file in
+  TServiceProgressEvent callback (may be nil).  Errors are captured per-file in
   the TComicInfoResults array rather than raising exceptions.
   ============================================================================ }
 unit uservicecomicinfo;
@@ -81,7 +81,7 @@ type
               fields reflecting the outcome for each file.
       ------------------------------------------------------------------------ }
     class function Remove(const AFiles: TStringArray; const ADir: string;
-      ABackup: boolean; AOnProgress: TProgressEvent = nil): TComicInfoResults;
+      ABackup: boolean; AOnProgress: TServiceProgressEvent = nil): TComicInfoResults;
   end;
 
 implementation
@@ -138,7 +138,7 @@ end;
   ---------------------------------------------------------------------------- }
 class function TComicInfoService.Remove(const AFiles: TStringArray;
   const ADir: string; ABackup: boolean;
-  AOnProgress: TProgressEvent = nil): TComicInfoResults;
+  AOnProgress: TServiceProgressEvent = nil): TComicInfoResults;
 var
   i, j, k, Total: integer;
   FullPath: string;

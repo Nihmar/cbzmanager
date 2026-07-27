@@ -96,8 +96,9 @@ type
     FPageFile: string;               // full path to the CBZ file being saved
     FPages: TPageStates;             // snapshot copy of the page list (no Image refs)
     FRenumber: boolean;              // whether to re-sequence page names after save
+    FBackupOld: boolean;             // when True use ReplaceCBZ (backup), otherwise direct write
     FResult: TSaveChangesResult;     // outcome populated by Execute
-    FOnProgress: TProgressEvent;     // callback for UI progress updates
+    FOnProgress: TServiceProgressEvent;     // callback for UI progress updates
     FPendingPct: integer;            // latest progress percentage (set by Execute, read by SyncProgress)
     FPendingMsg: string;             // latest progress message   (set by Execute, read by SyncProgress)
     procedure SyncProgress;          // called on the main thread via TThread.Queue
@@ -109,9 +110,10 @@ type
       @param APageFile   Full path to the .cbz file.
       @param APages      Current page list (copied, Image refs dropped).
       @param ARenumber   If True, surviving pages are renamed 001…NNN.ext.
+      @param ABackupOld  If True, create _OLD.cbz backup before writing.
       @param AOnProgress Optional progress callback (nil if not needed). }
     constructor Create(const APageFile: string; const APages: TPageStates;
-      ARenumber: boolean; AOnProgress: TProgressEvent);
+      ARenumber: boolean; ABackupOld: boolean; AOnProgress: TServiceProgressEvent);
     { Read the result after the thread has terminated.  Call only from the
       OnTerminate handler or after WaitFor. }
     property Result: TSaveChangesResult read FResult;
@@ -322,7 +324,8 @@ end;
   OrigName, and Gone are duplicated; Image references are deliberately dropped
   because the background thread never touches the GUI's image objects. }
 constructor TSaveChangesThread.Create(const APageFile: string;
-  const APages: TPageStates; ARenumber: boolean; AOnProgress: TProgressEvent);
+  const APages: TPageStates; ARenumber: boolean; ABackupOld: boolean;
+  AOnProgress: TServiceProgressEvent);
 var
   i: integer;
 begin
@@ -340,6 +343,7 @@ begin
       streams read from disk, not the in-memory TLazIntfImage copies. }
   end;
   FRenumber := ARenumber;
+  FBackupOld := ABackupOld;
   FOnProgress := AOnProgress;
   FResult.Success := False;        // pessimistic default
 end;
@@ -433,12 +437,20 @@ begin
       end;
 
       DoProgress(60, 'Writing new CBZ...');
-      // ReplaceCBZ handles the atomic write/backup/rollback sequence.
-      if not ReplaceCBZ(FPageFile, OutEntries) then
+      if FBackupOld then
       begin
-        FResult.ErrorMsg := 'Replace failed — check disk space or permissions';
-        FreeZipEntries(OutEntries);
-        Exit;
+        // Safe path: backup original, then write new
+        if not ReplaceCBZ(FPageFile, OutEntries) then
+        begin
+          FResult.ErrorMsg := 'Replace failed — check disk space or permissions';
+          FreeZipEntries(OutEntries);
+          Exit;
+        end;
+      end
+      else
+      begin
+        // Direct overwrite — no backup
+        WriteZipFromEntriesDeflated(FPageFile, OutEntries);
       end;
       FreeZipEntries(OutEntries);
       FResult.Success := True;

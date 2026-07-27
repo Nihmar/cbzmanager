@@ -72,7 +72,7 @@ type
 
     The single class method Convert processes a list of CBZ files from a
     common directory, applying the supplied TConvertOptions to each.
-    Progress is reported via an optional TProgressEvent callback.
+    Progress is reported via an optional TServiceProgressEvent callback.
     ------------------------------------------------------------------------ }
   TConvertService = class
   public
@@ -94,7 +94,7 @@ type
       ------------------------------------------------------------------------ }
     class function Convert(const AFiles: TStringArray; const ADir: string;
       const Options: TConvertOptions;
-      AOnProgress: TProgressEvent = nil): TConvertResults;
+      AOnProgress: TServiceProgressEvent = nil): TConvertResults;
   end;
 
 implementation
@@ -114,7 +114,7 @@ end;
 
 class function TConvertService.Convert(const AFiles: TStringArray;
   const ADir: string; const Options: TConvertOptions;
-  AOnProgress: TProgressEvent = nil): TConvertResults;
+  AOnProgress: TServiceProgressEvent = nil): TConvertResults;
 var
   i, NewCount, ConvertedCount, Total: integer;
   FullPath: string;
@@ -138,7 +138,7 @@ begin
       NewEntries := ConvertCBZToWebP(FullPath, Options.Quality,
         Options.ReplaceOnlyIfSmaller, Options.SkipExistingWebP,
         Options.RemoveComicInfo, Options.RenumberPages,
-        NewCount, ConvertedCount, Modified);
+        NewCount, ConvertedCount, Modified, AOnProgress);
       try
         if Modified then
         begin

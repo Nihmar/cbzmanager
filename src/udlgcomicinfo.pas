@@ -59,7 +59,7 @@ begin
   CbBackup.Checked := AppSettings.ReadBool('RemoveComicInfo', 'Backup', True);
 
   BtnClose := CreateDialogButton(PanelBottom, 'Close', 472, 44, mrOk, True, True);
-  BtnRemove := CreateDialogButton(PanelBottom, 'Remove', 384, 44, mrNone,
+  BtnRemove := CreateDialogButton(PanelBottom, '&Remove', 384, 44, mrNone,
     False, False);
   BtnRemove.OnClick := @BtnRemoveClick;
 

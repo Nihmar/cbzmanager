@@ -28,6 +28,7 @@ type
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure FormShow(Sender: TObject);
+    procedure FormKeyDown(Sender: TObject; var Key: word; Shift: TShiftState);
   private
     PanelTop: TPanel;
     PanelBottom: TPanel;
@@ -38,7 +39,7 @@ type
     ScrollBoxPreview: TScrollBox;
     ImgPreview: TImage;
     LblStatus: TLabel;
-    LblSequence: TLabel;
+    CbSequence: TComboBox;
     LblPreviewTitle: TLabel;
     LblPreviewPage: TLabel;
     BtnPrevPage: TButton;
@@ -47,6 +48,9 @@ type
     BtnUndo: TButton;
     BtnConfirm: TButton;
     BtnCancel: TButton;
+    { Chapter thumbnail zoom }
+    ZoomScroll: TTrackBar;
+    LblZoomVal: TLabel;
 
     FDir: string;
     FFiles: TStringArray;
@@ -66,6 +70,9 @@ type
     procedure BtnUndoClick(Sender: TObject);
     procedure BtnPrevPageClick(Sender: TObject);
     procedure BtnNextPageClick(Sender: TObject);
+    procedure ZoomScrollChange(Sender: TObject);
+    procedure ZoomScrollMouseWheel(Sender: TObject; Shift: TShiftState;
+      WheelDelta: integer; MousePos: TPoint; var Handled: boolean);
     procedure PreviewLoaderTerminated(Sender: TObject);
     procedure PreviewMouseWheel(Sender: TObject; Shift: TShiftState;
       WheelDelta: integer; MousePos: TPoint; var Handled: boolean);
@@ -88,11 +95,9 @@ implementation
 {$R *.lfm}
 
 uses
-  uzipeditor, LCLIntf, LCLType;
+  uzipeditor, LCLIntf, LCLType, Math;
 
 const
-  ThumbW = 64;
-  ThumbH = 80;
   LVM_SETICONSPACING = $1000 + 53;
   LVM_ARRANGE = $1000 + 22;
 
@@ -139,14 +144,19 @@ end;
 procedure TdlgSeqBuilder.FormCreate(Sender: TObject);
 var
   PanelBtns: TPanel;
+  PanelZoomBar: TPanel;
 begin
   InitDialogChrome(Self);
+  BorderStyle := bsSizeable;
+  BorderIcons := [biSystemMenu, biMinimize, biMaximize];
   OnShow := @FormShow;
+  KeyPreview := True;
+  OnKeyDown := @FormKeyDown;
 
   PanelTop := TPanel.Create(Self);
   PanelTop.Parent := Self;
   PanelTop.Align := alTop;
-  PanelTop.Height := 52;
+  PanelTop.Height := 60;
   PanelTop.BevelOuter := bvNone;
 
   LblStatus := TLabel.Create(Self);
@@ -158,36 +168,67 @@ begin
   LblStatus.Font.Style := [fsBold];
   LblStatus.Caption := 'Volume 1';
 
-  LblSequence := TLabel.Create(Self);
-  LblSequence.Parent := PanelTop;
-  LblSequence.Left := 12;
-  LblSequence.Top := 30;
-  LblSequence.AutoSize := False;
-  LblSequence.Width := 760;
-  LblSequence.Font.Style := [fsBold];
-  LblSequence.Caption := 'Sequence: (none yet)';
+  { Read-only dropdown showing the volume sequence — compact, expandable }
+  CbSequence := TComboBox.Create(Self);
+  CbSequence.Parent := PanelTop;
+  CbSequence.Left := 12;
+  CbSequence.Top := 30;
+  CbSequence.Width := 320;
+  CbSequence.Style := csDropDownList;
+  CbSequence.ReadOnly := True;
+  CbSequence.TabStop := False;
+  CbSequence.ItemIndex := 0;
+  CbSequence.Align := AlBottom;
 
-  PanelBottom := CreateBottomPanel(Self, 44);
+  PanelBottom := CreateBottomPanel(Self, 48);
 
   BtnAddVolume := TButton.Create(Self);
   BtnAddVolume.Parent := PanelBottom;
   BtnAddVolume.Left := 12;
-  BtnAddVolume.Top := 7;
+  BtnAddVolume.Top := 9;
   BtnAddVolume.Width := 150;
   BtnAddVolume.Height := 30;
-  BtnAddVolume.Caption := 'Add volume (0 ch.)';
+  BtnAddVolume.Caption := '&Add volume (0 ch.)';
   BtnAddVolume.Enabled := False;
   BtnAddVolume.OnClick := @BtnAddVolumeClick;
 
   BtnUndo := TButton.Create(Self);
   BtnUndo.Parent := PanelBottom;
   BtnUndo.Left := 170;
-  BtnUndo.Top := 7;
+  BtnUndo.Top := 9;
   BtnUndo.Width := 90;
   BtnUndo.Height := 30;
-  BtnUndo.Caption := 'Undo last';
+  BtnUndo.Caption := '&Undo last';
   BtnUndo.Enabled := False;
   BtnUndo.OnClick := @BtnUndoClick;
+
+  { Zoom controls for chapter thumbnails }
+  PanelZoomBar := TPanel.Create(Self);
+  PanelZoomBar.Parent := PanelBottom;
+  PanelZoomBar.Align := alRight;
+  PanelZoomBar.Width := 200;
+  PanelZoomBar.BevelOuter := bvNone;
+
+  LblZoomVal := TLabel.Create(Self);
+  LblZoomVal.Parent := PanelZoomBar;
+  LblZoomVal.Left := 4;
+  LblZoomVal.Top := 8;
+  LblZoomVal.Width := 40;
+  LblZoomVal.Caption := '128';
+  LblZoomVal.Layout := tlCenter;
+
+  ZoomScroll := TTrackBar.Create(Self);
+  ZoomScroll.Parent := PanelZoomBar;
+  ZoomScroll.Left := 50;
+  ZoomScroll.Top := 6;
+  ZoomScroll.Width := 146;
+  ZoomScroll.Height := 28;
+  ZoomScroll.Min := 48;
+  ZoomScroll.Max := 320;
+  ZoomScroll.Frequency := 8;
+  ZoomScroll.Position := 128;
+  ZoomScroll.OnChange := @ZoomScrollChange;
+  ZoomScroll.OnMouseWheel := @ZoomScrollMouseWheel;
 
   PanelBtns := TPanel.Create(Self);
   PanelBtns.Parent := PanelBottom;
@@ -217,15 +258,15 @@ begin
   PanelPreviewNav := TPanel.Create(Self);
   PanelPreviewNav.Parent := PanelPreview;
   PanelPreviewNav.Align := alBottom;
-  PanelPreviewNav.Height := 36;
+  PanelPreviewNav.Height := 30;
   PanelPreviewNav.BevelOuter := bvNone;
 
   BtnPrevPage := TButton.Create(Self);
   BtnPrevPage.Parent := PanelPreviewNav;
-  BtnPrevPage.Left := 20;
-  BtnPrevPage.Top := 4;
-  BtnPrevPage.Width := 50;
-  BtnPrevPage.Height := 28;
+  BtnPrevPage.Left := 14;
+  BtnPrevPage.Top := 2;
+  BtnPrevPage.Width := 54;
+  BtnPrevPage.Height := 24;
   BtnPrevPage.Caption := '<';
   BtnPrevPage.Enabled := False;
   BtnPrevPage.OnClick := @BtnPrevPageClick;
@@ -233,17 +274,17 @@ begin
   LblPreviewPage := TLabel.Create(Self);
   LblPreviewPage.Parent := PanelPreviewNav;
   LblPreviewPage.Left := 78;
-  LblPreviewPage.Top := 10;
+  LblPreviewPage.Top := 4;
   LblPreviewPage.Width := 68;
   LblPreviewPage.Alignment := taCenter;
   LblPreviewPage.Caption := '';
 
   BtnNextPage := TButton.Create(Self);
   BtnNextPage.Parent := PanelPreviewNav;
-  BtnNextPage.Left := 154;
-  BtnNextPage.Top := 4;
-  BtnNextPage.Width := 50;
-  BtnNextPage.Height := 28;
+  BtnNextPage.Left := 156;
+  BtnNextPage.Top := 2;
+  BtnNextPage.Width := 54;
+  BtnNextPage.Height := 24;
   BtnNextPage.Caption := '>';
   BtnNextPage.Enabled := False;
   BtnNextPage.OnClick := @BtnNextPageClick;
@@ -264,8 +305,6 @@ begin
   ImgPreview.OnMouseWheel := @PreviewMouseWheel;
 
   ILChapters := TImageList.Create(Self);
-  ILChapters.Width := ThumbW;
-  ILChapters.Height := ThumbH;
 
   LVChapters := TListView.Create(Self);
   LVChapters.Parent := Self;
@@ -287,6 +326,8 @@ begin
   FPreviewLoader := nil;
   FPreviewIndex := 0;
   FZoomLevel := 1.0;
+
+  RebuildGrid;
 end;
 
 procedure TdlgSeqBuilder.FormDestroy(Sender: TObject);
@@ -295,11 +336,50 @@ begin
   FreeAndNil(FPreviewPages);
 end;
 
+procedure TdlgSeqBuilder.FormKeyDown(Sender: TObject; var Key: word;
+  Shift: TShiftState);
+begin
+  if (Key = VK_RETURN) and (ssCtrl in Shift) then
+  begin
+    if BtnAddVolume.Enabled then
+    begin
+      BtnAddVolumeClick(Self);
+      Key := 0;
+    end;
+    Exit;
+  end;
+  if (Key = VK_Z) and (ssCtrl in Shift) and not (ssAlt in Shift) then
+  begin
+    if BtnUndo.Enabled then
+    begin
+      BtnUndoClick(Self);
+      Key := 0;
+    end;
+    Exit;
+  end;
+  if (Key = VK_LEFT) and (Shift = []) then
+  begin
+    if BtnPrevPage.Enabled then
+    begin
+      BtnPrevPageClick(Self);
+      Key := 0;
+    end;
+    Exit;
+  end;
+  if (Key = VK_RIGHT) and (Shift = []) then
+  begin
+    if BtnNextPage.Enabled then
+    begin
+      BtnNextPageClick(Self);
+      Key := 0;
+    end;
+    Exit;
+  end;
+end;
+
 procedure TdlgSeqBuilder.FormShow(Sender: TObject);
 begin
-  SendMessage(LVChapters.Handle, LVM_SETICONSPACING, 0,
-    LParam((ThumbW + 40) or ((ThumbH + 32) shl 16)));
-  SendMessage(LVChapters.Handle, LVM_ARRANGE, 0, 0);
+  RebuildGrid;
 end;
 
 procedure TdlgSeqBuilder.LVChaptersSelectItem(Sender: TObject;
@@ -462,6 +542,23 @@ begin
   end;
 end;
 
+procedure TdlgSeqBuilder.ZoomScrollChange(Sender: TObject);
+begin
+  LblZoomVal.Caption := IntToStr(ZoomScroll.Position);
+  RebuildGrid;
+end;
+
+procedure TdlgSeqBuilder.ZoomScrollMouseWheel(Sender: TObject;
+  Shift: TShiftState; WheelDelta: integer; MousePos: TPoint;
+  var Handled: boolean);
+begin
+  if WheelDelta > 0 then
+    ZoomScroll.Position := ZoomScroll.Position + ZoomScroll.Frequency
+  else
+    ZoomScroll.Position := ZoomScroll.Position - ZoomScroll.Frequency;
+  Handled := True;
+end;
+
 procedure TdlgSeqBuilder.StopPreviewLoader;
 begin
   if FPreviewLoader <> nil then
@@ -538,21 +635,27 @@ end;
 
 procedure TdlgSeqBuilder.RebuildGrid;
 var
-  i, Idx: integer;
+  i, Idx, TW, TH, SpacingX, SpacingY: integer;
   Thumb: TBitmap;
   It: TListItem;
 begin
+  TW := ZoomScroll.Position;
+  TH := Round(TW * 1.25);
+
+  ILChapters.Clear;
+  ILChapters.Width := TW;
+  ILChapters.Height := TH;
+
   LVChapters.BeginUpdate;
   try
     LVChapters.LargeImages := nil;
-    ILChapters.Clear;
     LVChapters.Items.Clear;
 
     for i := FRemovedCount to High(FFiles) do
     begin
       if i < FImages.Count then
       begin
-        Thumb := MakeThumb(FImages[i], ThumbW, ThumbH);
+        Thumb := MakeThumb(FImages[i], TW, TH);
         try
           Idx := ILChapters.Add(Thumb, nil);
         finally
@@ -574,8 +677,10 @@ begin
 
   if LVChapters.HandleAllocated then
   begin
+    SpacingX := TW + 40;
+    SpacingY := TH + 32;
     SendMessage(LVChapters.Handle, LVM_SETICONSPACING, 0,
-      LParam((ThumbW + 40) or ((ThumbH + 32) shl 16)));
+      LParam(SpacingX or (SpacingY shl 16)));
     SendMessage(LVChapters.Handle, LVM_ARRANGE, 0, 0);
   end;
 
@@ -586,7 +691,6 @@ end;
 procedure TdlgSeqBuilder.RefreshStatus;
 var
   i, Remaining: integer;
-  S: string;
 begin
   LblStatus.Caption := Format(
     'Volume %d | Select chapters, then press "Add volume"',
@@ -594,21 +698,26 @@ begin
 
   Remaining := Length(FFiles) - FRemovedCount;
 
-  if Length(FVolumes) = 0 then
-    S := 'Sequence: (none yet)'
-  else
-  begin
-    S := 'Sequence:';
-    for i := 0 to High(FVolumes) do
-      S := S + Format(' Vol.%d: %d ch.', [i + 1, FVolumes[i]]);
+  CbSequence.Items.BeginUpdate;
+  try
+    CbSequence.Items.Clear;
+    if Length(FVolumes) = 0 then
+    begin
+      CbSequence.Items.Add('Sequence: (none yet)');
+    end
+    else
+    begin
+      for i := 0 to High(FVolumes) do
+        CbSequence.Items.Add(Format('Vol.%d: %d ch.', [i + 1, FVolumes[i]]));
+      if Remaining = 0 then
+        CbSequence.Items.Add('  (all assigned)')
+      else
+        CbSequence.Items.Add(Format('  %d remaining', [Remaining]));
+      CbSequence.ItemIndex := High(FVolumes);  { select last volume }
+    end;
+  finally
+    CbSequence.Items.EndUpdate;
   end;
-
-  if Remaining = 0 then
-    S := S + ' | All chapters assigned'
-  else
-    S := S + Format(' | %d remaining', [Remaining]);
-
-  LblSequence.Caption := S;
 end;
 
 procedure TdlgSeqBuilder.LoadChapters(const AFiles: TStringArray;

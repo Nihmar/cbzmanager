@@ -94,7 +94,7 @@ type
       (e.g. ComicInfo.xml) are skipped and not reported. }
     class function ValidateDeep(const AFiles: TStringArray;
       const ADir: string;
-      AOnProgress: TProgressEvent = nil): TValidationResults;
+      AOnProgress: TServiceProgressEvent = nil): TValidationResults;
   end;
 
 implementation
@@ -178,7 +178,7 @@ end;
   memory-intensive.  Use the quick Validate method for routine scans.
   --------------------------------------------------------------------------- }
 class function TValidateService.ValidateDeep(const AFiles: TStringArray;
-  const ADir: string; AOnProgress: TProgressEvent): TValidationResults;
+  const ADir: string; AOnProgress: TServiceProgressEvent): TValidationResults;
 var
   i: integer;
   FullPath: string;

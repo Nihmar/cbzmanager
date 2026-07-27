@@ -15,7 +15,8 @@ uses
   Classes,
   SysUtils,
   IntfGraphics,
-  uzipcore;
+  uzipcore,
+  uservicebase;
 
 type
   TImageEntryProc = procedure(const AName: string; AImage: TLazIntfImage;
@@ -60,17 +61,19 @@ function ValidateCBZImages(const FileName: string;
   out ImageResults: TImageChecks): integer;
 
 { Merge di piu' file CBZ in un unico CBZ con pagine rinumerate.
-  Filtra ComicInfo.xml. Tutto in RAM. Restituisce le entry del volume. }
+  Filtra ComicInfo.xml. Tutto in RAM. Restituisce le entry del volume.
+  AOnProgress (optional) riceve (percent, message) per ogni capitolo processato. }
 function MergeIntoVolume(const SourceFiles: TStringArray;
-  const ADir: string): TZipEntries;
+  const ADir: string; AOnProgress: TServiceProgressEvent = nil): TZipEntries;
 
 { Converte le immagini di un CBZ in WebP direttamente in RAM.
   Restituisce True se il file e' stato modificato.
-  I parametri controllano la qualita' e le opzioni di conversione. }
+  I parametri controllano la qualita' e le opzioni di conversione.
+  AOnProgress (optional) riceve (percent, message) per ogni pagina processata. }
 function ConvertCBZToWebP(const FileName: string; Quality: integer;
   ReplaceOnlyIfSmaller, SkipExistingWebP, RemoveComicInfo, RenumberPages: boolean;
   out NewEntryCount: integer; out AConvertedCount: integer;
-  out AModified: boolean): TZipEntries;
+  out AModified: boolean; AOnProgress: TServiceProgressEvent = nil): TZipEntries;
 
 { Filter pages from a CBZ by 1-indexed position.
   PagesToDelete: a boolean array where True = delete this page (1-indexed).
@@ -375,7 +378,7 @@ end;
 function ConvertCBZToWebP(const FileName: string; Quality: integer;
   ReplaceOnlyIfSmaller, SkipExistingWebP, RemoveComicInfo, RenumberPages: boolean;
   out NewEntryCount: integer; out AConvertedCount: integer;
-  out AModified: boolean): TZipEntries;
+  out AModified: boolean; AOnProgress: TServiceProgressEvent = nil): TZipEntries;
 
   { Copy entry from source into Result[Count], increment Count }
   procedure KeepEntry(var Result: TZipEntries; var Count: integer;
@@ -462,6 +465,10 @@ begin
 
       for i := 0 to High(AllEntries) do
       begin
+        if Assigned(AOnProgress) and (Length(AllEntries) > 0) then
+          AOnProgress((i * 100) div Length(AllEntries),
+            Format('  %s (%d/%d)', [AllEntries[i].Name, i + 1, Length(AllEntries)]));
+
         AllEntries[i].Data.Position := 0;
         Ext := ExtractFileExt(AllEntries[i].Name);
 
@@ -516,7 +523,7 @@ begin
 end;
 
 function MergeIntoVolume(const SourceFiles: TStringArray;
-  const ADir: string): TZipEntries;
+  const ADir: string; AOnProgress: TServiceProgressEvent = nil): TZipEntries;
 var
   i, j, PageNum, Padding: integer;
   SrcPath: string;
@@ -529,6 +536,10 @@ begin
     PageNum := 0;
     for i := 0 to High(SourceFiles) do
     begin
+      if Assigned(AOnProgress) then
+        AOnProgress((i * 100) div Length(SourceFiles),
+          Format('  Adding %s (%d/%d)', [SourceFiles[i], i + 1, Length(SourceFiles)]));
+
       SrcPath := IncludeTrailingPathDelimiter(ADir) + SourceFiles[i];
       Entries := CollectZipEntries(SrcPath);
       try

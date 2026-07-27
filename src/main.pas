@@ -98,7 +98,8 @@ uses
   IntfGraphics,
   Types,
   uloaderthread,
-  uPageEditModel;
+  uPageEditModel,
+  ufrmjobmonitor;
 
 type
   {
@@ -126,6 +127,8 @@ type
     MnuMerge: TMenuItem;
 
     SepFile2: TMenuItem;
+    MnuClear: TMenuItem;
+    SepFile3: TMenuItem;
     MnuExit: TMenuItem;
     MnuArchive: TMenuItem;
     MnuManageComicInfo: TMenuItem;
@@ -195,6 +198,7 @@ type
     PanelStageBar: TPanel;
     ShapeStageDot: TShape;
     LblStageMsg: TLabel;
+    CbBackup: TCheckBox;
     BtnStageRevert: TButton;
     BtnStageSave: TButton;
     LVPages: TListView;
@@ -255,6 +259,7 @@ type
 
     procedure MnuMergeClick(Sender: TObject);
     procedure MergeThreadTerminated(Sender: TObject);
+    procedure MnuClearClick(Sender: TObject);
     procedure MnuOpenFileClick(Sender: TObject);
     procedure MnuPageDeleteClick(Sender: TObject);
     procedure MnuPageMoveDownClick(Sender: TObject);
@@ -295,6 +300,7 @@ type
     FChanges: TChanges;
     FRenumber: boolean;
     FPageFile: string;  // currently open CBZ file path
+    FJobMonitor: TfrmJobMonitor;  // non-modal job progress window
     procedure ThreadTerminated(Sender: TObject);
     procedure PagesThreadTerminated(Sender: TObject);
     procedure ClearThumbnails;
@@ -552,6 +558,10 @@ begin
   if AMenuItem <> nil then AMenuItem.Enabled := False;
   AThread.OnTerminate := ATerminate;
   AThread.Start;
+  { Create and show the job monitor window }
+  if FJobMonitor = nil then
+    FJobMonitor := TfrmJobMonitor.Create(Application);
+  FJobMonitor.StartJob(AStatus);
 end;
 
 procedure TfrmMain.FinishServiceThread(AToolButton: TToolButton;
@@ -560,6 +570,8 @@ begin
   StatusProgress.Visible := False;
   if AToolButton <> nil then AToolButton.Enabled := True;
   if AMenuItem <> nil then AMenuItem.Enabled := True;
+  if FJobMonitor <> nil then
+    FJobMonitor.FinishJob;
 end;
 
 {
@@ -1023,6 +1035,23 @@ procedure TfrmMain.MnuReloadClick(Sender: TObject);
 begin
   if FDir <> '' then
     LoadDirectory(FDir);
+end;
+
+{
+  MnuClearClick
+  -------------
+  Clears the currently loaded directory: empties the file list, hides the
+  preview pane, resets the status bar to "Ready", and disables toolbar
+  buttons that require a loaded directory.
+}
+procedure TfrmMain.MnuClearClick(Sender: TObject);
+begin
+  FDir := '';
+  EditDir.Text := '';
+  HidePreview;
+  ClearThumbnails;
+  SetStatus('Ready');
+  SetFolderOpsEnabled(False);
 end;
 
 {
@@ -1683,6 +1712,7 @@ begin
   StatusProgress.Visible := False;
   BtnStageSave.Enabled := True;
   BtnStageRevert.Enabled := True;
+  CbBackup.Enabled := True;
 end;
 
 {
@@ -1707,13 +1737,19 @@ var
   i: integer;
   Snapshot: TPageStates;
   Thread: TSaveChangesThread;
+  BackupMsg: string;
 begin
   if Length(FChanges) = 0 then Exit;
   if FPageFile = '' then Exit;
 
+  if CbBackup.Checked then
+    BackupMsg := ' The original will be backed up as _OLD.cbz.'
+  else
+    BackupMsg := ' No backup will be kept.';
+
   if MessageDlg('Save changes',
-    Format('Save %d pending changes? The original will be backed up as _OLD.cbz.',
-    [Length(FChanges)]), mtConfirmation, mbYesNo, 0) <> mrYes then Exit;
+    Format('Save %d pending changes?%s', [Length(FChanges), BackupMsg]),
+    mtConfirmation, mbYesNo, 0) <> mrYes then Exit;
 
   { Take a snapshot of the page state for the background thread }
   SetLength(Snapshot, Length(FPages));
@@ -1727,10 +1763,12 @@ begin
   { Disable stage bar during save }
   BtnStageSave.Enabled := False;
   BtnStageRevert.Enabled := False;
+  CbBackup.Enabled := False;
   LblStageMsg.Caption := 'Saving...';
   StatusProgress.Visible := True;
 
-  Thread := TSaveChangesThread.Create(FPageFile, Snapshot, FRenumber, @UpdateProgress);
+  Thread := TSaveChangesThread.Create(FPageFile, Snapshot, FRenumber,
+    CbBackup.Checked, @UpdateProgress);
   Thread.OnTerminate := @SaveChangesThreadTerminated;
   Thread.Start;
 end;
@@ -1856,6 +1894,8 @@ begin
   StatusProgress.Position := APercent;
   StatusProgress.Visible := APercent < 100;
   LblStatus.Caption := AMsg;
+  if FJobMonitor <> nil then
+    FJobMonitor.UpdateProgress(APercent, AMsg);
 end;
 
 {

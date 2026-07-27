@@ -123,9 +123,9 @@ begin
 
   PanelBottom := CreateBottomPanel(Self, 44);
 
-  BtnConvert := CreateDialogButton(PanelBottom, 'Convert', 284, 7, mrOK,
+  BtnConvert := CreateDialogButton(PanelBottom, '&Convert', 284, 7, mrOK,
     True, False);
-  BtnClose := CreateDialogButton(PanelBottom, 'Cancel', 372, 7, mrCancel,
+  BtnClose := CreateDialogButton(PanelBottom, '&Cancel', 372, 7, mrCancel,
     False, True);
 
   LoadSettings;

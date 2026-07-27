@@ -5,7 +5,7 @@ unit uservicebase;
 
   This unit defines:
     - BACKUP_SUFFIX: the suffix used for _OLD.cbz backup files.
-    - TProgressEvent / TProgressProc: progress-reporting callback types.
+    - TServiceProgressEvent / TServiceProgressProc: progress-reporting callback types.
     - BackupFile:      renames a file to a _OLD.cbz backup.
     - CollectCBZFiles: collects *.cbz filenames from a directory.
     - ReplaceCBZ:      atomically replaces a CBZ file with new entries,
@@ -29,21 +29,21 @@ const
 
 type
   { ------------------------------------------------------------------------
-    TProgressEvent – Method-pointer callback for progress reporting.
+    TServiceProgressEvent – Method-pointer callback for progress reporting.
 
     Used by services that run on the main thread.  The callback receives a
     percentage (0–100) and a human-readable description of the current step.
     ------------------------------------------------------------------------ }
-  TProgressEvent = procedure(APercent: integer; const AMsg: string) of object;
+  TServiceProgressEvent = procedure(APercent: integer; const AMsg: string) of object;
 
   { ------------------------------------------------------------------------
-    TProgressProc – Plain procedure callback for progress reporting.
+    TServiceProgressProc – Plain procedure callback for progress reporting.
 
-    Same semantics as TProgressEvent but as a bare procedure pointer — useful
+    Same semantics as TServiceProgressEvent but as a bare procedure pointer — useful
     when the callback does not belong to an object instance (e.g. a background
     thread wrapper passes @Progress to a static service method).
     ------------------------------------------------------------------------ }
-  TProgressProc = procedure(APercent: integer; const AMsg: string);
+  TServiceProgressProc = procedure(APercent: integer; const AMsg: string);
 
 { ------------------------------------------------------------------------
   BackupFile – Rename AFilePath to a _OLD.cbz backup.

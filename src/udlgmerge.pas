@@ -28,6 +28,7 @@ type
     FDir: string;
     FImages: TLazIntfImageList;
     procedure CbManualCPVChange(Sender: TObject);
+    procedure CbForceChange(Sender: TObject);
     procedure CbCustomSeqChange(Sender: TObject);
     procedure BtnBuildSeqClick(Sender: TObject);
     procedure EditCPVChange(Sender: TObject);
@@ -103,9 +104,9 @@ begin
   EditChapterStart.Left := 90;
   EditChapterStart.Top := 64;
   EditChapterStart.Width := 56;
-  EditChapterStart.MinValue := 1;
+  EditChapterStart.MinValue := 0;
   EditChapterStart.MaxValue := 9999;
-  EditChapterStart.Value := 1;
+  EditChapterStart.Value := 0;
 
   Label2 := TLabel.Create(Self);
   Label2.Parent := PanelTop;
@@ -152,6 +153,7 @@ begin
   CbForce.Top := 96;
   CbForce.Width := 280;
   CbForce.Caption := 'Force extra chapters into last volume';
+  CbForce.OnClick := @CbForceChange;
 
   CbCustomSeq := TCheckBox.Create(Self);
   CbCustomSeq.Parent := PanelTop;
@@ -182,7 +184,7 @@ begin
   BtnBuildSeq.Top := 120;
   BtnBuildSeq.Width := 80;
   BtnBuildSeq.Height := 26;
-  BtnBuildSeq.Caption := 'Build...';
+  BtnBuildSeq.Caption := '&Build...';
   BtnBuildSeq.Enabled := False;
   BtnBuildSeq.OnClick := @BtnBuildSeqClick;
 
@@ -203,8 +205,8 @@ begin
   CbDelete.Width := 260;
   CbDelete.Caption := 'Permanently delete original chapters';
 
-  BtnMerge := CreateDialogButton(PanelBottom, 'Merge', 388, 7, mrOK, True, False);
-  BtnClose := CreateDialogButton(PanelBottom, 'Cancel', 476, 7, mrCancel,
+  BtnMerge := CreateDialogButton(PanelBottom, '&Merge', 388, 7, mrOK, True, False);
+  BtnClose := CreateDialogButton(PanelBottom, '&Cancel', 476, 7, mrCancel,
     False, True);
 
   LVFiles := CreateReportListView(Self, False);
@@ -266,6 +268,11 @@ begin
     BtnBuildSeq.Enabled := False;
   end;
   EditCPV.Enabled := CbManualCPV.Checked;
+  RefreshVolumeColumn;
+end;
+
+procedure TdlgMerge.CbForceChange(Sender: TObject);
+begin
   RefreshVolumeColumn;
 end;
 
@@ -399,8 +406,26 @@ begin
     begin
       CPV := EditCPV.Value;
       if CPV < 1 then CPV := 1;
-      for i := 0 to LVFiles.Items.Count - 1 do
-        LVFiles.Items[i].SubItems[1] := Format('Vol.%d', [(i div CPV) + 1]);
+      if CbForce.Checked then
+      begin
+        { Force: last volume absorbs the leftovers }
+        for i := 0 to LVFiles.Items.Count - 1 do
+        begin
+          if i < (LVFiles.Items.Count div CPV) * CPV then
+            LVFiles.Items[i].SubItems[1] := Format('Vol.%d', [(i div CPV) + 1])
+          else
+            LVFiles.Items[i].SubItems[1] := Format('Vol.%d', [(LVFiles.Items.Count div CPV)]);
+        end;
+      end
+      else
+      begin
+        { Without Force: only full volumes — leftovers stay unassigned }
+        for i := 0 to LVFiles.Items.Count - 1 do
+          if i < (LVFiles.Items.Count div CPV) * CPV then
+            LVFiles.Items[i].SubItems[1] := Format('Vol.%d', [(i div CPV) + 1])
+          else
+            LVFiles.Items[i].SubItems[1] := '-';
+      end;
     end;
   finally
     LVFiles.EndUpdate;
@@ -439,11 +464,12 @@ begin
       It := LVFiles.Items.Add;
       It.Caption := IntToStr(i + 1);
       It.SubItems.Add(ChangeFileExt(AFiles[i], ''));
-      It.SubItems.Add(Format('Vol.%d', [(i div EditCPV.Value) + 1]));
+      It.SubItems.Add('');  // placeholder — filled by RefreshVolumeColumn below
     end;
   finally
     LVFiles.EndUpdate;
   end;
+  RefreshVolumeColumn;
 end;
 
 end.

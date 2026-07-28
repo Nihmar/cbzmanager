@@ -28,7 +28,8 @@ uses
   udlgconvertresults,
   udlgseqbuilder,
   ucomicinfo,
-  udlgcomicinfoeditor, udlgbase;
+  udlgcomicinfoeditor,
+  udlgbase;
 
   {$R *.res}
 

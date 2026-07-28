@@ -180,7 +180,8 @@ type
     FDir: string;                    // directory containing the files
     FPagesToDelete: array of boolean; // mask: True = delete the page at this index
     FRenumber: boolean;              // whether to renumber surviving pages
-    FDeletePerm: boolean;            // if True, write directly; if False, use ReplaceCBZ (with backup)
+    FDeletePerm: boolean;
+    // if True, write directly; if False, use ReplaceCBZ (with backup)
     FResult: TDeletePagesResult;     // outcome populated by Execute
   protected
     procedure Execute; override;
@@ -194,8 +195,7 @@ type
                              use the safe ReplaceCBZ with backup.
       @param AOnProgress     Optional progress callback. }
     constructor Create(const AFiles: TStringArray; const ADir: string;
-      const APagesToDelete: array of boolean;
-      ARenumber, ADeletePerm: boolean;
+      const APagesToDelete: array of boolean; ARenumber, ADeletePerm: boolean;
       AOnProgress: TServiceProgressEvent);
     property Result: TDeletePagesResult read FResult;
   end;
@@ -251,7 +251,7 @@ begin
   begin
     if Terminated then
     begin
-      FResult.ErrorMsg := 'Cancelled';  
+      FResult.ErrorMsg := 'Cancelled';
       FResult.Success := False;
       Exit;
     end;
@@ -298,6 +298,11 @@ end;
 
   Thread-safe progress dispatch.  Stores the values in fields owned by the
   thread object, then enqueues a call to SyncProgress on the main thread.
+  Uses Queue(nil, ...) so the update is never dropped — even near the end
+  of Execute when the thread is about to finish.  SyncProgress accesses
+  thread fields; all queued entries are guaranteed to execute before the
+  OnTerminate handler fires, so the thread object is still alive.
+
   Skipped entirely when no callback is assigned. }
 procedure TServiceThread.Progress(APercent: integer; const AMsg: string);
 begin
@@ -353,9 +358,8 @@ end;
 { TMergeThread.Create
 
   Copies merge parameters into thread-owned fields. }
-constructor TMergeThread.Create(const AFiles: TStringArray;
-  const ADir: string; const AOptions: TMergeOptions;
-  AOnProgress: TServiceProgressEvent);
+constructor TMergeThread.Create(const AFiles: TStringArray; const ADir: string;
+  const AOptions: TMergeOptions; AOnProgress: TServiceProgressEvent);
 begin
   inherited Create(AOnProgress);
   FFiles := AFiles;

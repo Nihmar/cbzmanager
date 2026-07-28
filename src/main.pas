@@ -1711,14 +1711,16 @@ begin
   try
     MemStream.LoadFromFile(OpenDialog.FileName);
 
-    { Decode the image for the thumbnail cache }
+    { Decode the image for the thumbnail cache — detect actual format
+      from magic bytes because the file extension may be misleading. }
+    MemStream.Position := 0;
+    PageExt := DetectImageFormat(MemStream);
+    if PageExt = '' then
+      PageExt := ExtractFileExt(OpenDialog.FileName);  { fallback }
     if SameText(PageExt, EXT_WEBP) then
       Img := WebPToIntfImage(MemStream.Memory, MemStream.Size)
     else
-    begin
-      MemStream.Position := 0;
       Img := StreamToIntfImage(MemStream, ReaderClassForExt(PageExt));
-    end;
 
     if Img = nil then
     begin

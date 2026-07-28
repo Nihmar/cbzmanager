@@ -35,13 +35,13 @@ const
 
   { Image file extensions (leading dot included).  Single source of truth
     for extension literals used across the app. }
-  EXT_JPG  = '.jpg';
+  EXT_JPG = '.jpg';
   EXT_JPEG = '.jpeg';
-  EXT_PNG  = '.png';
-  EXT_BMP  = '.bmp';
-  EXT_GIF  = '.gif';
+  EXT_PNG = '.png';
+  EXT_BMP = '.bmp';
+  EXT_GIF = '.gif';
   EXT_TIFF = '.tiff';
-  EXT_TIF  = '.tif';
+  EXT_TIF = '.tif';
   EXT_WEBP = '.webp';
 
   { Every raster format the app recognizes as a page image. }
@@ -91,10 +91,16 @@ function AppendThumb(AIL: TImageList; AImg: TLazIntfImage): integer;
 
 function IsImageExt(const Ext: string): boolean;
 
+{ Peeks at the first bytes of Stream to determine the actual image format
+  regardless of file extension.  Returns the canonical extension (e.g.
+  '.jpg', '.png') or '' if the format cannot be determined.
+  The stream must be seekable; its position is restored on exit. }
+function DetectImageFormat(Stream: TStream): string;
+
 implementation
 
 uses
-  FPReadJPEG, FPReadPNG, FPReadBMP, FPReadGIF, GraphType, LCLType;
+  FPReadJPEG, FPReadPNG, FPReadBMP, FPReadGIF, FPReadTiff, GraphType, LCLType;
 
 function ExtInList(const Ext: string; const AList: array of string): boolean;
 var
@@ -111,6 +117,57 @@ end;
 function IsImageExt(const Ext: string): boolean;
 begin
   Result := ExtInList(Ext, IMAGE_EXTS);
+end;
+
+const
+  { Number of bytes to read for magic-number detection. 12 is enough to
+    cover RIFF…WEBP (the longest magic we check). }
+  MAGIC_LEN = 12;
+
+{ Peeks at the first bytes of Stream to determine the actual image format
+  regardless of file extension.  Returns the canonical extension (e.g.
+  '.jpg', '.png') or '' if the format cannot be detected.
+  The stream must be seekable; its position is restored on exit. }
+function DetectImageFormat(Stream: TStream): string;
+var
+  Magic: array[0..MAGIC_LEN - 1] of byte;
+  OldPos, BytesRead: int64;
+begin
+  Result := '';
+  if Stream = nil then Exit;
+  OldPos := Stream.Position;
+  try
+    Stream.Position := 0;
+    BytesRead := Stream.Read(Magic[0], MAGIC_LEN);
+    if BytesRead < 4 then Exit;
+    { JPEG: FF D8 FF }
+    if (Magic[0] = $FF) and (Magic[1] = $D8) and (Magic[2] = $FF) then
+      Result := EXT_JPG
+    { PNG: 89 50 4E 47 }
+    else if (Magic[0] = $89) and (Magic[1] = $50) and (Magic[2] = $4E) and
+      (Magic[3] = $47) then
+      Result := EXT_PNG
+    { GIF: 47 49 46 38 }
+    else if (Magic[0] = $47) and (Magic[1] = $49) and (Magic[2] = $46) and
+      (Magic[3] = $38) then
+      Result := EXT_GIF
+    { BMP: 42 4D }
+    else if (Magic[0] = $42) and (Magic[1] = $4D) then
+      Result := EXT_BMP
+    { WebP: RIFF....WEBP }
+    else if (BytesRead >= 12) and (Magic[0] = $52) and
+      (Magic[1] = $49) and (Magic[2] = $46) and (Magic[3] = $46) and
+      (Magic[8] = $57) and (Magic[9] = $45) and (Magic[10] = $42) and
+      (Magic[11] = $50) then
+      Result := EXT_WEBP
+    { TIFF: 49 49 2A 00 (little-endian) or 4D 4D 00 2A (big-endian) }
+    else if ((Magic[0] = $49) and (Magic[1] = $49) and (Magic[2] = $2A) and
+      (Magic[3] = $00)) or ((Magic[0] = $4D) and (Magic[1] = $4D) and
+      (Magic[2] = $00) and (Magic[3] = $2A)) then
+      Result := EXT_TIFF;
+  finally
+    Stream.Position := OldPos;
+  end;
 end;
 
 { Crea una thumbnail di dimensione W×H a partire da una TLazIntfImage.
@@ -276,6 +333,8 @@ begin
     Result := TFPReaderBMP
   else if SameText(Ext, EXT_GIF) then
     Result := TFPReaderGIF
+  else if SameText(Ext, EXT_TIFF) or SameText(Ext, EXT_TIF) then
+    Result := TFPReaderTiff
   else
     Result := nil;
 end;

@@ -144,8 +144,8 @@ begin
     try
       for i := 0 to FLogPending.Count - 1 do
         MemoLog.Lines.Add(FLogPending[i]);
-      // Auto-scroll to the bottom
-      MemoLog.SelStart := Length(MemoLog.Lines.Text) - 1;
+      // Auto-scroll to the bottom in constant time
+      MemoLog.SelStart := MaxInt;
     finally
       MemoLog.Lines.EndUpdate;
     end;
@@ -175,9 +175,14 @@ begin
   ProgressBar.Position := APercent;
   LblTask.Caption := AMsg;
   // Also append as a log entry (the progress messages are also useful history)
-  MemoLog.Lines.Add(AMsg);
-  // Auto-scroll
-  MemoLog.SelStart := Length(MemoLog.Lines.Text) - 1;
+  MemoLog.Lines.BeginUpdate;
+  try
+    MemoLog.Lines.Add(AMsg);
+  finally
+    MemoLog.Lines.EndUpdate;
+  end;
+  // Auto-scroll to bottom in constant time (avoid O(n^2) Lines.Text concat)
+  MemoLog.SelStart := MaxInt;
 end;
 
 procedure TfrmJobMonitor.FinishJob;

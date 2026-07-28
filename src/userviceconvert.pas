@@ -58,8 +58,8 @@ type
     Success: boolean;
     PagesConverted: integer;
     ErrorMsg: string;
-    OriginalSize: Int64;
-    NewSize: Int64;
+    OriginalSize: int64;
+    NewSize: int64;
   end;
 
   { ------------------------------------------------------------------------
@@ -99,7 +99,7 @@ type
 
 implementation
 
-function GetFileSize(const APath: string): Int64;
+function GetFileSize(const APath: string): int64;
 var
   SR: TSearchRec;
 begin
@@ -134,10 +134,10 @@ begin
       Result[i].OriginalSize := GetFileSize(FullPath);
       NewEntries := ConvertCBZToWebP(FullPath, Options.Quality,
         Options.ReplaceOnlyIfSmaller, Options.SkipExistingWebP,
-        Options.RemoveComicInfo, Options.RenumberPages,
-        NewCount, ConvertedCount, Modified, AOnProgress);
+        Options.RemoveComicInfo, Options.RenumberPages, NewCount,
+        ConvertedCount, Modified, AOnProgress);
       try
-        if Modified then
+        if ConvertedCount > 0 then
         begin
           if Options.BackupOld then
             if not BackupFile(FullPath) then

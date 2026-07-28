@@ -251,7 +251,7 @@ end;
   Richiede libwebp con supporto encode (non il decoder-only). }
 function IntfImageToWebP(const Img: TLazIntfImage; Quality: integer): TMemoryStream;
 var
-  W, H, Stride, y: integer;
+  W, H, Stride, y, SrcBytesPerLine: integer;
   Buf: pbyte;
   OutPtr: pbyte;
   OutSize: PtrUInt;
@@ -259,6 +259,14 @@ var
 begin
   Result := nil;
   if (Img = nil) or (Img.Width <= 0) or (Img.Height <= 0) then Exit;
+
+  { Ensure libwebp is loaded (InitLib is lazy and may not have been
+    triggered if no WebP image was decoded before this point). }
+  if not WebPAvailable then
+  begin
+    Log('WebP: libwebp non disponibile');
+    Exit;
+  end;
   if not Assigned(_WebPEncodeBGRA) then
   begin
     Log('WebP: encode non disponibile');
@@ -267,11 +275,24 @@ begin
 
   W := Img.Width;
   H := Img.Height;
+  SrcBytesPerLine := Img.DataDescription.BytesPerLine;
+
+  { Require 32-bit BGRA/RGBA input — anything else is unsupported by the
+    BGRA encode path below. }
+  if (Img.DataDescription.BitsPerPixel <> 32) or
+     (SrcBytesPerLine < W * 4) then
+  begin
+    Log('WebP: formato pixel non supportato (BPP=%d, BytesPerLine=%d)',
+      [Img.DataDescription.BitsPerPixel, SrcBytesPerLine]);
+    Exit;
+  end;
+
   Stride := W * 4; // BGRA = 4 bytes per pixel
 
   { TLazIntfImage è bottom-up (BIO). Per la codifica dobbiamo passare
     le righe in ordine top-down: invertiamo l'ordine durante la copia. }
-  Buf := GetMem(Stride * H);
+  Buf := GetMem(PtrUInt(Stride) * PtrUInt(H));
+  if Buf = nil then Exit;
   try
     for y := 0 to H - 1 do
     begin

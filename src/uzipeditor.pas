@@ -69,15 +69,16 @@ function ValidateCBZImages(const FileName: string;
 { Merge di piu' file CBZ in un unico CBZ con pagine rinumerate.
   Filtra ComicInfo.xml. Tutto in RAM. Restituisce le entry del volume.
   AOnProgress (optional) riceve (percent, message) per ogni capitolo processato. }
-function MergeIntoVolume(const SourceFiles: TStringArray;
-  const ADir: string; AOnProgress: TServiceProgressEvent = nil): TZipEntries;
+function MergeIntoVolume(const SourceFiles: TStringArray; const ADir: string;
+  AOnProgress: TServiceProgressEvent = nil): TZipEntries;
 
 { Converte le immagini di un CBZ in WebP direttamente in RAM.
   Restituisce True se il file e' stato modificato.
   I parametri controllano la qualita' e le opzioni di conversione.
   SkipExistingWebP: se True le pagine gia' in formato .webp vengono lasciate
   intatte; se False vengono decodificate e ri-codificate alla qualita' scelta.
-  AOnProgress (optional) riceve (percent, message) per ogni pagina processata. }
+  AOnProgress (reserved): non piu' chiamato internamente; il progresso viene
+  riportato dal chiamante (TConvertService.Convert) a livello di file. }
 function ConvertCBZToWebP(const FileName: string; Quality: integer;
   ReplaceOnlyIfSmaller, SkipExistingWebP, RemoveComicInfo, RenumberPages: boolean;
   out NewEntryCount: integer; out AConvertedCount: integer;
@@ -145,18 +146,27 @@ type
   Returns a new TLazIntfImage (caller owns it) or nil on failure.
   Exceptions during decoding are caught and logged; nil is returned. }
 function DecodeImage(Stream: TMemoryStream; const Ext: string): TLazIntfImage;
+var
+  FmtExt: string;
 begin
   Result := nil;
   if (Stream = nil) or (Stream.Size <= 0) then Exit;
+  FmtExt := '';
   try
-    if SameText(Ext, EXT_WEBP) then
+    { Detect actual format from magic bytes — files inside CBZ archives
+      may have a misleading extension (e.g. JPEG data saved as .png). }
+    FmtExt := DetectImageFormat(Stream);
+    if FmtExt = '' then
+      FmtExt := Ext;  { fall back to extension-based detection }
+    if SameText(FmtExt, EXT_WEBP) then
       Result := WebPToIntfImage(Stream.Memory, Stream.Size)
     else
-      Result := StreamToIntfImage(Stream, ReaderClassForExt(Ext));
+      Result := StreamToIntfImage(Stream, ReaderClassForExt(FmtExt));
   except
     on E: Exception do
     begin
-      Log('Decode: fallita (%s): %s: %s', [Ext, E.ClassName, E.Message]);
+      Log('Decode: fallita (ext=%s, detected=%s): %s: %s',
+        [Ext, FmtExt, E.ClassName, E.Message]);
       Result := nil;
     end;
   end;
@@ -435,7 +445,7 @@ function ConvertCBZToWebP(const FileName: string; Quality: integer;
 
   { Keep original entry, applying renumber when requested }
   procedure KeepOriginal(var Dest: TZipEntries; var Count: integer;
-    const Source: TZipEntryData; const Ext: string);
+  const Source: TZipEntryData; const Ext: string);
   var
     NewName: string;
   begin
@@ -451,22 +461,36 @@ function ConvertCBZToWebP(const FileName: string; Quality: integer;
 
   { Try to decode image, encode as WebP, return WebP stream or nil.
     Existing .webp pages are decoded via uWebP (re-encoding at the chosen
-    quality); other formats use the matching FPImage reader. }
+    quality); other formats use the matching FPImage reader.
+    Detects actual format from magic bytes — extension may be misleading. }
   function TryWebPEncode(const Source: TZipEntryData;
-    const Ext: string): TMemoryStream;
+  const Ext: string): TMemoryStream;
   var
     RawStream: TMemoryStream;
     Img: TLazIntfImage;
+    FmtExt: string;
   begin
     Result := nil;
     RawStream := TMemoryStream.Create;
     try
       RawStream.CopyFrom(Source.Data, Source.Data.Size);
       RawStream.Position := 0;
-      if SameText(Ext, EXT_WEBP) then
-        Img := WebPToIntfImage(RawStream.Memory, RawStream.Size)
-      else
-        Img := StreamToIntfImage(RawStream, ReaderClassForExt(Ext));
+      FmtExt := DetectImageFormat(RawStream);
+      if FmtExt = '' then
+        FmtExt := Ext;  { fall back to extension }
+      try
+        if SameText(FmtExt, EXT_WEBP) then
+          Img := WebPToIntfImage(RawStream.Memory, RawStream.Size)
+        else
+          Img := StreamToIntfImage(RawStream, ReaderClassForExt(FmtExt));
+      except
+        on E: Exception do
+        begin
+          Log('TryWebPEncode: decode failed for %s (%s): %s',
+            [ExtractFileName(Ext), FmtExt, E.Message]);
+          Img := nil;
+        end;
+      end;
     finally
       RawStream.Free;
     end;
@@ -498,9 +522,6 @@ begin
 
       for i := 0 to High(AllEntries) do
       begin
-        if Assigned(AOnProgress) and (Length(AllEntries) > 0) then
-          AOnProgress((i * 100) div Length(AllEntries),
-            Format('  %s (%d/%d)', [AllEntries[i].Name, i + 1, Length(AllEntries)]));
 
         AllEntries[i].Data.Position := 0;
         Ext := ExtractFileExt(AllEntries[i].Name);
@@ -512,6 +533,7 @@ begin
             AModified := True
           else
             KeepEntry(Result, PageNum, COMICINFO_XML, AllEntries[i]);
+          FreeAndNil(AllEntries[i].Data);
           Continue;
         end;
 
@@ -522,6 +544,7 @@ begin
           if SkipExistingWebP then
           begin
             KeepOriginal(Result, PageNum, AllEntries[i], Ext);
+            FreeAndNil(AllEntries[i].Data);
             Continue;
           end;
         end
@@ -529,14 +552,15 @@ begin
         else if not IsConvertibleExt(Ext) then
         begin
           KeepOriginal(Result, PageNum, AllEntries[i], Ext);
+          FreeAndNil(AllEntries[i].Data);
           Continue;
         end;
 
         { --- Attempt WebP conversion --- }
         WebPData := TryWebPEncode(AllEntries[i], Ext);
 
-        if (WebPData = nil) or
-           (ReplaceOnlyIfSmaller and (WebPData.Size >= AllEntries[i].Data.Size)) then
+        if (WebPData = nil) or (ReplaceOnlyIfSmaller and
+          (WebPData.Size >= AllEntries[i].Data.Size)) then
         begin
           WebPData.Free;
           KeepOriginal(Result, PageNum, AllEntries[i], Ext);
@@ -550,6 +574,7 @@ begin
           else
             AdoptEntry(Result, PageNum, AllEntries[i].Name, WebPData);
         end;
+        FreeAndNil(AllEntries[i].Data);
       end;
 
       { Trim result to actual used entries }
@@ -565,8 +590,8 @@ begin
   end;
 end;
 
-function MergeIntoVolume(const SourceFiles: TStringArray;
-  const ADir: string; AOnProgress: TServiceProgressEvent = nil): TZipEntries;
+function MergeIntoVolume(const SourceFiles: TStringArray; const ADir: string;
+  AOnProgress: TServiceProgressEvent = nil): TZipEntries;
 var
   i, j, PageNum, Padding: integer;
   SrcPath: string;

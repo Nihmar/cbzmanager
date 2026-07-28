@@ -111,7 +111,9 @@ object frmMain: TfrmMain
       Top = 0
       Width = 1000
       Align = alTop
+      Alignment = taCenter
       Font.Style = [fsBold]
+      Layout = tlCenter
       ParentFont = False
     end
   end

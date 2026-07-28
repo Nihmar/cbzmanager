@@ -110,7 +110,13 @@ var
   i: integer;
 begin
   for i := 0 to High(Entries) do
-    Entries[i].Data.Free;
+    try
+      FreeAndNil(Entries[i].Data);
+    except
+      on E: Exception do
+        { One bad entry must not prevent the rest from being freed,
+          but there is nothing meaningful we can do about the error. }
+    end;
   Entries := nil;
 end;
 

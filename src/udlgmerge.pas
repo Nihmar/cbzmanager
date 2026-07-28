@@ -20,6 +20,7 @@ type
     Label2: TLabel;
     Label3: TLabel;
     LblSeries: TLabel;
+    LblFolder: TLabel;
     LblSeq: TLabel;
     LVFiles: TListView;
     PanelBottom: TPanel;
@@ -75,7 +76,7 @@ begin
   PanelTop := TPanel.Create(Self);
   PanelTop.Parent := Self;
   PanelTop.Align := alTop;
-  PanelTop.Height := 184;
+  PanelTop.Height := 192;  { room for folder label + shifted controls }
   PanelTop.BevelOuter := bvNone;
 
   LblSeries := TLabel.Create(Self);
@@ -93,16 +94,24 @@ begin
   EditSeries.Width := 536;
   EditSeries.ReadOnly := True;
 
+  LblFolder := TLabel.Create(Self);
+  LblFolder.Parent := PanelTop;
+  LblFolder.Left := 12;
+  LblFolder.Top := 56;
+  LblFolder.Font.Color := clGray;
+  LblFolder.Font.Height := -11;
+  LblFolder.Caption := '';
+
   Label1 := TLabel.Create(Self);
   Label1.Parent := PanelTop;
   Label1.Left := 12;
-  Label1.Top := 68;
+  Label1.Top := 76;
   Label1.Caption := 'Chapters from:';
 
   EditChapterStart := TSpinEdit.Create(Self);
   EditChapterStart.Parent := PanelTop;
   EditChapterStart.Left := 90;
-  EditChapterStart.Top := 64;
+  EditChapterStart.Top := 72;
   EditChapterStart.Width := 56;
   EditChapterStart.MinValue := 0;
   EditChapterStart.MaxValue := 9999;
@@ -111,13 +120,13 @@ begin
   Label2 := TLabel.Create(Self);
   Label2.Parent := PanelTop;
   Label2.Left := 154;
-  Label2.Top := 68;
+  Label2.Top := 76;
   Label2.Caption := 'a:';
 
   EditChapterEnd := TSpinEdit.Create(Self);
   EditChapterEnd.Parent := PanelTop;
   EditChapterEnd.Left := 180;
-  EditChapterEnd.Top := 64;
+  EditChapterEnd.Top := 72;
   EditChapterEnd.Width := 56;
   EditChapterEnd.MinValue := 1;
   EditChapterEnd.MaxValue := 9999;
@@ -126,13 +135,13 @@ begin
   Label3 := TLabel.Create(Self);
   Label3.Parent := PanelTop;
   Label3.Left := 260;
-  Label3.Top := 68;
+  Label3.Top := 76;
   Label3.Caption := 'Ch. per volume:';
 
   EditCPV := TSpinEdit.Create(Self);
   EditCPV.Parent := PanelTop;
   EditCPV.Left := 366;
-  EditCPV.Top := 64;
+  EditCPV.Top := 72;
   EditCPV.Width := 56;
   EditCPV.MinValue := 1;
   EditCPV.MaxValue := 999;
@@ -142,7 +151,7 @@ begin
   CbManualCPV := TCheckBox.Create(Self);
   CbManualCPV.Parent := PanelTop;
   CbManualCPV.Left := 12;
-  CbManualCPV.Top := 96;
+  CbManualCPV.Top := 104;
   CbManualCPV.Width := 240;
   CbManualCPV.Caption := 'Set CPV manually';
   CbManualCPV.OnClick := @CbManualCPVChange;
@@ -150,7 +159,7 @@ begin
   CbForce := TCheckBox.Create(Self);
   CbForce.Parent := PanelTop;
   CbForce.Left := 260;
-  CbForce.Top := 96;
+  CbForce.Top := 104;
   CbForce.Width := 280;
   CbForce.Caption := 'Force extra chapters into last volume';
   CbForce.OnClick := @CbForceChange;
@@ -442,6 +451,7 @@ begin
   FFiles := AFiles;
   FDir := ADir;
   EditSeries.Text := ASeriesName;
+  LblFolder.Caption := ExtractFileName(ExcludeTrailingPathDelimiter(ADir));
   EditChapterEnd.Value := Length(AFiles);
 
   { Auto-fill the chapters-per-volume default from the existing volumes in the
@@ -463,7 +473,9 @@ begin
     begin
       It := LVFiles.Items.Add;
       It.Caption := IntToStr(i + 1);
-      It.SubItems.Add(ChangeFileExt(AFiles[i], ''));
+      It.SubItems.Add(ExtractChapterNumStr(AFiles[i]));
+      if It.SubItems[0] = '' then
+        It.SubItems[0] := ChangeFileExt(AFiles[i], '');
       It.SubItems.Add('');  // placeholder — filled by RefreshVolumeColumn below
     end;
   finally

@@ -26,6 +26,10 @@ interface
 uses
   Classes, SysUtils, uzipcore, uZipEditor, uservicebase;
 
+{ Extract the chapter-number portion of a CBZ filename as a string,
+  preserving leading zeros. Returns empty string if no pattern found. }
+function ExtractChapterNumStr(const AFileName: string): string;
+
 type
   { TMergeOptions — Configuration parameters for a merge operation.
 
@@ -105,25 +109,58 @@ implementation
 uses
   StrUtils, ucomicinfo;
 
-function ExtractChapterNum(const AFileName: string): integer;
+{ Extracts the chapter-number portion of a filename as a raw string,
+  preserving leading zeros and any formatting.
+  E.g. "Series - 0001.cbz" → "0001", "Manga - 042_extra.cbz" → "042".
+  Also handles volume names: "Series V012.cbz" → "V012".
+  Returns empty string if no pattern match is found. }
+function ExtractChapterNumStr(const AFileName: string): string;
 var
-  Base, S: string;
+  Base: string;
   p: integer;
+  S: string;
 begin
+  Result := '';
   Base := ChangeFileExt(AFileName, '');
+  { First try: chapter pattern "Series - NNNN" }
   p := RPos(' -', Base);
   if p > 0 then
   begin
-    S := Trim(Copy(Base, p + 2, Length(Base)));
+    Result := Trim(Copy(Base, p + 2, Length(Base)));
     { Strip leading underscore: "_0000" → "0000" }
-    if (Length(S) > 0) and (S[1] = '_') then
-      Delete(S, 1, 1);
+    if (Length(Result) > 0) and (Result[1] = '_') then
+      Delete(Result, 1, 1);
     { Strip trailing suffix after underscore: "0001_extra" → "0001" }
-    p := Pos('_', S);
+    p := Pos('_', Result);
     if p > 0 then
-      S := Copy(S, 1, p - 1);
-    Result := StrToIntDef(S, 0);
+      Result := Copy(Result, 1, p - 1);
   end
+  else
+  begin
+    { Second try: volume pattern "Series VNNN" }
+    p := RPos(' V', Base);
+    if p > 0 then
+    begin
+      S := Trim(Copy(Base, p + 2, Length(Base)));
+      if (Length(S) > 0) and (S[1] in ['0'..'9']) then
+      begin
+        { Strip trailing suffix after underscore: "V001_extra" → "V001" }
+        p := Pos('_', S);
+        if p > 0 then
+          S := Copy(S, 1, p - 1);
+        Result := 'V' + S;
+      end;
+    end;
+  end;
+end;
+
+function ExtractChapterNum(const AFileName: string): integer;
+var
+  S: string;
+begin
+  S := ExtractChapterNumStr(AFileName);
+  if S <> '' then
+    Result := StrToIntDef(S, 0)
   else
     Result := 0;
 end;

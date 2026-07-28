@@ -175,6 +175,7 @@ type
     ZoomScroll: TTrackBar;
     StatusProgress: TProgressBar;
     LblStatus: TLabel;
+    LblFolderName: TLabel;
     { Client area }
     PanelMiddle: TPanel;
     LVFiles: TListView;
@@ -331,6 +332,10 @@ type
     { Collect file names from LvFiles. When AAll=True returns every file;
       otherwise returns selected files, or all files if none selected. }
     function GetFileList(AAll: boolean = False): TStringArray;
+    { Return the full filename for an LVFiles item — reads the original
+      filename stored in SubItems[0] (set by SyncAddThumbs), falling back
+      to the visible Caption for backward compatibility. }
+    function ItemFileName(AItem: TListItem): string;
     { Progress callback for service operations: updates StatusProgress + LblStatus }
     procedure UpdateProgress(APercent: integer; const AMsg: string);
   end;
@@ -417,6 +422,16 @@ begin
   HidePreview;
   SetFolderOpsEnabled(False);
   SetStatus('Ready');
+
+  { Folder name label — sits above EditDir in PanelTop }
+  LblFolderName := TLabel.Create(Self);
+  LblFolderName.Parent := PanelTop;
+  LblFolderName.Align := alTop;
+  LblFolderName.Height := 22;
+  LblFolderName.BorderSpacing.Around := 4;
+  LblFolderName.Font.Style := [fsBold];
+  LblFolderName.Caption := '';
+  PanelTop.Height := 60;
   Log('=== Avvio, log in %s ===', [LogFileName]);
   Log('exe dir: %s', [ExtractFilePath(ParamStr(0))]);
   if ParamCount > 0 then
@@ -908,7 +923,7 @@ begin
   ClearPreview;
 
   Sz := Max(THUMB_RENDER_FLOOR, ZoomScroll.Position);
-  LblPreviewFile.Caption := AItem.Caption;
+  LblPreviewFile.Caption := ItemFileName(AItem);
   PanelSingleFile.Visible := True;
   SplitterPreview.Visible := True;
 
@@ -917,7 +932,7 @@ begin
   ILPages.Height := Round(Sz * PAGE_ASPECT_RATIO);
   LVPages.LargeImages := ILPages;
 
-  FPageFile := IncludeTrailingPathDelimiter(FDir) + AItem.Caption;
+  FPageFile := IncludeTrailingPathDelimiter(FDir) + ItemFileName(AItem);
   SetPageOpsEnabled(False);
   FPagesThread := TPagesThread.Create(FPageFile);
   FPagesThread.OnTerminate := @PagesThreadTerminated;
@@ -982,12 +997,12 @@ begin
   MnuOpenFile.Enabled := (LVFiles.Selected <> nil) and Ready;
   MnuCtxRenameFile.Enabled := (LVFiles.Selected <> nil) and Ready;
   MnuCtxDeleteFile.Enabled := (LVFiles.Selected <> nil) and Ready;
-  MnuCtxValidate.Enabled := Ready;
-  MnuCtxConvertWebP.Enabled := Ready;
-  MnuCtxMerge.Enabled := Ready;
+  MnuCtxValidate.Enabled := Ready and MnuValidate.Enabled;
+  MnuCtxConvertWebP.Enabled := Ready and MnuConvertWebP.Enabled;
+  MnuCtxMerge.Enabled := Ready and MnuMerge.Enabled;
   MnuCtxManageComicInfo.Enabled := (LVFiles.Selected <> nil) and Ready;
-  MnuCtxRemoveComicInfo.Enabled := Ready;
-  MnuCtxDeleteRows.Enabled := Ready;
+  MnuCtxRemoveComicInfo.Enabled := Ready and MnuRemoveComicInfo.Enabled;
+  MnuCtxDeleteRows.Enabled := Ready and MnuDeleteRows.Enabled;
   MnuCtxReorder.Enabled := Ready;
 end;
 
@@ -1056,6 +1071,7 @@ procedure TfrmMain.MnuClearClick(Sender: TObject);
 begin
   FDir := '';
   EditDir.Text := '';
+  LblFolderName.Caption := '';
   HidePreview;
   ClearThumbnails;
   SetStatus('Ready');
@@ -1276,7 +1292,7 @@ var
   OldName, NewName, OldPath, NewPath: string;
 begin
   if (FDir = '') or (LVFiles.Selected = nil) then Exit;
-  OldName := LVFiles.Selected.Caption;
+  OldName := ItemFileName(LVFiles.Selected);
   NewName := ChangeFileExt(OldName, '');
   if not InputQuery('Rename file', 'New name:', NewName) then Exit;
   NewName := Trim(NewName);
@@ -1306,7 +1322,7 @@ var
   FileName, FilePath: string;
 begin
   if (FDir = '') or (LVFiles.Selected = nil) then Exit;
-  FileName := LVFiles.Selected.Caption;
+  FileName := ItemFileName(LVFiles.Selected);
   if MessageDlg('Delete file',
     Format('Permanently delete "%s"?', [FileName]),
     mtConfirmation, [mbYes, mbNo], 0) <> mrYes then Exit;
@@ -1339,7 +1355,7 @@ begin
     SetStatus('Select a file first');
     Exit;
   end;
-  FileName := LVFiles.Selected.Caption;
+  FileName := ItemFileName(LVFiles.Selected);
   FilePath := IncludeTrailingPathDelimiter(FDir) + FileName;
   Files := GetFileList(True);
   SeriesName := TMergeService.DetectSeriesName(Files);
@@ -1710,16 +1726,19 @@ begin
       Exit;
     end;
 
-    { Build a TPageState for the new front page }
-    PageName := 'frontispiece' + PageExt;
-    NewPage.Name := PageName;
-    NewPage.OrigName := PageName;
+    { Build a TPageState for the new front page.
+      Raw bytes are stored in original format; use Convert to WebP later
+      if WebP encoding is desired. }
     NewPage.Image := Img;
     NewPage.Gone := False;
     NewPage.OrigIndex := 0;
+    PageName := 'frontispiece' + PageExt;
     NewPage.Data := TMemoryStream.Create;
     MemStream.Position := 0;
     NewPage.Data.CopyFrom(MemStream, MemStream.Size);
+
+    NewPage.Name := PageName;
+    NewPage.OrigName := PageName;
 
     { Insert at position 0 }
     PageInsertFront(FPages, FChanges, NewPage);
@@ -1948,6 +1967,25 @@ end;
 
   The result array is tightly packed (no gaps).
 }
+function TfrmMain.ItemFileName(AItem: TListItem): string;
+begin
+  if (AItem <> nil) and (AItem.SubItems.Count > 0) and (AItem.SubItems[0] <> '') then
+    Result := AItem.SubItems[0]
+  else if AItem <> nil then
+    Result := AItem.Caption
+  else
+    Result := '';
+end;
+
+{
+  GetFileList
+  -----------
+  Collects file names from LvFiles.  When AAll=True returns every file;
+  otherwise returns selected files, or all files if none selected.
+
+  The returned names are the full original filenames (from SubItems[0]),
+  so they can be used for actual file I/O.
+}
 function TfrmMain.GetFileList(AAll: boolean = False): TStringArray;
 var
   i, n: integer;
@@ -1958,7 +1996,7 @@ begin
   for i := 0 to LVFiles.Items.Count - 1 do
     if AAll or (LVFiles.SelCount = 0) or LVFiles.Items[i].Selected then
     begin
-      Result[n] := LVFiles.Items[i].Caption;
+      Result[n] := ItemFileName(LVFiles.Items[i]);
       Inc(n);
     end;
   SetLength(Result, n);
@@ -2000,6 +2038,7 @@ procedure TfrmMain.LoadDirectory(const ADir: string);
 begin
   Log('LoadDirectory: %s', [ADir]);
   FDir := ADir;
+  LblFolderName.Caption := ExtractFileName(ExcludeTrailingPathDelimiter(ADir));
   HidePreview;
   ClearThumbnails;
   SetFolderOpsEnabled(False);

@@ -114,7 +114,8 @@ uses
   uLog,
   uimgutil,
   uzipeditor,
-  uservicebase;
+  uservicebase,
+  uservicemerge;
 
 const
   BatchSize = 4;
@@ -200,7 +201,10 @@ begin
         Thumb.Free;
       end;
       It := FListView.Items.Add;
-      It.Caption := FBatch[i].Name;
+      It.Caption := ExtractChapterNumStr(FBatch[i].Name);
+      if It.Caption = '' then
+        It.Caption := FBatch[i].Name;
+      It.SubItems.Add(FBatch[i].Name);  // hidden — full filename for file ops
       It.ImageIndex := ILIdx;
     end;
   finally

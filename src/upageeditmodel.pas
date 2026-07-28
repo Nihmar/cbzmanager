@@ -425,6 +425,7 @@ var
   i, j, PageNum: integer;
   AllEntries, OutEntries: TZipEntries;
   NewName, PageExt: string;
+  Found: boolean;
 begin
   try
     DoProgress(0, 'Reading all entries into RAM...');
@@ -439,9 +440,11 @@ begin
         if FPages[i].Gone then Continue;    // skip deleted pages
 
         // Find the original entry data by matching the OrigName.
+        Found := False;
         for j := 0 to High(AllEntries) do
           if SameText(AllEntries[j].Name, FPages[i].OrigName) then
           begin
+            Found := True;
             SetLength(OutEntries, Length(OutEntries) + 1);
             // Choose the output filename.
             if FRenumber then
@@ -464,7 +467,7 @@ begin
 
         { If OrigName was not found in the original archive, this page
           was inserted from an external file.  Use the Data stream. }
-        if j > High(AllEntries) then
+        if not Found then
         begin
           if FPages[i].Data <> nil then
           begin

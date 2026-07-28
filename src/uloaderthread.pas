@@ -42,6 +42,7 @@ type
   TLoadedItem = record
     Name: string;
     Image: TLazIntfImage;
+    HasComicInfo: boolean;
   end;
   TLoadedItems = array of TLoadedItem;
 
@@ -68,7 +69,8 @@ type
       deve rientrare non appena Terminated diventa True. }
     procedure Produce; virtual; abstract;
     { Accoda un'immagine (anche nil) al lotto corrente; ne cede la proprieta'. }
-    procedure Emit(const AName: string; AImage: TLazIntfImage);
+    procedure Emit(const AName: string; AImage: TLazIntfImage;
+      AHasComicInfo: boolean = False);
     { Flushes the accumulated batch to the main thread immediately.
       Normally called automatically once BatchSize images have been
       emitted; also called at the end of Produce to flush any
@@ -147,12 +149,14 @@ begin
   end;
 end;
 
-procedure TThumbThread.Emit(const AName: string; AImage: TLazIntfImage);
+procedure TThumbThread.Emit(const AName: string; AImage: TLazIntfImage;
+  AHasComicInfo: boolean);
 begin
   Inc(FBatchCount);
   SetLength(FBatch, FBatchCount);
   FBatch[FBatchCount - 1].Name := AName;
   FBatch[FBatchCount - 1].Image := AImage;
+  FBatch[FBatchCount - 1].HasComicInfo := AHasComicInfo;
   if FBatchCount >= BatchSize then
     Flush;
 end;
@@ -206,6 +210,11 @@ begin
         It.Caption := FBatch[i].Name;
       It.SubItems.Add(FBatch[i].Name);  // hidden — full filename for file ops
       It.ImageIndex := ILIdx;
+      { ComicInfo badge: StateIndex = 0 → badge visible, -1 → no badge }
+      if FBatch[i].HasComicInfo then
+        It.StateIndex := 0
+      else
+        It.StateIndex := -1;
     end;
   finally
     FListView.EndUpdate;
@@ -262,7 +271,7 @@ begin
 
       Small := ScaleIntfImage(Img, CacheW, CacheH);
       Img.Free;
-      Emit(Names[i], Small);
+      Emit(Names[i], Small, HasComicInfoFast(FilePath));
     end;
   finally
     Names.Free;

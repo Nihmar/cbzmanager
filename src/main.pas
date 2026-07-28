@@ -288,6 +288,8 @@ type
     procedure ZoomScrollMouseWheel(Sender: TObject; Shift: TShiftState;
       WheelDelta: integer; MousePos: TPoint; var Handled: boolean);
   private
+    { 16×16 badge overlay for ComicInfo indicator on LVFiles items }
+    ILComicInfoBadge: TImageList;
     { Currently open directory (the one shown in LVFiles). }
     FDir: string;
     { Background thread that scans FDir and loads first-page thumbnails. }
@@ -393,6 +395,8 @@ const
     line argument it is loaded immediately.
 }
 procedure TfrmMain.FormCreate(Sender: TObject);
+var
+  Badge: TBitmap;
 begin
   Caption := 'CBZ Manager';
   FFirstPages := TLazIntfImageList.Create(True);
@@ -416,6 +420,31 @@ begin
   LVPages.ReadOnly := True;
   LVPages.ViewStyle := vsIcon;
   LVPages.LargeImages := ILPages;
+
+  { ComicInfo badge — small green circle indicator for StateImages overlay }
+  ILComicInfoBadge := TImageList.Create(nil);
+  ILComicInfoBadge.Width := 16;
+  ILComicInfoBadge.Height := 16;
+  LVFiles.StateImages := ILComicInfoBadge;
+  begin
+    Badge := TBitmap.Create;
+    try
+      Badge.SetSize(16, 16);
+      Badge.PixelFormat := pf32bit;
+      Badge.Transparent := True;
+      Badge.TransparentColor := clNone;
+      Badge.Canvas.Brush.Color := clNone;
+      Badge.Canvas.FillRect(0, 0, 16, 16);
+      { Green filled circle }
+      Badge.Canvas.Brush.Color := clLime;
+      Badge.Canvas.Pen.Color := clGreen;
+      Badge.Canvas.Ellipse(1, 1, 15, 15);
+      ILComicInfoBadge.Add(Badge, nil);
+    finally
+      Badge.Free;
+    end;
+  end;
+
   ZoomScroll.Min := THUMB_MIN_SIZE;
   ZoomScroll.Max := CacheW;
   ZoomScroll.Position := THUMB_DEFAULT_SIZE;
@@ -471,6 +500,7 @@ begin
   end;
   FFirstPages.Free;
   FPagePreviews.Free;
+  ILComicInfoBadge.Free;
 end;
 
 {

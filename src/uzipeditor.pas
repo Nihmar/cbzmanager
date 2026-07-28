@@ -45,6 +45,12 @@ function GetImageFileNames(const FileName: string): TStringArray;
   entry whose extension is recognised as an image format. }
 function IsValidCBZ(const FileName: string): boolean;
 
+{ Lightweight check: uses TUnZipper.Examine (central-directory-only scan,
+  no decompression) to detect whether the CBZ contains a ComicInfo.xml
+  entry.  Returns True on first match, False if none found or archive
+  is unreadable. }
+function HasComicInfoFast(const FileName: string): boolean;
+
 type
   { Per-image validation result. }
   TImageCheck = record
@@ -298,6 +304,28 @@ end;
 function IsValidCBZ(const FileName: string): boolean;
 begin
   Result := GetImageCount(FileName) > 0;
+end;
+
+function HasComicInfoFast(const FileName: string): boolean;
+var
+  UnZipper: TUnZipper;
+  i: integer;
+begin
+  Result := False;
+  try
+    UnZipper := TUnZipper.Create;
+    try
+      UnZipper.FileName := FileName;
+      UnZipper.Examine;
+      for i := 0 to UnZipper.Entries.Count - 1 do
+        if SameText(UnZipper.Entries[i].ArchiveFileName, COMICINFO_XML) then
+          Exit(True);
+    finally
+      UnZipper.Free;
+    end;
+  except
+    { Invalid or empty ZIP — return False }
+  end;
 end;
 
 { TImageValidator – receives each decoded image from ForEachImage and

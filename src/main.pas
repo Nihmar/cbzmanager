@@ -116,8 +116,10 @@ type
     controls in their OnTerminate callbacks.
   }
   TfrmMain = class(TForm)
+    LblFolderName: TLabel;
     { Menu }
     MainMenu: TMainMenu;
+    MnuCtxOpenInDir: TMenuItem;
     MnuFile: TMenuItem;
     MnuOpenFile: TMenuItem;
     MnuBrowse: TMenuItem;
@@ -175,7 +177,6 @@ type
     ZoomScroll: TTrackBar;
     StatusProgress: TProgressBar;
     LblStatus: TLabel;
-    LblFolderName: TLabel;
     { Client area }
     PanelMiddle: TPanel;
     LVFiles: TListView;
@@ -225,8 +226,6 @@ type
     MnuCtxValidate: TMenuItem;
     MnuCtxConvertWebP: TMenuItem;
     MnuCtxMerge: TMenuItem;
-    MnuCtxOpenInDir: TMenuItem;
-
     PMPages: TPopupMenu;
     MnuPgDelete: TMenuItem;
     MnuPgDeleteRows: TMenuItem;
@@ -310,6 +309,8 @@ type
     procedure ThreadTerminated(Sender: TObject);
     procedure PagesThreadTerminated(Sender: TObject);
     procedure ClearThumbnails;
+    procedure FreeLoadThread;
+    procedure FreePagesThread;
     procedure SetStatus(const AMsg: string);
     procedure SetFolderOpsEnabled(AEnabled: boolean);
     procedure SetPageOpsEnabled(AEnabled: boolean);
@@ -337,6 +338,10 @@ type
     procedure ClearPreview;
     procedure HidePreview;
     procedure RenderPages;
+    procedure SetupLVFiles;
+    procedure SetupILFilesFirstPages;
+    procedure SetupILPages;
+    procedure SetupZoomScroll;
     procedure RebuildThumbs(ALV: TListView; AIL: TImageList;
       APages: TLazIntfImageList; ASize: integer);
     { Collect file names from LvFiles. When AAll=True returns every file;
@@ -389,7 +394,7 @@ const
 resourcestring
   { Status-bar messages used from more than one handler. }
   RSOpenFolderFirst = 'Open a folder first';
-  RSReady           = 'Ready';
+  RSReady = 'Ready';
 
   { TfrmMain }
 
@@ -409,60 +414,18 @@ begin
   Caption := 'CBZ Manager';
   FFirstPages := TLazIntfImageList.Create(True);
   FPagePreviews := TLazIntfImageList.Create(True);
-  FLoadThread := nil;
-  FPagesThread := nil;
-  FPages := nil;
-  FBaseline := nil;
-  FChanges := nil;
-  FRenumber := True;
-  FPageFile := '';
-  ILFilesFirstPages.Width := THUMB_DEFAULT_SIZE;
-  ILFilesFirstPages.Height := ThumbHeight(THUMB_DEFAULT_SIZE);
-  ILPages.Width := THUMB_DEFAULT_SIZE;
-  ILPages.Height := ThumbHeight(THUMB_DEFAULT_SIZE);
-  LVFiles.DoubleBuffered := True;
-  LVFiles.ReadOnly := True;
-  LVFiles.ViewStyle := vsIcon;
-  LVFiles.LargeImages := ILFilesFirstPages;
-  LVPages.DoubleBuffered := True;
-  LVPages.ReadOnly := True;
-  LVPages.ViewStyle := vsIcon;
-  LVPages.LargeImages := ILPages;
-  ZoomScroll.Min := THUMB_MIN_SIZE;
-  ZoomScroll.Max := CacheW;
-  ZoomScroll.Position := THUMB_DEFAULT_SIZE;
+  SetupILFilesFirstPages;
+  SetupILPages;
+  SetupLVFiles;
+  SetupZoomScroll;
   HidePreview;
   SetFolderOpsEnabled(False);
   SetStatus(RSReady);
 
-  { Folder name label — sits above EditDir in PanelTop }
-  LblFolderName := TLabel.Create(Self);
-  LblFolderName.Parent := PanelTop;
-  LblFolderName.Align := alTop;
-  LblFolderName.Height := 22;
-  LblFolderName.BorderSpacing.Around := 4;
-  LblFolderName.Font.Style := [fsBold];
-  LblFolderName.Caption := '';
-  PanelTop.Height := 60;
   Log('=== Avvio, log in %s ===', [LogFileName]);
   Log('exe dir: %s', [ExtractFilePath(ParamStr(0))]);
   if ParamCount > 0 then
     LoadDirectory(ParamStr(1));
-
-  { Programmatic menu item: "Open in directory" }
-  MnuCtxOpenInDir := TMenuItem.Create(Self);
-  MnuCtxOpenInDir.Caption := 'Open in &directory';
-  MnuCtxOpenInDir.OnClick := @MnuCtxOpenInDirClick;
-  PMFiles.Items.Add(MnuCtxOpenInDir);
-
-  { Programmatic hints for icon-only buttons }
-  BtnPgMoveUp.Hint := 'Move page up';
-  BtnPgMoveDown.Hint := 'Move page down';
-  BtnPgMoveStart.Hint := 'Move to start';
-  BtnPgMoveEnd.Hint := 'Move to end';
-  BtnPgSort.Hint := 'Sort by name';
-  BtnPgReverse.Hint := 'Reverse order';
-  BtnClosePreview.Hint := 'Close preview';
 end;
 
 {
@@ -475,18 +438,8 @@ end;
 }
 procedure TfrmMain.FormDestroy(Sender: TObject);
 begin
-  if FLoadThread <> nil then
-  begin
-    FLoadThread.Terminate;
-    FLoadThread.WaitFor;
-    FreeAndNil(FLoadThread);
-  end;
-  if FPagesThread <> nil then
-  begin
-    FPagesThread.Terminate;
-    FPagesThread.WaitFor;
-    FreeAndNil(FPagesThread);
-  end;
+  FreeLoadThread;
+  FreePagesThread;
   FFirstPages.Free;
   FPagePreviews.Free;
 end;
@@ -601,8 +554,7 @@ begin
   FJobMonitor.StartJob(AStatus);
 end;
 
-procedure TfrmMain.FinishServiceThread(AToolButton: TToolButton;
-  AMenuItem: TMenuItem);
+procedure TfrmMain.FinishServiceThread(AToolButton: TToolButton; AMenuItem: TMenuItem);
 begin
   StatusProgress.Visible := False;
   if AToolButton <> nil then AToolButton.Enabled := True;
@@ -611,8 +563,7 @@ begin
     FJobMonitor.FinishJob;
 end;
 
-function TfrmMain.RequireFiles(AAll: boolean;
-  out AFiles: TStringArray): boolean;
+function TfrmMain.RequireFiles(AAll: boolean; out AFiles: TStringArray): boolean;
 begin
   Result := False;
   AFiles := nil;
@@ -630,13 +581,11 @@ begin
   Result := True;
 end;
 
-function TfrmMain.ServiceThreadFailed(AThread: TThread;
-  const AVerb: string): boolean;
+function TfrmMain.ServiceThreadFailed(AThread: TThread; const AVerb: string): boolean;
 begin
   Result := AThread.FatalException <> nil;
   if Result then
-    SetStatus(AVerb + ' failed: ' +
-      Exception(AThread.FatalException).Message);
+    SetStatus(AVerb + ' failed: ' + Exception(AThread.FatalException).Message);
 end;
 
 {
@@ -713,6 +662,36 @@ begin
   LblPageCount.Caption := Format('%d pages', [LVPages.Items.Count]);
 end;
 
+procedure TfrmMain.SetupLVFiles;
+begin
+  LVFiles.DoubleBuffered := True;
+  LVFiles.ReadOnly := True;
+  LVFiles.ViewStyle := vsIcon;
+  LVFiles.LargeImages := ILFilesFirstPages;
+  LVPages.DoubleBuffered := True;
+  LVPages.ReadOnly := True;
+  LVPages.ViewStyle := vsIcon;
+  LVPages.LargeImages := ILPages;
+end;
+
+procedure TfrmMain.SetupILFilesFirstPages;
+begin
+  ILFilesFirstPages.Width := THUMB_DEFAULT_SIZE;
+  ILFilesFirstPages.Height := ThumbHeight(THUMB_DEFAULT_SIZE);
+end;
+
+procedure TfrmMain.SetupILPages;
+begin
+  ILPages.Width := THUMB_DEFAULT_SIZE;
+  ILPages.Height := ThumbHeight(THUMB_DEFAULT_SIZE);
+end;
+
+procedure TfrmMain.SetupZoomScroll;
+begin
+  ZoomScroll.Min := THUMB_MIN_SIZE;
+  ZoomScroll.Max := CacheW;
+  ZoomScroll.Position := THUMB_DEFAULT_SIZE;
+end;
 
 {
   FreePageImages
@@ -855,15 +834,30 @@ end;
 }
 procedure TfrmMain.ClearThumbnails;
 begin
-  if FLoadThread <> nil then
+  FreeLoadThread;
+  LVFiles.Clear;
+  ILFilesFirstPages.Clear;
+  FFirstPages.Clear;
+end;
+
+procedure TfrmMain.FreeLoadThread;
+begin
+  if Assigned(FLoadThread) then
   begin
     FLoadThread.Terminate;
     FLoadThread.WaitFor;
     FreeAndNil(FLoadThread);
   end;
-  LVFiles.Clear;
-  ILFilesFirstPages.Clear;
-  FFirstPages.Clear;
+end;
+
+procedure TfrmMain.FreePagesThread;
+begin
+  if Assigned(FPagesThread) then
+  begin
+    FPagesThread.Terminate;
+    FPagesThread.WaitFor;
+    FreeAndNil(FPagesThread);
+  end;
 end;
 
 {
@@ -896,12 +890,7 @@ procedure TfrmMain.ClearPreview;
 var
   i: integer;
 begin
-  if FPagesThread <> nil then
-  begin
-    FPagesThread.Terminate;
-    FPagesThread.WaitFor;
-    FreeAndNil(FPagesThread);
-  end;
+  FreePagesThread;
   FreePageImages;
   for i := 0 to High(FPages) do
     FPages[i].Data.Free;
@@ -1323,8 +1312,7 @@ var
 begin
   if (FDir = '') or (LVFiles.Selected = nil) then Exit;
   FileName := ItemFileName(LVFiles.Selected);
-  if MessageDlg('Delete file',
-    Format('Permanently delete "%s"?', [FileName]),
+  if MessageDlg('Delete file', Format('Permanently delete "%s"?', [FileName]),
     mtConfirmation, [mbYes, mbNo], 0) <> mrYes then Exit;
   FilePath := IncludeTrailingPathDelimiter(FDir) + FileName;
   if not DeleteFile(FilePath) then
@@ -1375,7 +1363,7 @@ begin
   Dlg := TdlgComicInfoEditor.Create(Self);
   try
     Dlg.LoadFile(FilePath, FileName, SeriesName, PageCnt);
-    if Dlg.ShowModal = mrOK then
+    if Dlg.ShowModal = mrOk then
     begin
       if Dlg.Removed then
       begin
@@ -1734,7 +1722,8 @@ begin
 
     if Img = nil then
     begin
-      SetStatus(Format('Cannot decode image: %s', [ExtractFileName(OpenDialog.FileName)]));
+      SetStatus(Format('Cannot decode image: %s',
+        [ExtractFileName(OpenDialog.FileName)]));
       Exit;
     end;
 
@@ -1856,9 +1845,8 @@ begin
   else
     BackupMsg := ' No backup will be kept.';
 
-  if MessageDlg('Save changes',
-    Format('Save %d pending changes?%s', [Length(FChanges), BackupMsg]),
-    mtConfirmation, mbYesNo, 0) <> mrYes then Exit;
+  if MessageDlg('Save changes', Format('Save %d pending changes?%s',
+    [Length(FChanges), BackupMsg]), mtConfirmation, mbYesNo, 0) <> mrYes then Exit;
 
   { Take a snapshot of the page state for the background thread }
   SetLength(Snapshot, Length(FPages));

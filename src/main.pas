@@ -58,7 +58,7 @@ unit main;
   from FBaseline and clears FChanges.
 
   The FRenumber flag controls whether pages are sequentially renamed (e.g.
-  "0001.jpg", "0002.jpg", …) when the .cbz is rewritten.  It defaults to True
+  "page_0001.jpg", "page_0002.jpg", …) when the .cbz is rewritten.  It defaults to True
   and is set whenever the user performs a delete, sort, or explicit renumber.
 
   Coordinate system & zoom
@@ -320,6 +320,14 @@ type
     { Re-enables the triggering controls and hides the progress indicator.
       Called at the top of every service OnTerminate handler. }
     procedure FinishServiceThread(AToolButton: TToolButton; AMenuItem: TMenuItem);
+    { Guard prologue shared by the service launchers: requires an open folder
+      and at least one CBZ file.  Sets a status message and returns False when
+      the operation cannot proceed. }
+    function RequireFiles(AAll: boolean; out AFiles: TStringArray): boolean;
+    { Fatal-exception tail shared by service OnTerminate handlers.  When the
+      thread died with an exception, sets "<AVerb> failed: ..." and returns
+      True (the caller should Exit). }
+    function ServiceThreadFailed(AThread: TThread; const AVerb: string): boolean;
     procedure UpdateStageBar;
     procedure AddChange(AKind: TChangeKind; const APageName: string);
     function GetSelectedPageIndices: TIntegerDynArray;
@@ -349,6 +357,7 @@ implementation
 
 uses
   LCLType,
+  LCLIntf,
   uImgUtil,
   uLog,
   uWebp,
@@ -370,16 +379,17 @@ uses
   {$R *.lfm}
 
 const
-  { Thumbnail height-to-width ratio: comic pages are taller than wide, so a
-    thumbnail of width W is given height Round(W * PAGE_ASPECT_RATIO). }
-  PAGE_ASPECT_RATIO = 1.25;
-
   { Zoom / thumbnail sizing.  The zoom slider value is the thumbnail width in
-    pixels; height is derived via PAGE_ASPECT_RATIO. }
+    pixels; height is derived via ThumbHeight (uimgutil / PAGE_ASPECT_RATIO). }
   THUMB_DEFAULT_SIZE = 128;   // initial thumbnail width and default zoom
   THUMB_MIN_SIZE = 48;        // smallest width the zoom slider allows
   THUMB_RENDER_FLOOR = 16;    // absolute lower bound when rendering thumbs
   ZOOM_STEP = 32;             // width change per zoom-in / zoom-out step
+
+resourcestring
+  { Status-bar messages used from more than one handler. }
+  RSOpenFolderFirst = 'Open a folder first';
+  RSReady           = 'Ready';
 
   { TfrmMain }
 
@@ -407,9 +417,9 @@ begin
   FRenumber := True;
   FPageFile := '';
   ILFilesFirstPages.Width := THUMB_DEFAULT_SIZE;
-  ILFilesFirstPages.Height := Round(THUMB_DEFAULT_SIZE * PAGE_ASPECT_RATIO);
+  ILFilesFirstPages.Height := ThumbHeight(THUMB_DEFAULT_SIZE);
   ILPages.Width := THUMB_DEFAULT_SIZE;
-  ILPages.Height := Round(THUMB_DEFAULT_SIZE * PAGE_ASPECT_RATIO);
+  ILPages.Height := ThumbHeight(THUMB_DEFAULT_SIZE);
   LVFiles.DoubleBuffered := True;
   LVFiles.ReadOnly := True;
   LVFiles.ViewStyle := vsIcon;
@@ -423,7 +433,7 @@ begin
   ZoomScroll.Position := THUMB_DEFAULT_SIZE;
   HidePreview;
   SetFolderOpsEnabled(False);
-  SetStatus('Ready');
+  SetStatus(RSReady);
 
   { Folder name label — sits above EditDir in PanelTop }
   LblFolderName := TLabel.Create(Self);
@@ -601,6 +611,34 @@ begin
     FJobMonitor.FinishJob;
 end;
 
+function TfrmMain.RequireFiles(AAll: boolean;
+  out AFiles: TStringArray): boolean;
+begin
+  Result := False;
+  AFiles := nil;
+  if FDir = '' then
+  begin
+    SetStatus(RSOpenFolderFirst);
+    Exit;
+  end;
+  AFiles := GetFileList(AAll);
+  if Length(AFiles) = 0 then
+  begin
+    SetStatus('No CBZ files in folder');
+    Exit;
+  end;
+  Result := True;
+end;
+
+function TfrmMain.ServiceThreadFailed(AThread: TThread;
+  const AVerb: string): boolean;
+begin
+  Result := AThread.FatalException <> nil;
+  if Result then
+    SetStatus(AVerb + ' failed: ' +
+      Exception(AThread.FatalException).Message);
+end;
+
 {
   RebuildThumbs
   -------------
@@ -621,23 +659,15 @@ procedure TfrmMain.RebuildThumbs(ALV: TListView; AIL: TImageList;
   APages: TLazIntfImageList; ASize: integer);
 var
   i: integer;
-  Thumb: TBitmap;
 begin
   ALV.BeginUpdate;
   try
     ALV.LargeImages := nil;
     AIL.Clear;
     AIL.Width := ASize;
-    AIL.Height := Round(ASize * PAGE_ASPECT_RATIO);
+    AIL.Height := ThumbHeight(ASize);
     for i := 0 to APages.Count - 1 do
-    begin
-      Thumb := MakeThumb(APages[i], AIL.Width, AIL.Height);
-      try
-        AIL.Add(Thumb, nil);
-      finally
-        Thumb.Free;
-      end;
-    end;
+      AppendThumb(AIL, APages[i]);
     ALV.LargeImages := AIL;
   finally
     ALV.EndUpdate;
@@ -658,7 +688,6 @@ end;
 procedure TfrmMain.RenderPages;
 var
   i: integer;
-  Thumb: TBitmap;
   It: TListItem;
   Sz: integer;
 begin
@@ -669,19 +698,13 @@ begin
     ILPages.Clear;
     Sz := Max(THUMB_RENDER_FLOOR, ZoomScroll.Position);
     ILPages.Width := Sz;
-    ILPages.Height := Round(Sz * PAGE_ASPECT_RATIO);
+    ILPages.Height := ThumbHeight(Sz);
     for i := 0 to High(FPages) do
     begin
       if FPages[i].Gone then Continue;
-      Thumb := MakeThumb(FPages[i].Image, ILPages.Width, ILPages.Height);
-      try
-        ILPages.Add(Thumb, nil);
-      finally
-        Thumb.Free;
-      end;
       It := LVPages.Items.Add;
       It.Caption := FPages[i].Name;
-      It.ImageIndex := ILPages.Count - 1;
+      It.ImageIndex := AppendThumb(ILPages, FPages[i].Image);
     end;
     LVPages.LargeImages := ILPages;
   finally
@@ -689,6 +712,7 @@ begin
   end;
   LblPageCount.Caption := Format('%d pages', [LVPages.Items.Count]);
 end;
+
 
 {
   FreePageImages
@@ -937,7 +961,7 @@ begin
 
   LVPages.LargeImages := nil;
   ILPages.Width := Sz;
-  ILPages.Height := Round(Sz * PAGE_ASPECT_RATIO);
+  ILPages.Height := ThumbHeight(Sz);
   LVPages.LargeImages := ILPages;
 
   FPageFile := IncludeTrailingPathDelimiter(FDir) + ItemFileName(AItem);
@@ -1083,7 +1107,7 @@ begin
   LblFolderName.Caption := '';
   HidePreview;
   ClearThumbnails;
-  SetStatus('Ready');
+  SetStatus(RSReady);
   SetFolderOpsEnabled(False);
 end;
 
@@ -1100,17 +1124,7 @@ var
   Files: TStringArray;
   Thread: TValidateThread;
 begin
-  if FDir = '' then
-  begin
-    SetStatus('Open a folder first');
-    Exit;
-  end;
-  Files := GetFileList;
-  if Length(Files) = 0 then
-  begin
-    SetStatus('No CBZ files in folder');
-    Exit;
-  end;
+  if not RequireFiles(False, Files) then Exit;
 
   Thread := TValidateThread.Create(Files, FDir, @UpdateProgress);
   BeginServiceThread(Thread, 'Validating...', @ValidateThreadTerminated,
@@ -1130,11 +1144,7 @@ var
 begin
   Thread := Sender as TValidateThread;
   FinishServiceThread(TbValidate, MnuValidate);
-  if Thread.FatalException <> nil then
-  begin
-    SetStatus('Validation failed: ' + Exception(Thread.FatalException).Message);
-    Exit;
-  end;
+  if ServiceThreadFailed(Thread, 'Validation') then Exit;
   Dlg := TdlgValidate.Create(Self);
   Dlg.ShowResults(Thread.Result);
   Dlg.ShowModal;
@@ -1156,14 +1166,7 @@ var
   Options: TConvertOptions;
   Thread: TConvertThread;
 begin
-  if FDir = '' then
-  begin
-    SetStatus('Open a folder first');
-    Exit;
-  end;
-  { Collect files }
-  Files := GetFileList;
-  if Length(Files) = 0 then Exit;
+  if not RequireFiles(False, Files) then Exit;
 
   Dlg := TdlgWebp.Create(Self);
   try
@@ -1200,12 +1203,7 @@ begin
   LoadDirectory(FDir);
   FinishServiceThread(TbConvertWebP, MnuConvertWebP);
 
-  if Thread.FatalException <> nil then
-  begin
-    SetStatus('WebP conversion failed: ' +
-      Exception(Thread.FatalException).Message);
-    Exit;
-  end;
+  if ServiceThreadFailed(Thread, 'WebP conversion') then Exit;
   SetStatus(Format('WebP conversion complete: %d files', [Length(Thread.Result)]));
 
   Dlg := TdlgConvertResults.Create(Self);
@@ -1235,14 +1233,7 @@ var
   SeriesName: string;
   Thread: TMergeThread;
 begin
-  if FDir = '' then
-  begin
-    SetStatus('Open a folder first');
-    Exit;
-  end;
-  { Collect all CBZ files }
-  Files := GetFileList(True);
-  if Length(Files) = 0 then Exit;
+  if not RequireFiles(True, Files) then Exit;
 
   { Auto-detect series name }
   SeriesName := TMergeService.DetectSeriesName(Files);
@@ -1352,8 +1343,10 @@ var
 begin
   if (FDir = '') or (LVFiles.Selected = nil) then Exit;
   DirPath := ExcludeTrailingPathDelimiter(FDir);
-  { xdg-open opens the directory in the default file manager }
-  SysUtils.ExecuteProcess('/usr/bin/xdg-open', [DirPath], []);
+  { OpenDocument opens the directory in the platform's default file manager
+    (Explorer on Windows, Finder on macOS, xdg-open on Linux). }
+  if not OpenDocument(DirPath) then
+    SetStatus('Could not open directory');
 end;
 
 procedure TfrmMain.MnuManageComicInfoClick(Sender: TObject);
@@ -1366,7 +1359,7 @@ var
 begin
   if FDir = '' then
   begin
-    SetStatus('Open a folder first');
+    SetStatus(RSOpenFolderFirst);
     Exit;
   end;
   if LVFiles.Selected = nil then
@@ -1408,7 +1401,7 @@ var
 begin
   if FDir = '' then
   begin
-    SetStatus('Open a folder first');
+    SetStatus(RSOpenFolderFirst);
     Exit;
   end;
   { Collect files }
@@ -1684,7 +1677,7 @@ end;
   MnuPageRenumberClick
   --------------------
   Renames every non-Gone page to a zero-padded sequential number with the
-  original file extension preserved (e.g. "0001.jpg", "0002.png", …).
+  original file extension preserved (e.g. "page_0001.jpg", "page_0002.png", …).
   The page names are updated in FPages but the .cbz is not touched until
   the user saves.  FRenumber is also set globally so the save thread will
   renumber again (idempotent).
@@ -1731,7 +1724,7 @@ begin
     MemStream.LoadFromFile(OpenDialog.FileName);
 
     { Decode the image for the thumbnail cache }
-    if SameText(PageExt, '.webp') then
+    if SameText(PageExt, EXT_WEBP) then
       Img := WebPToIntfImage(MemStream.Memory, MemStream.Size)
     else
     begin
@@ -1805,7 +1798,7 @@ begin
         begin
           PageNum := j + 1;
           PageExt := ExtractFileExt(FPages[j].Name);
-          FPages[j].Name := FormatPageName(PageNum, 4, PageExt);
+          FPages[j].Name := FormatPageName(PageNum, PAGE_PAD_DEFAULT, PageExt);
         end;
         FPages[j].OrigName := FPages[j].Name;
         Inc(j);

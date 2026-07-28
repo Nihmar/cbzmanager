@@ -6,10 +6,10 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls,
-  ExtCtrls, ComCtrls, udlgbase, usettings;
+  ExtCtrls, ComCtrls, udlgbase, usettings, uWebP;
 
 type
-  TdlgWebp = class(TForm)
+  TdlgWebp = class(TSettingsDialog)
     procedure FormCreate(Sender: TObject);
   private
     TrackQuality: TTrackBar;
@@ -23,9 +23,8 @@ type
     PanelBottom: TPanel;
     BtnConvert: TButton;
     BtnClose: TButton;
-    procedure LoadSettings;
-    procedure SaveSettings;
-    procedure FormClose(Sender: TObject; var CloseAction: TCloseAction);
+    procedure LoadSettings; override;
+    procedure SaveSettings; override;
     procedure TrackQualityChange(Sender: TObject);
     function GetQuality: integer;
     function GetBackup: boolean;
@@ -64,17 +63,17 @@ begin
   LblQualityVal.Top := 36;
   LblQualityVal.Width := 48;
   LblQualityVal.Alignment := taRightJustify;
-  LblQualityVal.Caption := '75%';
+  LblQualityVal.Caption := IntToStr(DEFAULT_WEBP_QUALITY) + '%';
 
   TrackQuality := TTrackBar.Create(Self);
   TrackQuality.Parent := Self;
   TrackQuality.Left := 12;
   TrackQuality.Top := 32;
   TrackQuality.Width := 380;
-  TrackQuality.Min := 30;
-  TrackQuality.Max := 100;
+  TrackQuality.Min := WEBP_QUALITY_MIN;
+  TrackQuality.Max := WEBP_QUALITY_MAX;
   TrackQuality.Frequency := 5;
-  TrackQuality.Position := 75;
+  TrackQuality.Position := DEFAULT_WEBP_QUALITY;
   TrackQuality.OnChange := @TrackQualityChange;
 
   CbReplaceOnlySmaller := TCheckBox.Create(Self);
@@ -128,13 +127,12 @@ begin
   BtnClose := CreateDialogButton(PanelBottom, '&Cancel', 372, 7, mrCancel,
     False, True);
 
-  LoadSettings;
-  OnClose := @FormClose;
+  InitSettingsPersistence;
 end;
 
 procedure TdlgWebp.LoadSettings;
 begin
-  TrackQuality.Position := AppSettings.ReadInteger('WebP', 'Quality', 75);
+  TrackQuality.Position := AppSettings.ReadInteger('WebP', 'Quality', DEFAULT_WEBP_QUALITY);
   LblQualityVal.Caption := IntToStr(TrackQuality.Position) + '%';
   CbReplaceOnlySmaller.Checked :=
     AppSettings.ReadBool('WebP', 'ReplaceOnlyIfSmaller', True);
@@ -155,12 +153,6 @@ begin
   AppSettings.WriteBool('WebP', 'RemoveComicInfo', CbRemoveComicInfo.Checked);
   AppSettings.WriteBool('WebP', 'Renumber', CbRenumber.Checked);
   AppSettings.WriteInteger('WebP', 'BackupMode', GroupBackup.ItemIndex);
-  AppSettings.UpdateFile;
-end;
-
-procedure TdlgWebp.FormClose(Sender: TObject; var CloseAction: TCloseAction);
-begin
-  if ModalResult = mrOK then SaveSettings;
 end;
 
 procedure TdlgWebp.TrackQualityChange(Sender: TObject);

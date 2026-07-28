@@ -124,15 +124,12 @@ begin
   Total := Length(AFiles);
   Result := nil;
   SetLength(Result, Total);
-  if Assigned(AOnProgress) and (Total > 0) then
-    AOnProgress(0, Format('Converting 0/%d files', [Total]));
+  ReportServiceStart(AOnProgress, 'Converting', Total);
   for i := 0 to High(AFiles) do
   begin
-    if Assigned(AOnProgress) then
-      AOnProgress((i * 100) div Total,
-        Format('Converting %s (%d/%d)', [AFiles[i], i + 1, Total]));
+    ReportServiceProgress(AOnProgress, 'Converting', AFiles[i], i, Total);
     Result[i].FileName := AFiles[i];
-    FullPath := IncludeTrailingPathDelimiter(ADir) + AFiles[i];
+    FullPath := CBZFullPath(ADir, AFiles[i]);
     try
       Result[i].OriginalSize := GetFileSize(FullPath);
       NewEntries := ConvertCBZToWebP(FullPath, Options.Quality,

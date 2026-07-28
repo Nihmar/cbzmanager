@@ -75,6 +75,8 @@ function MergeIntoVolume(const SourceFiles: TStringArray;
 { Converte le immagini di un CBZ in WebP direttamente in RAM.
   Restituisce True se il file e' stato modificato.
   I parametri controllano la qualita' e le opzioni di conversione.
+  SkipExistingWebP: se True le pagine gia' in formato .webp vengono lasciate
+  intatte; se False vengono decodificate e ri-codificate alla qualita' scelta.
   AOnProgress (optional) riceve (percent, message) per ogni pagina processata. }
 function ConvertCBZToWebP(const FileName: string; Quality: integer;
   ReplaceOnlyIfSmaller, SkipExistingWebP, RemoveComicInfo, RenumberPages: boolean;
@@ -147,7 +149,7 @@ begin
   Result := nil;
   if (Stream = nil) or (Stream.Size <= 0) then Exit;
   try
-    if SameText(Ext, '.webp') then
+    if SameText(Ext, EXT_WEBP) then
       Result := WebPToIntfImage(Stream.Memory, Stream.Size)
     else
       Result := StreamToIntfImage(Stream, ReaderClassForExt(Ext));
@@ -398,9 +400,7 @@ end;
   are NOT convertible – they are already in the target format. }
 function IsConvertibleExt(const Ext: string): boolean;
 begin
-  Result := SameText(Ext, '.jpg') or SameText(Ext, '.jpeg') or
-    SameText(Ext, '.png') or SameText(Ext, '.gif') or SameText(Ext, '.bmp') or
-    SameText(Ext, '.tiff') or SameText(Ext, '.tif');
+  Result := ExtInList(Ext, CONVERTIBLE_EXTS);
 end;
 
 function ConvertCBZToWebP(const FileName: string; Quality: integer;
@@ -430,7 +430,7 @@ function ConvertCBZToWebP(const FileName: string; Quality: integer;
 
   function PageName(ANum: integer; const AExt: string): string;
   begin
-    Result := Format('page_%.4d%s', [ANum, AExt]);
+    Result := FormatPageName(ANum, PAGE_PAD_DEFAULT, AExt);
   end;
 
   { Keep original entry, applying renumber when requested }
@@ -449,7 +449,9 @@ function ConvertCBZToWebP(const FileName: string; Quality: integer;
       KeepEntry(Dest, Count, Source.Name, Source);
   end;
 
-  { Try to decode image, encode as WebP, return WebP stream or nil }
+  { Try to decode image, encode as WebP, return WebP stream or nil.
+    Existing .webp pages are decoded via uWebP (re-encoding at the chosen
+    quality); other formats use the matching FPImage reader. }
   function TryWebPEncode(const Source: TZipEntryData;
     const Ext: string): TMemoryStream;
   var
@@ -461,7 +463,10 @@ function ConvertCBZToWebP(const FileName: string; Quality: integer;
     try
       RawStream.CopyFrom(Source.Data, Source.Data.Size);
       RawStream.Position := 0;
-      Img := StreamToIntfImage(RawStream, ReaderClassForExt(Ext));
+      if SameText(Ext, EXT_WEBP) then
+        Img := WebPToIntfImage(RawStream.Memory, RawStream.Size)
+      else
+        Img := StreamToIntfImage(RawStream, ReaderClassForExt(Ext));
     finally
       RawStream.Free;
     end;
@@ -510,8 +515,18 @@ begin
           Continue;
         end;
 
-        { --- Non-convertible (incl. existing .webp): keep as-is --- }
-        if not IsConvertibleExt(Ext) then
+        { --- Existing .webp: keep as-is when skipping, otherwise fall
+              through to re-encode it at the chosen quality. --- }
+        if SameText(Ext, EXT_WEBP) then
+        begin
+          if SkipExistingWebP then
+          begin
+            KeepOriginal(Result, PageNum, AllEntries[i], Ext);
+            Continue;
+          end;
+        end
+        { --- Other non-convertible formats: always keep as-is --- }
+        else if not IsConvertibleExt(Ext) then
         begin
           KeepOriginal(Result, PageNum, AllEntries[i], Ext);
           Continue;
@@ -531,7 +546,7 @@ begin
           AModified := True;
           Inc(AConvertedCount);
           if RenumberPages then
-            AdoptEntry(Result, PageNum, PageName(PageNum + 1, '.webp'), WebPData)
+            AdoptEntry(Result, PageNum, PageName(PageNum + 1, EXT_WEBP), WebPData)
           else
             AdoptEntry(Result, PageNum, AllEntries[i].Name, WebPData);
         end;
@@ -586,9 +601,7 @@ begin
       end;
     end;
 
-    Padding := 3;
-    if PageNum > 999 then Padding := 4;
-    if PageNum > 9999 then Padding := 5;
+    Padding := PagePaddingFor(PageNum);
 
     for i := 0 to PageNum - 1 do
       Result[i].Name := FormatPageName(i + 1, Padding, Result[i].Name);
@@ -625,7 +638,7 @@ begin
         Inc(PageNum);
       end;
 
-      Padding := Max(3, Length(IntToStr(PageNum)));
+      Padding := PagePaddingFor(PageNum);
       SetLength(Result, PageNum);
       PageNum := 0;
 

@@ -122,6 +122,12 @@ uses
 const
   BatchSize = 4;
 
+  { ComicInfo badge painted in the top-right corner of a thumbnail:
+    a filled circle BADGE_SIZE pixels across, inset BADGE_MARGIN from
+    the top and right edges. }
+  BADGE_SIZE   = 12;
+  BADGE_MARGIN = 2;
+
   { TThumbThread }
 
 constructor TThumbThread.Create;
@@ -204,7 +210,8 @@ begin
       begin
         Thumb.Canvas.Brush.Color := clLime;
         Thumb.Canvas.Pen.Color := clGreen;
-        Thumb.Canvas.Ellipse(Thumb.Width - 14, 2, Thumb.Width - 2, 14);
+        Thumb.Canvas.Ellipse(Thumb.Width - BADGE_MARGIN - BADGE_SIZE, BADGE_MARGIN,
+          Thumb.Width - BADGE_MARGIN, BADGE_MARGIN + BADGE_SIZE);
       end;
       try
         ILIdx := FImages.Add(Thumb, nil);

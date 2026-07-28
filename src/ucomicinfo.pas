@@ -274,16 +274,15 @@ begin
   Result := DefaultComicInfo;
   Entries := CollectZipEntries(AFilePath);
   try
-    for i := 0 to High(Entries) do
-      if SameText(Entries[i].Name, COMICINFO_XML) then
-      begin
-        Entries[i].Data.Position := 0;
-        SetLength(XML, Entries[i].Data.Size);
-        if Length(XML) > 0 then
-          Entries[i].Data.Read(XML[1], Length(XML));
-        Result := ParseComicInfoXML(XML);
-        Break;
-      end;
+    i := FindComicInfoIndex(Entries);
+    if i >= 0 then
+    begin
+      Entries[i].Data.Position := 0;
+      SetLength(XML, Entries[i].Data.Size);
+      if Length(XML) > 0 then
+        Entries[i].Data.Read(XML[1], Length(XML));
+      Result := ParseComicInfoXML(XML);
+    end;
   finally
     FreeZipEntries(Entries);
   end;
@@ -294,21 +293,14 @@ procedure WriteComicInfoToCBZ(const AFilePath: string;
 var
   Entries: TZipEntries;
   XML: string;
-  i, k, Idx: integer;
+  k, Idx: integer;
   Found: boolean;
 begin
   Entries := CollectZipEntries(AFilePath);
   try
     XML := GenerateComicInfoXML(AData);
-    Found := False;
-    Idx := -1;
-    for i := 0 to High(Entries) do
-      if SameText(Entries[i].Name, COMICINFO_XML) then
-      begin
-        Found := True;
-        Idx := i;
-        Break;
-      end;
+    Idx := FindComicInfoIndex(Entries);
+    Found := Idx >= 0;
 
     if Found then
     begin

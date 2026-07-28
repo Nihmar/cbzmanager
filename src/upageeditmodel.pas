@@ -277,7 +277,7 @@ begin
     Inc(i);
     Dec(j);
   end;
-  AppendChange(AChanges, ckMoved, 'inversione');
+  AppendChange(AChanges, ckMoved, 'reverse');
 end;
 
 function PageRenumber(var APages: TPageStates; var AChanges: TChanges): integer;
@@ -291,7 +291,7 @@ begin
     if APages[i].Gone then Continue;
     Inc(Result);
     Ext := ExtractFileExt(APages[i].Name);
-    APages[i].Name := FormatPageName(Result, 4, Ext);
+    APages[i].Name := FormatPageName(Result, PAGE_PAD_DEFAULT, Ext);
   end;
   AppendChange(AChanges, ckMoved, 'renumber');
 end;
@@ -412,7 +412,7 @@ end;
        NOT marked Gone, locate its data in AllEntries by matching OrigName
        (case-insensitive), copy the stream, and append to OutEntries.
        - If FRenumber is True, the output name is generated from the 1-based
-         position (e.g. "0001.jpg").
+         position (e.g. "page_0001.jpg").
        - Otherwise the current Name from the snapshot is used.
     3. Write OutEntries back to disk via ReplaceCBZ (which also handles the
        backup/rollback dance).
@@ -451,7 +451,7 @@ begin
             begin
               PageNum := Length(OutEntries);                // 1-based after append
               PageExt := ExtractFileExt(FPages[i].Name);    // preserve original extension
-              NewName := FormatPageName(PageNum, 4, PageExt); // e.g. "0003.jpg"
+              NewName := FormatPageName(PageNum, PAGE_PAD_DEFAULT, PageExt); // e.g. "page_0003.jpg"
             end
             else
               NewName := FPages[i].Name;  // keep the (possibly user-renamed) name
@@ -476,7 +476,7 @@ begin
             begin
               PageNum := Length(OutEntries);
               PageExt := ExtractFileExt(FPages[i].Name);
-              NewName := FormatPageName(PageNum, 4, PageExt);
+              NewName := FormatPageName(PageNum, PAGE_PAD_DEFAULT, PageExt);
             end
             else
               NewName := FPages[i].Name;

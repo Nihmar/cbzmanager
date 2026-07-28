@@ -26,6 +26,11 @@ interface
 uses
   Classes, SysUtils, uzipcore, uZipEditor, uservicebase;
 
+const
+  { Fallback chapters-per-volume used when neither an explicit value nor an
+    auto-calculated one is available. }
+  DEFAULT_CHAPTERS_PER_VOLUME = 7;
+
 { Extract the chapter-number portion of a CBZ filename as a string,
   preserving leading zeros. Returns empty string if no pattern found. }
 function ExtractChapterNumStr(const AFileName: string): string;
@@ -329,7 +334,7 @@ begin
   begin
     CPV := CalculateChaptersPerVolume(AFiles, SeriesName);
     if CPV < 1 then
-      CPV := 7;                           // sensible default when no data exists
+      CPV := DEFAULT_CHAPTERS_PER_VOLUME; // sensible default when no data exists
   end;
 
   ChBatch := nil;
@@ -421,7 +426,7 @@ begin
       Batch[n] := ChBatch[ChIdx + n];
 
     VolName := Format('%s V%.3d.cbz', [SeriesName, VolNum]);
-    FullPath := IncludeTrailingPathDelimiter(ADir) + VolName;
+    FullPath := CBZFullPath(ADir, VolName);
 
     VolEntries := MergeIntoVolume(Batch, ADir, AOnProgress);
     try
@@ -467,7 +472,7 @@ begin
   { ---- Phase 3: Cleanup — remove or back up original chapter files ---- }
   for n := 0 to ChIdx - 1 do
   begin
-    FullPath := IncludeTrailingPathDelimiter(ADir) + ChBatch[n];
+    FullPath := CBZFullPath(ADir, ChBatch[n]);
     if Options.Delete then
       DeleteFile(FullPath)
     else

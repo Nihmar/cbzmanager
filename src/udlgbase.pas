@@ -16,11 +16,27 @@ unit udlgbase;
 interface
 
 uses
-  Classes, Controls, Forms, StdCtrls, ComCtrls, ExtCtrls;
+  Classes, Controls, Forms, StdCtrls, ComCtrls, ExtCtrls, usettings;
 
 const
   DLG_BTN_WIDTH = 80;
   DLG_BTN_HEIGHT = 30;
+
+type
+  { Base class for the small settings dialogs.  When the dialog closes with
+    ModalResult = mrOK it persists the user's choices via SaveSettings and
+    flushes AppSettings.  Subclasses override LoadSettings / SaveSettings and
+    call InitSettingsPersistence from FormCreate, after building their
+    controls (which both the load and the OnClose wiring rely on). }
+  TSettingsDialog = class(TForm)
+  protected
+    procedure LoadSettings; virtual;
+    procedure SaveSettings; virtual;
+  public
+    { Load initial values and wire OnClose to persist on OK. }
+    procedure InitSettingsPersistence;
+    procedure SettingsFormClose(Sender: TObject; var CloseAction: TCloseAction);
+  end;
 
 { Applies the standard modal-dialog chrome (fixed border, system menu only). }
 procedure InitDialogChrome(ADialog: TForm);
@@ -39,6 +55,32 @@ function CreateDialogButton(AParent: TWinControl; const ACaption: string;
 function CreateReportListView(ADialog: TForm; ACheckboxes: boolean): TListView;
 
 implementation
+
+procedure TSettingsDialog.LoadSettings;
+begin
+  { no-op by default; subclasses override }
+end;
+
+procedure TSettingsDialog.SaveSettings;
+begin
+  { no-op by default; subclasses override }
+end;
+
+procedure TSettingsDialog.InitSettingsPersistence;
+begin
+  LoadSettings;
+  OnClose := @SettingsFormClose;
+end;
+
+procedure TSettingsDialog.SettingsFormClose(Sender: TObject;
+  var CloseAction: TCloseAction);
+begin
+  if ModalResult = mrOK then
+  begin
+    SaveSettings;
+    AppSettings.UpdateFile;
+  end;
+end;
 
 procedure InitDialogChrome(ADialog: TForm);
 begin

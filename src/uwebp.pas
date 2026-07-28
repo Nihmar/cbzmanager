@@ -25,6 +25,12 @@ interface
 uses
   Classes, SysUtils, IntfGraphics;
 
+const
+  { WebP encode quality: valid range and default used across the app. }
+  WEBP_QUALITY_MIN     = 30;
+  WEBP_QUALITY_MAX     = 100;
+  DEFAULT_WEBP_QUALITY = 75;
+
 { True se libwebp e' stata trovata e caricata correttamente. }
 function WebPAvailable: boolean;
 
@@ -38,8 +44,9 @@ function WebPToIntfImage(const Data: Pointer; DataSize: SizeInt): TLazIntfImage;
 
 { Codifica una TLazIntfImage in formato WebP. Restituisce i bytes codificati
   in un TMemoryStream (proprieta' del chiamante). nil se la codifica fallisce.
-  Quality: 0..100 (default 75). Richiede libwebp con encode support. }
-function IntfImageToWebP(const Img: TLazIntfImage; Quality: integer = 75): TMemoryStream;
+  Quality: 0..100 (default DEFAULT_WEBP_QUALITY). Richiede libwebp con encode support. }
+function IntfImageToWebP(const Img: TLazIntfImage;
+  Quality: integer = DEFAULT_WEBP_QUALITY): TMemoryStream;
 
 implementation
 

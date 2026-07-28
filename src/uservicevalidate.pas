@@ -126,7 +126,7 @@ begin
   SetLength(Result, Length(AFiles));
   for i := 0 to High(AFiles) do
   begin
-    FullPath := IncludeTrailingPathDelimiter(ADir) + AFiles[i];
+    FullPath := CBZFullPath(ADir, AFiles[i]);
     Result[i].FileName := AFiles[i];
     try
       if IsValidCBZ(FullPath) then
@@ -190,11 +190,9 @@ begin
   SetLength(Result, Length(AFiles));
   for i := 0 to High(AFiles) do
   begin
-    FullPath := IncludeTrailingPathDelimiter(ADir) + AFiles[i];
+    FullPath := CBZFullPath(ADir, AFiles[i]);
     Result[i].FileName := AFiles[i];
-    if Assigned(AOnProgress) then
-      AOnProgress(i * 100 div Length(AFiles),
-        Format('Validating %s (%d/%d)', [AFiles[i], i + 1, Length(AFiles)]));
+    ReportServiceProgress(AOnProgress, 'Validating', AFiles[i], i, Length(AFiles));
     try
       { ValidateCBZImages attempts to decode every image and returns both
         the count of successes and a per-entry status array. }

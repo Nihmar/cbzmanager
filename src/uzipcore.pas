@@ -17,6 +17,15 @@ type
 const
   COMICINFO_XML = 'ComicInfo.xml';
 
+  { Fixed zero-padding width used by page-renumber operations (e.g.
+    "page_0001.jpg"). }
+  PAGE_PAD_DEFAULT = 4;
+
+  { Minimum zero-padding width for count-derived page numbering (merge and
+    page-filter).  PagePaddingFor widens it when the page count needs more
+    digits so every page in one archive shares a single width. }
+  PAGE_PAD_MIN = 3;
+
 function CollectZipEntries(const FileName: string): TZipEntries;
 
 procedure WriteZipFromEntriesDeflated(const FileName: string;
@@ -25,6 +34,20 @@ procedure WriteZipFromEntriesDeflated(const FileName: string;
 procedure FreeZipEntries(var Entries: TZipEntries);
 
 function FormatPageName(PageNum, Padding: integer; const Ext: string): string;
+
+{ Padding width to use for an archive of APageCount pages: PAGE_PAD_MIN,
+  widened when the count needs more digits so every page shares one width. }
+function PagePaddingFor(APageCount: integer): integer;
+
+{ Returns the index of the ComicInfo.xml entry in AEntries, or -1 if absent.
+  Case-insensitive match on the entry name. }
+function FindComicInfoIndex(const AEntries: TZipEntries): integer;
+
+{ Removes every ComicInfo.xml entry from AEntries in place, freeing the
+  dropped streams and compacting the surviving entries toward the front of
+  the array (their Data ownership is preserved).  Returns the number of
+  entries removed. }
+function StripComicInfo(var AEntries: TZipEntries): integer;
 
 implementation
 
@@ -120,6 +143,50 @@ end;
 function FormatPageName(PageNum, Padding: integer; const Ext: string): string;
 begin
   Result := 'page_' + Format('%.*d', [Padding, PageNum]) + Ext;
+end;
+
+function PagePaddingFor(APageCount: integer): integer;
+var
+  Digits: integer;
+begin
+  Result := PAGE_PAD_MIN;
+  Digits := Length(IntToStr(APageCount));
+  if Digits > Result then
+    Result := Digits;
+end;
+
+function FindComicInfoIndex(const AEntries: TZipEntries): integer;
+var
+  i: integer;
+begin
+  Result := -1;
+  for i := 0 to High(AEntries) do
+    if SameText(AEntries[i].Name, COMICINFO_XML) then
+      Exit(i);
+end;
+
+function StripComicInfo(var AEntries: TZipEntries): integer;
+var
+  j, k: integer;
+begin
+  k := 0;
+  for j := 0 to High(AEntries) do
+  begin
+    if SameText(AEntries[j].Name, COMICINFO_XML) then
+    begin
+      AEntries[j].Data.Free;      { free the dropped ComicInfo stream }
+      AEntries[j].Data := nil;
+      Continue;
+    end;
+    if j <> k then
+    begin
+      AEntries[k] := AEntries[j];  { shift survivor toward the front }
+      AEntries[j].Data := nil;     { ownership transferred to slot k }
+    end;
+    Inc(k);
+  end;
+  Result := Length(AEntries) - k;
+  SetLength(AEntries, k);
 end;
 
 end.

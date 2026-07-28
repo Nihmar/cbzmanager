@@ -10,7 +10,7 @@ uses
 
 type
 
-  TdlgComicInfo = class(TForm)
+  TdlgComicInfo = class(TSettingsDialog)
     procedure FormCreate(Sender: TObject);
   private
     BtnRemove: TButton;
@@ -21,7 +21,8 @@ type
     FDir: string;
     FFiles: TStringArray;
     procedure BtnRemoveClick(Sender: TObject);
-    procedure FormClose(Sender: TObject; var CloseAction: TCloseAction);
+    procedure LoadSettings; override;
+    procedure SaveSettings; override;
   public
     procedure ScanFiles(const AFiles: TStringArray; const ADir: string);
   end;
@@ -56,7 +57,6 @@ begin
   CbBackup.Parent := PanelBottom;
   CbBackup.SetBounds(12, 8, 540, 24);
   CbBackup.Caption := 'Create backup (_OLD.cbz) before rewriting';
-  CbBackup.Checked := AppSettings.ReadBool('RemoveComicInfo', 'Backup', True);
 
   BtnClose := CreateDialogButton(PanelBottom, 'Close', 472, 44, mrOk, True, True);
   BtnRemove := CreateDialogButton(PanelBottom, '&Remove', 384, 44, mrNone,
@@ -64,14 +64,17 @@ begin
   BtnRemove.OnClick := @BtnRemoveClick;
 
   LVFiles.Clear;
-  OnClose := @FormClose;
+  InitSettingsPersistence;
 end;
 
-procedure TdlgComicInfo.FormClose(Sender: TObject;
-  var CloseAction: TCloseAction);
+procedure TdlgComicInfo.LoadSettings;
+begin
+  CbBackup.Checked := AppSettings.ReadBool('RemoveComicInfo', 'Backup', True);
+end;
+
+procedure TdlgComicInfo.SaveSettings;
 begin
   AppSettings.WriteBool('RemoveComicInfo', 'Backup', CbBackup.Checked);
-  AppSettings.UpdateFile;
 end;
 
 procedure TdlgComicInfo.ScanFiles(const AFiles: TStringArray;

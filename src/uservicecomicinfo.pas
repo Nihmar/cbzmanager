@@ -95,7 +95,6 @@ var
   i: integer;
   FullPath: string;
   Entries: TZipEntries;
-  j: integer;
 begin
   Result := nil;
   SetLength(Result, Length(AFiles));
@@ -103,17 +102,11 @@ begin
   begin
     Result[i].FileName := AFiles[i];
     Result[i].Removed := False;
-    FullPath := IncludeTrailingPathDelimiter(ADir) + AFiles[i];
+    FullPath := CBZFullPath(ADir, AFiles[i]);
     try
       Entries := CollectZipEntries(FullPath);
       try
-        Result[i].HasComicInfo := False;
-        for j := 0 to High(Entries) do
-          if SameText(Entries[j].Name, COMICINFO_XML) then
-          begin
-            Result[i].HasComicInfo := True;
-            Break;
-          end;
+        Result[i].HasComicInfo := FindComicInfoIndex(Entries) >= 0;
       finally
         FreeZipEntries(Entries);
       end;
@@ -130,17 +123,14 @@ end;
   Remove
 
   Iterates over each file, collects its ZIP entries, checks for
-  ComicInfo.xml, and — if found — rebuilds the archive without it by
-  compacting the entry array in-place.  The compaction shifts non-skipped
-  entries toward the front of the array, nil'ing the Data pointer of the
-  moved source to prevent the final FreeZipEntries call from double-freeing
-  memory that now belongs to the compacted array.
+  ComicInfo.xml, and — if found — rebuilds the archive without it.  The
+  ComicInfo removal/compaction is delegated to StripComicInfo (uzipcore).
   ---------------------------------------------------------------------------- }
 class function TComicInfoService.Remove(const AFiles: TStringArray;
   const ADir: string; ABackup: boolean;
   AOnProgress: TServiceProgressEvent = nil): TComicInfoResults;
 var
-  i, j, k, Total: integer;
+  i, Total: integer;
   FullPath: string;
   Entries: TZipEntries;
   Found: boolean;
@@ -148,50 +138,24 @@ begin
   Total := Length(AFiles);
   Result := nil;
   SetLength(Result, Total);
-  if Assigned(AOnProgress) and (Total > 0) then
-    AOnProgress(0, Format('Scanning 0/%d files', [Total]));
+  ReportServiceStart(AOnProgress, 'Scanning', Total);
   for i := 0 to High(AFiles) do
   begin
-    if Assigned(AOnProgress) then
-      AOnProgress((i * 100) div Total,
-        Format('Removing from %s (%d/%d)', [AFiles[i], i + 1, Total]));
+    ReportServiceProgress(AOnProgress, 'Removing from', AFiles[i], i, Total);
     Result[i].FileName := AFiles[i];
     Result[i].Removed := False;
-    FullPath := IncludeTrailingPathDelimiter(ADir) + AFiles[i];
+    FullPath := CBZFullPath(ADir, AFiles[i]);
     try
       Entries := CollectZipEntries(FullPath);
       try
         { Check if ComicInfo.xml exists }
-        Found := False;
-        for j := 0 to High(Entries) do
-          if SameText(Entries[j].Name, COMICINFO_XML) then
-          begin
-            Found := True;
-            Break;
-          end;
+        Found := FindComicInfoIndex(Entries) >= 0;
         Result[i].HasComicInfo := Found;
 
         if not Found then Continue;
 
-        { Build filtered output array — transfer ownership from Entries.
-          Walk through Entries; skip ComicInfo.xml entries.  Non-skipped
-          entries are compacted toward the front of the array by shifting
-          them down when a gap has opened (j <> k).  The Data pointer of
-          the shifted source is nil'd to prevent FreeZipEntries from
-          double-freeing it later. }
-        k := 0;
-        for j := 0 to High(Entries) do
-        begin
-          if SameText(Entries[j].Name, COMICINFO_XML) then
-            Continue;   { Entries[j].Data will be freed by FreeZipEntries below }
-          if j <> k then
-          begin
-            Entries[k] := Entries[j];      { shift entry to compacted position }
-            Entries[j].Data := nil;        { transferred — source no longer owns it }
-          end;
-          Inc(k);
-        end;
-        SetLength(Entries, k);             { truncate to the compacted count }
+        { Drop ComicInfo.xml, compacting the surviving entries. }
+        StripComicInfo(Entries);
 
         { Backup original if requested }
         if ABackup then

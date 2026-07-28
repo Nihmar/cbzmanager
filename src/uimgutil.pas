@@ -22,10 +22,40 @@ interface
 uses
   Classes,
   SysUtils,
+  Controls,
   Graphics,
   FPImage,
   IntfGraphics,
   Math;
+
+const
+  { Thumbnail height-to-width ratio: comic pages are taller than wide, so a
+    thumbnail of width W is given height ThumbHeight(W). }
+  PAGE_ASPECT_RATIO = 1.25;
+
+  { Image file extensions (leading dot included).  Single source of truth
+    for extension literals used across the app. }
+  EXT_JPG  = '.jpg';
+  EXT_JPEG = '.jpeg';
+  EXT_PNG  = '.png';
+  EXT_BMP  = '.bmp';
+  EXT_GIF  = '.gif';
+  EXT_TIFF = '.tiff';
+  EXT_TIF  = '.tif';
+  EXT_WEBP = '.webp';
+
+  { Every raster format the app recognizes as a page image. }
+  IMAGE_EXTS: array[0..7] of string =
+    (EXT_PNG, EXT_JPG, EXT_JPEG, EXT_BMP, EXT_GIF, EXT_WEBP, EXT_TIFF, EXT_TIF);
+
+  { Formats that can be re-encoded to WebP (i.e. every image format except
+    WebP itself). }
+  CONVERTIBLE_EXTS: array[0..6] of string =
+    (EXT_JPG, EXT_JPEG, EXT_PNG, EXT_GIF, EXT_BMP, EXT_TIFF, EXT_TIF);
+
+{ True if Ext (leading dot included) case-insensitively matches any entry
+  of AList. }
+function ExtInList(const Ext: string; const AList: array of string): boolean;
 
 { Restituisce la classe di reader adatta all'estensione, nil se non gestita.
   Il WebP non e' incluso: se ne occupa uWebP. }
@@ -51,6 +81,14 @@ function IntfToBitmap(Src: TLazIntfImage): TBitmap;
 { SOLO MAIN THREAD: IntfToBitmap e Canvas toccano il widgetset. }
 function MakeThumb(Src: TLazIntfImage; W, H: integer): TBitmap;
 
+{ Altezza thumbnail per una data larghezza, secondo PAGE_ASPECT_RATIO. }
+function ThumbHeight(AWidth: integer): integer;
+
+{ SOLO MAIN THREAD: costruisce una thumbnail di AImg dimensionata a
+  AIL.Width × AIL.Height, la aggiunge alla image list, libera il bitmap
+  intermedio e restituisce l'indice della nuova immagine. }
+function AppendThumb(AIL: TImageList; AImg: TLazIntfImage): integer;
+
 function IsImageExt(const Ext: string): boolean;
 
 implementation
@@ -58,13 +96,21 @@ implementation
 uses
   FPReadJPEG, FPReadPNG, FPReadBMP, FPReadGIF, GraphType, LCLType;
 
+function ExtInList(const Ext: string; const AList: array of string): boolean;
+var
+  i: integer;
+begin
+  Result := False;
+  for i := 0 to High(AList) do
+    if SameText(Ext, AList[i]) then
+      Exit(True);
+end;
+
 { Restituisce True se l'estensione (incluso il punto) appartiene a un
   formato immagine riconosciuto dal programma (incluso WebP e TIFF). }
 function IsImageExt(const Ext: string): boolean;
 begin
-  Result := SameText(Ext, '.png') or SameText(Ext, '.jpg') or
-    SameText(Ext, '.jpeg') or SameText(Ext, '.bmp') or SameText(Ext, '.gif') or
-    SameText(Ext, '.webp') or SameText(Ext, '.tiff') or SameText(Ext, '.tif');
+  Result := ExtInList(Ext, IMAGE_EXTS);
 end;
 
 { Crea una thumbnail di dimensione W×H a partire da una TLazIntfImage.
@@ -101,6 +147,23 @@ begin
       (H - DH) div 2 + DH), Full);
   finally
     Full.Free;
+  end;
+end;
+
+function ThumbHeight(AWidth: integer): integer;
+begin
+  Result := Round(AWidth * PAGE_ASPECT_RATIO);
+end;
+
+function AppendThumb(AIL: TImageList; AImg: TLazIntfImage): integer;
+var
+  Thumb: TBitmap;
+begin
+  Thumb := MakeThumb(AImg, AIL.Width, AIL.Height);
+  try
+    Result := AIL.Add(Thumb, nil);
+  finally
+    Thumb.Free;
   end;
 end;
 
@@ -205,13 +268,13 @@ end;
   separatamente da uWebP). }
 function ReaderClassForExt(const Ext: string): TFPCustomImageReaderClass;
 begin
-  if SameText(Ext, '.jpg') or SameText(Ext, '.jpeg') then
+  if SameText(Ext, EXT_JPG) or SameText(Ext, EXT_JPEG) then
     Result := TFPReaderJPEG
-  else if SameText(Ext, '.png') then
+  else if SameText(Ext, EXT_PNG) then
     Result := TFPReaderPNG
-  else if SameText(Ext, '.bmp') then
+  else if SameText(Ext, EXT_BMP) then
     Result := TFPReaderBMP
-  else if SameText(Ext, '.gif') then
+  else if SameText(Ext, EXT_GIF) then
     Result := TFPReaderGIF
   else
     Result := nil;

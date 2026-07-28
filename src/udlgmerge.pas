@@ -10,7 +10,7 @@ uses
 
 type
 
-  TdlgMerge = class(TForm)
+  TdlgMerge = class(TSettingsDialog)
     procedure FormCreate(Sender: TObject);
   private
     BtnMerge: TButton;
@@ -37,9 +37,8 @@ type
     procedure RefreshVolumeColumn;
     function GetChaptersList: TIntArray;
     function GetGenerateComicInfo: boolean;
-    procedure LoadSettings;
-    procedure SaveSettings;
-    procedure FormClose(Sender: TObject; var CloseAction: TCloseAction);
+    procedure LoadSettings; override;
+    procedure SaveSettings; override;
   public
     EditSeries: TEdit;
     EditChapterStart: TSpinEdit;
@@ -234,8 +233,7 @@ begin
 
   EditCPV.Enabled := False;
 
-  LoadSettings;
-  OnClose := @FormClose;
+  InitSettingsPersistence;
 end;
 
 procedure TdlgMerge.LoadSettings;
@@ -259,12 +257,6 @@ begin
     CbGenerateComicInfo.Checked);
   AppSettings.WriteBool('Merge', 'ManualCPV', CbManualCPV.Checked);
   AppSettings.WriteInteger('Merge', 'CPV', EditCPV.Value);
-  AppSettings.UpdateFile;
-end;
-
-procedure TdlgMerge.FormClose(Sender: TObject; var CloseAction: TCloseAction);
-begin
-  if ModalResult = mrOK then SaveSettings;
 end;
 
 procedure TdlgMerge.CbManualCPVChange(Sender: TObject);

@@ -27,6 +27,10 @@ const
     naming convention used by BackupFile and ReplaceCBZ. }
   BACKUP_SUFFIX = '_OLD.cbz';
 
+  { File extension identifying a comic archive.  Single source of truth for
+    the ".cbz" suffix used when enumerating and matching archives. }
+  CBZ_EXT = '.cbz';
+
 type
   { ------------------------------------------------------------------------
     TServiceProgressEvent – Method-pointer callback for progress reporting.
@@ -44,6 +48,32 @@ type
     thread wrapper passes @Progress to a static service method).
     ------------------------------------------------------------------------ }
   TServiceProgressProc = procedure(APercent: integer; const AMsg: string);
+
+{ ------------------------------------------------------------------------
+  CBZFullPath – Join a directory and a bare filename into a full path.
+
+  Centralises the "IncludeTrailingPathDelimiter(ADir) + AFileName" idiom
+  shared by every batch service.
+  ------------------------------------------------------------------------ }
+function CBZFullPath(const ADir, AFileName: string): string;
+
+{ ------------------------------------------------------------------------
+  ReportServiceStart – Emit the initial "AVerb 0/N files" progress message.
+
+  No-op when AOnProgress is nil or ATotal is zero.
+  ------------------------------------------------------------------------ }
+procedure ReportServiceStart(AOnProgress: TServiceProgressEvent;
+  const AVerb: string; ATotal: integer);
+
+{ ------------------------------------------------------------------------
+  ReportServiceProgress – Emit a per-file "AVerb AFileName (i/N)" message.
+
+  APercent is computed as (AIndex * 100) div ATotal.  AIndex is 0-based;
+  the message shows AIndex + 1.  No-op when AOnProgress is nil or ATotal
+  is zero.
+  ------------------------------------------------------------------------ }
+procedure ReportServiceProgress(AOnProgress: TServiceProgressEvent;
+  const AVerb, AFileName: string; AIndex, ATotal: integer);
 
 { ------------------------------------------------------------------------
   BackupFile – Rename AFilePath to a _OLD.cbz backup.
@@ -92,6 +122,35 @@ function ReplaceCBZ(const AFilePath: string;
 implementation
 
 { ----------------------------------------------------------------------------
+  CBZFullPath
+  ---------------------------------------------------------------------------- }
+function CBZFullPath(const ADir, AFileName: string): string;
+begin
+  Result := IncludeTrailingPathDelimiter(ADir) + AFileName;
+end;
+
+{ ----------------------------------------------------------------------------
+  ReportServiceStart
+  ---------------------------------------------------------------------------- }
+procedure ReportServiceStart(AOnProgress: TServiceProgressEvent;
+  const AVerb: string; ATotal: integer);
+begin
+  if Assigned(AOnProgress) and (ATotal > 0) then
+    AOnProgress(0, Format('%s 0/%d files', [AVerb, ATotal]));
+end;
+
+{ ----------------------------------------------------------------------------
+  ReportServiceProgress
+  ---------------------------------------------------------------------------- }
+procedure ReportServiceProgress(AOnProgress: TServiceProgressEvent;
+  const AVerb, AFileName: string; AIndex, ATotal: integer);
+begin
+  if Assigned(AOnProgress) and (ATotal > 0) then
+    AOnProgress((AIndex * 100) div ATotal,
+      Format('%s %s (%d/%d)', [AVerb, AFileName, AIndex + 1, ATotal]));
+end;
+
+{ ----------------------------------------------------------------------------
   BackupFile
   ---------------------------------------------------------------------------- }
 function BackupFile(const AFilePath: string): boolean;
@@ -117,11 +176,18 @@ var
 begin
   Result := nil;                                              // empty array by default
   Dir := IncludeTrailingPathDelimiter(ADir);                  // ensure "dir/"
-  if FindFirst(Dir + '*.cbz', faAnyFile, SearchRec) = 0 then
+  { Enumerate every file and match the extension in code.  FindFirst mask
+    matching is case-sensitive on Unix, so a "*.cbz" mask would miss files
+    named "*.CBZ" on Linux; a SameText check keeps Windows and Linux
+    behaviour identical. }
+  if FindFirst(Dir + AllFilesMask, faAnyFile, SearchRec) = 0 then
   begin
     repeat
-      SetLength(Result, Length(Result) + 1);
-      Result[High(Result)] := SearchRec.Name;                 // bare filename only
+      if SameText(ExtractFileExt(SearchRec.Name), CBZ_EXT) then
+      begin
+        SetLength(Result, Length(Result) + 1);
+        Result[High(Result)] := SearchRec.Name;               // bare filename only
+      end;
     until FindNext(SearchRec) <> 0;
     FindClose(SearchRec);                                     // release OS search handle
   end;

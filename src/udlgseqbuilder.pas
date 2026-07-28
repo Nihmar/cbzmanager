@@ -636,11 +636,10 @@ end;
 procedure TdlgSeqBuilder.RebuildGrid;
 var
   i, Idx, TW, TH, SpacingX, SpacingY: integer;
-  Thumb: TBitmap;
   It: TListItem;
 begin
   TW := ZoomScroll.Position;
-  TH := Round(TW * 1.25);
+  TH := ThumbHeight(TW);
 
   ILChapters.Clear;
   ILChapters.Width := TW;
@@ -654,14 +653,7 @@ begin
     for i := FRemovedCount to High(FFiles) do
     begin
       if i < FImages.Count then
-      begin
-        Thumb := MakeThumb(FImages[i], TW, TH);
-        try
-          Idx := ILChapters.Add(Thumb, nil);
-        finally
-          Thumb.Free;
-        end;
-      end
+        Idx := AppendThumb(ILChapters, FImages[i])
       else
         Idx := -1;
 

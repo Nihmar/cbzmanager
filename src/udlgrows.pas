@@ -53,11 +53,10 @@ type
       SelectedCount - how many pages are currently selected
       Renumber / BatchAll / DeletePermanently - checkbox states }
 
-  TdlgRows = class(TForm)
+  TdlgRows = class(TSettingsDialog)
     procedure FormCreate(Sender: TObject);
     procedure FormShow(Sender: TObject);
     procedure FormCloseQuery(Sender: TObject; var CanClose: boolean);
-    procedure FormClose(Sender: TObject; var CloseAction: TCloseAction);
   private
     BtnOk: TButton;
     BtnCancel: TButton;
@@ -81,8 +80,8 @@ type
     procedure ParseRanges;
     procedure UpdatePreview;
     procedure EditRangesChange(Sender: TObject);
-    procedure LoadSettings;
-    procedure SaveSettings;
+    procedure LoadSettings; override;
+    procedure SaveSettings; override;
   public
     { Clears the range text, the selection and the preview. Called
       automatically whenever PageCount is assigned. }
@@ -239,8 +238,7 @@ begin
   FPageCount := 0;
   FSelected := nil;
 
-  LoadSettings;
-  OnClose := @FormClose;
+  InitSettingsPersistence;
 end;
 
 procedure TdlgRows.LoadSettings;
@@ -256,12 +254,6 @@ begin
   AppSettings.WriteBool('DeleteRows', 'Renumber', CbRenumber.Checked);
   AppSettings.WriteBool('DeleteRows', 'BatchAll', CbBatchAll.Checked);
   AppSettings.WriteBool('DeleteRows', 'DeletePermanently', CbDeletePerm.Checked);
-  AppSettings.UpdateFile;
-end;
-
-procedure TdlgRows.FormClose(Sender: TObject; var CloseAction: TCloseAction);
-begin
-  if ModalResult = mrOK then SaveSettings;
 end;
 
 procedure TdlgRows.FormShow(Sender: TObject);

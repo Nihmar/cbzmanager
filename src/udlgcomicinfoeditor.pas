@@ -104,7 +104,7 @@ implementation
 {$R *.lfm}
 
 uses
-  uzipcore;
+  uzipcore, uLog;
 
 const
   LBL_LEFT = 12;
@@ -606,7 +606,6 @@ var
   n, ChNum, Err: integer;
   NumStr: string;
   Entries: TZipEntries;
-  i: integer;
   HasXML: boolean;
 begin
   FFilePath := AFilePath;
@@ -618,17 +617,13 @@ begin
   try
     Entries := CollectZipEntries(AFilePath);
     try
-      for i := 0 to High(Entries) do
-        if SameText(Entries[i].Name, COMICINFO_XML) then
-        begin
-          HasXML := True;
-          Entries[i].Data.Position := 0;
-          Break;
-        end;
+      HasXML := FindComicInfoIndex(Entries) >= 0;
     finally
       FreeZipEntries(Entries);
     end;
   except
+    on E: Exception do
+      Log('ComicInfoEditor: could not inspect %s: %s', [AFilePath, E.Message]);
   end;
 
   FExistingLoaded := HasXML;

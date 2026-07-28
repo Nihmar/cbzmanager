@@ -14,7 +14,6 @@ uses
   main,
   { you can add units after this }
   uzipcore,
-  udlgbase,
   usettings,
   uZipEditor,
   uWebP,
@@ -29,7 +28,7 @@ uses
   udlgconvertresults,
   udlgseqbuilder,
   ucomicinfo,
-  udlgcomicinfoeditor;
+  udlgcomicinfoeditor, udlgbase;
 
   {$R *.res}
 

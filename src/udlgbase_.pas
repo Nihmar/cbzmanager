@@ -1,20 +1,22 @@
 unit udlgbase;
 
+{ ============================================================================
+  udlgbase – Shared construction helpers for the programmatically-built
+  dialogs.
+
+  Every dialog in this project is streamed from an empty .lfm shell and builds
+  its controls in FormCreate.  That led to the same chrome being copy-pasted
+  across all eight dialogs: the bsDialog border, an alBottom button panel,
+  80x30 action buttons, and read-only vsReport list views.  These helpers
+  centralise those patterns so each dialog only declares what actually differs.
+  ============================================================================ }
+
 {$mode ObjFPC}{$H+}
 
 interface
 
 uses
-  Classes,
-  SysUtils,
-  Forms,
-  Controls,
-  Graphics,
-  Dialogs,
-  ExtCtrls,
-  StdCtrls,
-  ComCtrls,
-  usettings;
+  Classes, Controls, Forms, StdCtrls, ComCtrls, ExtCtrls, usettings;
 
 const
   DLG_BTN_WIDTH = 80;
@@ -26,11 +28,7 @@ type
     flushes AppSettings.  Subclasses override LoadSettings / SaveSettings and
     call InitSettingsPersistence from FormCreate, after building their
     controls (which both the load and the OnClose wiring rely on). }
-
-  { TSettingsDialog }
-
   TSettingsDialog = class(TForm)
-  private
   protected
     procedure LoadSettings; virtual;
     procedure SaveSettings; virtual;
@@ -58,7 +56,31 @@ function CreateReportListView(ADialog: TForm; ACheckboxes: boolean): TListView;
 
 implementation
 
-{$R *.lfm}
+procedure TSettingsDialog.LoadSettings;
+begin
+  { no-op by default; subclasses override }
+end;
+
+procedure TSettingsDialog.SaveSettings;
+begin
+  { no-op by default; subclasses override }
+end;
+
+procedure TSettingsDialog.InitSettingsPersistence;
+begin
+  LoadSettings;
+  OnClose := @SettingsFormClose;
+end;
+
+procedure TSettingsDialog.SettingsFormClose(Sender: TObject;
+  var CloseAction: TCloseAction);
+begin
+  if ModalResult = mrOK then
+  begin
+    SaveSettings;
+    AppSettings.UpdateFile;
+  end;
+end;
 
 procedure InitDialogChrome(ADialog: TForm);
 begin
@@ -102,34 +124,6 @@ begin
   Result.RowSelect := True;
   Result.GridLines := True;
   Result.Checkboxes := ACheckboxes;
-end;
-
-{ TSettingsDialog }
-
-procedure TSettingsDialog.LoadSettings;
-begin
-  { no-op by default; subclasses override }
-end;
-
-procedure TSettingsDialog.SaveSettings;
-begin
-  { no-op by default; subclasses override }
-end;
-
-procedure TSettingsDialog.InitSettingsPersistence;
-begin
-  LoadSettings;
-  OnClose := @SettingsFormClose;
-end;
-
-procedure TSettingsDialog.SettingsFormClose(Sender: TObject;
-  var CloseAction: TCloseAction);
-begin
-  if ModalResult = mrOk then
-  begin
-    SaveSettings;
-    AppSettings.UpdateFile;
-  end;
 end;
 
 end.

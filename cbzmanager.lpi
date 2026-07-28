@@ -83,10 +83,6 @@
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="src\udlgbase.pas"/>
-        <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
         <Filename Value="src\usettings.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
@@ -157,6 +153,13 @@
         <Filename Value="src\udlgmerge.pas"/>
         <IsPartOfProject Value="True"/>
         <ComponentName Value="dlgMerge"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\udlgbase.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="SettingsDialog"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
       </Unit>

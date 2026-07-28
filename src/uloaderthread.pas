@@ -199,6 +199,13 @@ begin
     begin
       FPages.Add(FBatch[i].Image);
       Thumb := MakeThumb(FBatch[i].Image, FImages.Width, FImages.Height);
+      { Bake ComicInfo badge into the thumbnail bitmap }
+      if FBatch[i].HasComicInfo then
+      begin
+        Thumb.Canvas.Brush.Color := clLime;
+        Thumb.Canvas.Pen.Color := clGreen;
+        Thumb.Canvas.Ellipse(Thumb.Width - 14, 2, Thumb.Width - 2, 14);
+      end;
       try
         ILIdx := FImages.Add(Thumb, nil);
       finally
@@ -210,11 +217,6 @@ begin
         It.Caption := FBatch[i].Name;
       It.SubItems.Add(FBatch[i].Name);  // hidden — full filename for file ops
       It.ImageIndex := ILIdx;
-      { ComicInfo badge: StateIndex = 0 → badge visible, -1 → no badge }
-      if FBatch[i].HasComicInfo then
-        It.StateIndex := 0
-      else
-        It.StateIndex := -1;
     end;
   finally
     FListView.EndUpdate;

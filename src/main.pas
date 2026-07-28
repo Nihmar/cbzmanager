@@ -225,6 +225,7 @@ type
     MnuCtxValidate: TMenuItem;
     MnuCtxConvertWebP: TMenuItem;
     MnuCtxMerge: TMenuItem;
+    MnuCtxOpenInDir: TMenuItem;
 
     PMPages: TPopupMenu;
     MnuPgDelete: TMenuItem;
@@ -253,6 +254,7 @@ type
       State: TDragState; var Accept: boolean);
     procedure MnuCtxRenameFileClick(Sender: TObject);
     procedure MnuCtxDeleteFileClick(Sender: TObject);
+    procedure MnuCtxOpenInDirClick(Sender: TObject);
     procedure MnuConvertWebPClick(Sender: TObject);
     procedure ConvertThreadTerminated(Sender: TObject);
 
@@ -288,8 +290,6 @@ type
     procedure ZoomScrollMouseWheel(Sender: TObject; Shift: TShiftState;
       WheelDelta: integer; MousePos: TPoint; var Handled: boolean);
   private
-    { 16×16 badge overlay for ComicInfo indicator on LVFiles items }
-    ILComicInfoBadge: TImageList;
     { Currently open directory (the one shown in LVFiles). }
     FDir: string;
     { Background thread that scans FDir and loads first-page thumbnails. }
@@ -395,8 +395,6 @@ const
     line argument it is loaded immediately.
 }
 procedure TfrmMain.FormCreate(Sender: TObject);
-var
-  Badge: TBitmap;
 begin
   Caption := 'CBZ Manager';
   FFirstPages := TLazIntfImageList.Create(True);
@@ -420,31 +418,6 @@ begin
   LVPages.ReadOnly := True;
   LVPages.ViewStyle := vsIcon;
   LVPages.LargeImages := ILPages;
-
-  { ComicInfo badge — small green circle indicator for StateImages overlay }
-  ILComicInfoBadge := TImageList.Create(nil);
-  ILComicInfoBadge.Width := 16;
-  ILComicInfoBadge.Height := 16;
-  LVFiles.StateImages := ILComicInfoBadge;
-  begin
-    Badge := TBitmap.Create;
-    try
-      Badge.SetSize(16, 16);
-      Badge.PixelFormat := pf32bit;
-      Badge.Transparent := True;
-      Badge.TransparentColor := clNone;
-      Badge.Canvas.Brush.Color := clNone;
-      Badge.Canvas.FillRect(0, 0, 16, 16);
-      { Green filled circle }
-      Badge.Canvas.Brush.Color := clLime;
-      Badge.Canvas.Pen.Color := clGreen;
-      Badge.Canvas.Ellipse(1, 1, 15, 15);
-      ILComicInfoBadge.Add(Badge, nil);
-    finally
-      Badge.Free;
-    end;
-  end;
-
   ZoomScroll.Min := THUMB_MIN_SIZE;
   ZoomScroll.Max := CacheW;
   ZoomScroll.Position := THUMB_DEFAULT_SIZE;
@@ -465,6 +438,12 @@ begin
   Log('exe dir: %s', [ExtractFilePath(ParamStr(0))]);
   if ParamCount > 0 then
     LoadDirectory(ParamStr(1));
+
+  { Programmatic menu item: "Open in directory" }
+  MnuCtxOpenInDir := TMenuItem.Create(Self);
+  MnuCtxOpenInDir.Caption := 'Open in &directory';
+  MnuCtxOpenInDir.OnClick := @MnuCtxOpenInDirClick;
+  PMFiles.Items.Add(MnuCtxOpenInDir);
 
   { Programmatic hints for icon-only buttons }
   BtnPgMoveUp.Hint := 'Move page up';
@@ -500,7 +479,6 @@ begin
   end;
   FFirstPages.Free;
   FPagePreviews.Free;
-  ILComicInfoBadge.Free;
 end;
 
 {
@@ -1027,6 +1005,7 @@ begin
   MnuOpenFile.Enabled := (LVFiles.Selected <> nil) and Ready;
   MnuCtxRenameFile.Enabled := (LVFiles.Selected <> nil) and Ready;
   MnuCtxDeleteFile.Enabled := (LVFiles.Selected <> nil) and Ready;
+  MnuCtxOpenInDir.Enabled := (LVFiles.Selected <> nil) and Ready;
   MnuCtxValidate.Enabled := Ready and MnuValidate.Enabled;
   MnuCtxConvertWebP.Enabled := Ready and MnuConvertWebP.Enabled;
   MnuCtxMerge.Enabled := Ready and MnuMerge.Enabled;
@@ -1365,6 +1344,16 @@ begin
   HidePreview;
   LoadDirectory(FDir);
   SetStatus(Format('Deleted: %s', [FileName]));
+end;
+
+procedure TfrmMain.MnuCtxOpenInDirClick(Sender: TObject);
+var
+  DirPath: string;
+begin
+  if (FDir = '') or (LVFiles.Selected = nil) then Exit;
+  DirPath := ExcludeTrailingPathDelimiter(FDir);
+  { xdg-open opens the directory in the default file manager }
+  SysUtils.ExecuteProcess('/usr/bin/xdg-open', [DirPath], []);
 end;
 
 procedure TfrmMain.MnuManageComicInfoClick(Sender: TObject);

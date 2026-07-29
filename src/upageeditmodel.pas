@@ -174,38 +174,43 @@ end;
 procedure PageMoveUp(var APages: TPageStates; var AChanges: TChanges;
   const ASel: array of integer);
 var
-  i, n: integer;
+  i, n, p: integer;
   Tmp: TPageState;
 begin
   for i := 0 to High(ASel) do
   begin
     n := ASel[i];
-    if (n > 0) and (n <= High(APages)) then
-    begin
-      Tmp := APages[n - 1];
-      APages[n - 1] := APages[n];
-      APages[n] := Tmp;
-      AppendChange(AChanges, ckMoved, APages[n - 1].Name);
-    end;
+    if (n < 0) or (n > High(APages)) then Continue;
+    { Swap with the previous VISIBLE page: skip staged-deleted (Gone)
+      neighbours so a move-up after a delete is not a silent no-op. }
+    p := n - 1;
+    while (p >= 0) and APages[p].Gone do Dec(p);
+    if p < 0 then Continue;  { already the first visible page }
+    Tmp := APages[p];
+    APages[p] := APages[n];
+    APages[n] := Tmp;
+    AppendChange(AChanges, ckMoved, APages[p].Name);
   end;
 end;
 
 procedure PageMoveDown(var APages: TPageStates; var AChanges: TChanges;
   const ASel: array of integer);
 var
-  i, n: integer;
+  i, n, p: integer;
   Tmp: TPageState;
 begin
   for i := High(ASel) downto 0 do
   begin
     n := ASel[i];
-    if (n >= 0) and (n < High(APages)) then
-    begin
-      Tmp := APages[n + 1];
-      APages[n + 1] := APages[n];
-      APages[n] := Tmp;
-      AppendChange(AChanges, ckMoved, APages[n + 1].Name);
-    end;
+    if (n < 0) or (n > High(APages)) then Continue;
+    { Swap with the next VISIBLE page, skipping Gone neighbours. }
+    p := n + 1;
+    while (p <= High(APages)) and APages[p].Gone do Inc(p);
+    if p > High(APages) then Continue;  { already the last visible page }
+    Tmp := APages[p];
+    APages[p] := APages[n];
+    APages[n] := Tmp;
+    AppendChange(AChanges, ckMoved, APages[p].Name);
   end;
 end;
 

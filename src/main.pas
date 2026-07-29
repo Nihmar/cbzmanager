@@ -653,6 +653,10 @@ begin
       if FPages[i].Gone then Continue;
       It := LVPages.Items.Add;
       It.Caption := FPages[i].Name;
+      { Bind this visible row back to its FPages index.  LVPages is a
+        compacted view (Gone entries are skipped), so row index <> FPages
+        index; consumers must map through Data, never assume they are equal. }
+      It.Data := Pointer(PtrInt(i));
       It.ImageIndex := AppendThumb(ILPages, FPages[i].Image);
     end;
     LVPages.LargeImages := ILPages;
@@ -769,7 +773,8 @@ begin
     if LVPages.Items[i].Selected then
     begin
       SetLength(Result, n + 1);
-      Result[n] := i;
+      { Return the FPages (model) index, not the visible row index. }
+      Result[n] := PtrInt(LVPages.Items[i].Data);
       Inc(n);
     end;
 end;
@@ -1447,7 +1452,7 @@ end;
 procedure TfrmMain.MnuDeleteRowsClick(Sender: TObject);
 var
   Dlg: TdlgRows;
-  i: integer;
+  i, m: integer;
   Files: TStringArray;
   Thread: TDeletePagesThread;
 begin
@@ -1458,7 +1463,10 @@ begin
   end;
   Dlg := TdlgRows.Create(Self);
   try
-    Dlg.PageCount := Length(FPages);
+    { Page numbers the user types are 1-based over the VISIBLE pages, so the
+      dialog must be sized to the visible count, not Length(FPages) (which
+      still counts pages staged for deletion). }
+    Dlg.PageCount := LVPages.Items.Count;
     Dlg.Directory := FDir;
     if Dlg.ShowModal = mrOk then
     begin
@@ -1476,12 +1484,18 @@ begin
       end
       else
       begin
-        { Single-file mode: operate on in-memory model }
+        { Single-file mode: operate on in-memory model.  Dlg.Selected is
+          indexed by visible position; map each through LVPages.Items[].Data
+          to the FPages (model) index before marking it Gone. }
         for i := 0 to High(Dlg.Selected) do
-          if Dlg.Selected[i] and (i < Length(FPages)) and not FPages[i].Gone then
+          if Dlg.Selected[i] and (i < LVPages.Items.Count) then
           begin
-            FPages[i].Gone := True;
-            AddChange(ckDeleted, FPages[i].Name);
+            m := PtrInt(LVPages.Items[i].Data);
+            if (m >= 0) and (m <= High(FPages)) and not FPages[m].Gone then
+            begin
+              FPages[m].Gone := True;
+              AddChange(ckDeleted, FPages[m].Name);
+            end;
           end;
         if Dlg.Renumber then
           FRenumber := True;
@@ -1610,7 +1624,7 @@ procedure TfrmMain.MnuPageMoveStartClick(Sender: TObject);
 begin
   if not PanelSingleFile.Visible then Exit;
   if LVPages.Selected = nil then Exit;
-  PageMoveToStart(FPages, FChanges, LVPages.Selected.Index);
+  PageMoveToStart(FPages, FChanges, PtrInt(LVPages.Selected.Data));
   UpdateStageBar;
   RenderPages;
 end;
@@ -1625,7 +1639,7 @@ procedure TfrmMain.MnuPageMoveEndClick(Sender: TObject);
 begin
   if not PanelSingleFile.Visible then Exit;
   if LVPages.Selected = nil then Exit;
-  PageMoveToEnd(FPages, FChanges, LVPages.Selected.Index);
+  PageMoveToEnd(FPages, FChanges, PtrInt(LVPages.Selected.Data));
   UpdateStageBar;
   RenderPages;
 end;
@@ -1934,7 +1948,7 @@ end;
 }
 procedure TfrmMain.LVPagesDragDrop(Sender, Source: TObject; X, Y: integer);
 var
-  FromIdx, ToIdx: integer;
+  FromIdx, ToIdx, VisPos: integer;
   Item: TListItem;
   MovedName: string;
 begin
@@ -1942,14 +1956,17 @@ begin
   if LVPages.Selected = nil then Exit;
   Item := LVPages.GetItemAt(X, Y);
   if Item = nil then Exit;
-  FromIdx := LVPages.Selected.Index;
-  ToIdx := Item.Index;
+  { Map visible rows to FPages (model) indices — the list is a compacted
+    view, so row index <> FPages index once pages are staged for deletion. }
+  FromIdx := PtrInt(LVPages.Selected.Data);
+  ToIdx := PtrInt(Item.Data);
   if (FromIdx < 0) or (ToIdx < 0) or (FromIdx = ToIdx) then Exit;
   MovedName := FPages[FromIdx].Name;
+  VisPos := Item.Index;  { visible drop row — capture before RenderPages frees Item }
   PageDragDrop(FPages, FChanges, FromIdx, ToIdx);
   UpdateStageBar;
   RenderPages;
-  SetStatus(Format('%s moved to position %d', [MovedName, ToIdx + 1]));
+  SetStatus(Format('%s moved to position %d', [MovedName, VisPos + 1]));
 end;
 
 { ---------------------------------------------------------------------------

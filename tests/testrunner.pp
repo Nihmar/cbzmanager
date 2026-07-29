@@ -8,7 +8,8 @@ uses
   test_uservicemerge,
   test_uservicevalidate,
   test_uservicecomicinfo,
-  test_ucomicinfo;
+  test_ucomicinfo,
+  test_upageeditmodel;
 var
   App: TTestRunner;
 begin

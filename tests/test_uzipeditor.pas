@@ -24,6 +24,7 @@ type
     procedure TestCollectZipEntries;
     procedure TestValidateCBZImages;
     procedure TestMergeIntoVolume;
+    procedure TestMergeIntoVolume_SkipsNonImage;
     procedure TestFilterPages_DeleteFirst_Renumber;
     procedure TestFilterPages_DeleteLast_Renumber;
     procedure TestFilterPages_KeepOriginalNumbers_DeleteFirst;
@@ -179,6 +180,40 @@ begin
     AssertEquals('page_004.jpg', 'page_004.jpg', Vol1[3].Name);
   finally
     FreeZipEntries(Vol1);
+  end;
+end;
+
+procedure TZipEditorTest.TestMergeIntoVolume_SkipsNonImage;
+var
+  Vol: TZipEntries;
+  Sources: TStringArray;
+  Png, Txt: TMemoryStream;
+  i: integer;
+begin
+  { A chapter containing 2 images plus a non-image entry (credits.txt).
+    The merged volume must contain only the 2 image pages — the .txt must
+    not be renumbered into the page sequence. }
+  Png := CreateMinimalPNGStream;
+  Txt := TMemoryStream.Create;
+  Txt.WriteAnsiString('credits');
+  Txt.Position := 0;
+  CreateCBZ(FTempDir + 'chp.cbz', [Png, Txt, Png],
+    ['img001.jpg', 'credits.txt', 'img002.jpg']);
+  Png.Free;
+  Txt.Free;
+
+  SetLength(Sources, 1);
+  Sources[0] := 'chp.cbz';
+
+  Vol := MergeIntoVolume(Sources, FTempDir);
+  try
+    AssertEquals('only 2 image pages', 2, Length(Vol));
+    AssertEquals('page_001.jpg', 'page_001.jpg', Vol[0].Name);
+    AssertEquals('page_002.jpg', 'page_002.jpg', Vol[1].Name);
+    for i := 0 to High(Vol) do
+      AssertTrue('no .txt entry', LowerCase(ExtractFileExt(Vol[i].Name)) <> '.txt');
+  finally
+    FreeZipEntries(Vol);
   end;
 end;
 

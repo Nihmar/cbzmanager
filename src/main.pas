@@ -2125,8 +2125,12 @@ begin
     SetLength(FBaseline, FPagePreviews.Count);
     for i := 0 to FPagePreviews.Count - 1 do
     begin
-      FPages[i].Name := LVPages.Items[i].Caption;
-      FPages[i].OrigName := LVPages.Items[i].Caption;
+      { Use the real archive entry name (stored in SubItems[0]), not the
+        display caption, which is a chapter-number extraction and would
+        fail to match the archive on save (dropping the page) and lose the
+        extension when renumbering. }
+      FPages[i].Name := ItemFileName(LVPages.Items[i]);
+      FPages[i].OrigName := FPages[i].Name;
       FPages[i].Image := FPagePreviews[i];
       FPages[i].Gone := False;
       FPages[i].OrigIndex := i;

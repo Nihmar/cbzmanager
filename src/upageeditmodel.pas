@@ -427,8 +427,9 @@ end;
   successful completion. }
 procedure TSaveChangesThread.Execute;
 var
-  i, j, PageNum: integer;
+  i, j, PageNum, SrcIdx: integer;
   AllEntries, OutEntries: TZipEntries;
+  Consumed: array of boolean;
   NewName, PageExt: string;
   Found: boolean;
 begin
@@ -438,82 +439,97 @@ begin
     AllEntries := CollectZipEntries(FPageFile);
     try
       SetLength(OutEntries, 0);
-      // Rebuild the entry list from the (possibly reordered / filtered) snapshot.
-      for i := 0 to High(FPages) do
-      begin
-        if Terminated then Exit;            // cooperative cancellation
-        if FPages[i].Gone then Continue;    // skip deleted pages
-
-        // Find the original entry data by matching the OrigName.
-        Found := False;
-        for j := 0 to High(AllEntries) do
-          if SameText(AllEntries[j].Name, FPages[i].OrigName) then
-          begin
-            Found := True;
-            SetLength(OutEntries, Length(OutEntries) + 1);
-            // Choose the output filename.
-            if FRenumber then
-            begin
-              PageNum := Length(OutEntries);                // 1-based after append
-              PageExt := ExtractFileExt(FPages[i].Name);    // preserve original extension
-              NewName := FormatPageName(PageNum, PAGE_PAD_DEFAULT, PageExt); // e.g. "page_0003.jpg"
-            end
-            else
-              NewName := FPages[i].Name;  // keep the (possibly user-renamed) name
-
-            OutEntries[High(OutEntries)].Name := NewName;
-            // Deep-copy the entry's data stream so OutEntries owns its memory.
-            OutEntries[High(OutEntries)].Data := TMemoryStream.Create;
-            AllEntries[j].Data.Position := 0;
-            OutEntries[High(OutEntries)].Data.CopyFrom(AllEntries[j].Data,
-              AllEntries[j].Data.Size);
-            Break;  // entry found — move to next page in snapshot
-          end;
-
-        { If OrigName was not found in the original archive, this page
-          was inserted from an external file.  Use the Data stream. }
-        if not Found then
+      // Tracks which source entries a page has accounted for, so leftover
+      // (non-page) entries can be preserved rather than dropped.
+      SetLength(Consumed, Length(AllEntries));
+      try
+        // Rebuild the page list from the (reordered / filtered) snapshot.
+        for i := 0 to High(FPages) do
         begin
-          if FPages[i].Data <> nil then
-          begin
-            SetLength(OutEntries, Length(OutEntries) + 1);
-            if FRenumber then
-            begin
-              PageNum := Length(OutEntries);
-              PageExt := ExtractFileExt(FPages[i].Name);
-              NewName := FormatPageName(PageNum, PAGE_PAD_DEFAULT, PageExt);
-            end
-            else
-              NewName := FPages[i].Name;
+          if Terminated then Exit;          // cooperative cancellation
 
-            OutEntries[High(OutEntries)].Name := NewName;
-            OutEntries[High(OutEntries)].Data := TMemoryStream.Create;
+          // Locate this page's source entry by OrigName and mark it accounted
+          // for — whether the page survives or was deleted — so it is not
+          // re-added by the metadata-preservation pass below.
+          Found := False;
+          SrcIdx := -1;
+          for j := 0 to High(AllEntries) do
+            if (not Consumed[j]) and
+              SameText(AllEntries[j].Name, FPages[i].OrigName) then
+            begin
+              Consumed[j] := True;
+              SrcIdx := j;
+              Found := True;
+              Break;
+            end;
+
+          if FPages[i].Gone then Continue;  // deleted: accounted for, not written
+          // Nothing to write if the page is neither in the archive nor backed
+          // by inserted data (should not happen now OrigName is the real name).
+          if not (Found or (FPages[i].Data <> nil)) then Continue;
+
+          SetLength(OutEntries, Length(OutEntries) + 1);
+          // Choose the output filename.
+          if FRenumber then
+          begin
+            PageNum := Length(OutEntries);                // 1-based after append
+            PageExt := ExtractFileExt(FPages[i].Name);    // preserve extension
+            NewName := FormatPageName(PageNum, PAGE_PAD_DEFAULT, PageExt);
+          end
+          else
+            NewName := FPages[i].Name;      // keep the (possibly renamed) name
+          OutEntries[High(OutEntries)].Name := NewName;
+          OutEntries[High(OutEntries)].Data := TMemoryStream.Create;
+
+          if Found then
+          begin
+            // Deep-copy the original archive entry data.
+            AllEntries[SrcIdx].Data.Position := 0;
+            OutEntries[High(OutEntries)].Data.CopyFrom(AllEntries[SrcIdx].Data,
+              AllEntries[SrcIdx].Data.Size);
+          end
+          else if FPages[i].Data <> nil then
+          begin
+            // Inserted page (not from the original archive).
             FPages[i].Data.Position := 0;
             OutEntries[High(OutEntries)].Data.CopyFrom(FPages[i].Data,
               FPages[i].Data.Size);
           end;
+          // else: no source and no inserted data — leaves an empty stream,
+          // matching the previous behaviour for such (unexpected) pages.
         end;
-      end;
 
-      DoProgress(60, 'Writing new CBZ...');
-      if FBackupOld then
-      begin
-        // Safe path: backup original, then write new
-        if not ReplaceCBZ(FPageFile, OutEntries) then
+        // Preserve every source entry no page referenced — ComicInfo.xml and
+        // any other non-image metadata — so page edits never strip them.
+        for j := 0 to High(AllEntries) do
+          if not Consumed[j] then
+          begin
+            SetLength(OutEntries, Length(OutEntries) + 1);
+            OutEntries[High(OutEntries)].Name := AllEntries[j].Name;
+            OutEntries[High(OutEntries)].Data := TMemoryStream.Create;
+            AllEntries[j].Data.Position := 0;
+            OutEntries[High(OutEntries)].Data.CopyFrom(AllEntries[j].Data,
+              AllEntries[j].Data.Size);
+          end;
+
+        DoProgress(60, 'Writing new CBZ...');
+        if FBackupOld then
         begin
-          FResult.ErrorMsg := 'Replace failed — check disk space or permissions';
-          FreeZipEntries(OutEntries);
-          Exit;
-        end;
-      end
-      else
-      begin
-        // Direct overwrite — no backup
-        WriteZipFromEntriesDeflated(FPageFile, OutEntries);
+          // Safe path: backup original, then write new
+          if not ReplaceCBZ(FPageFile, OutEntries) then
+          begin
+            FResult.ErrorMsg := 'Replace failed — check disk space or permissions';
+            Exit;
+          end;
+        end
+        else
+          // Direct overwrite — no backup
+          WriteZipFromEntriesDeflated(FPageFile, OutEntries);
+        FResult.Success := True;
+        DoProgress(100, 'Save complete');
+      finally
+        FreeZipEntries(OutEntries);  // always freed, even on write failure
       end;
-      FreeZipEntries(OutEntries);
-      FResult.Success := True;
-      DoProgress(100, 'Save complete');
     finally
       FreeZipEntries(AllEntries);  // always free the source entries
     end;

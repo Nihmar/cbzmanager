@@ -2124,6 +2124,10 @@ begin
       FPages[i].Gone := False;
       FPages[i].OrigIndex := i;
       FBaseline[i] := FPages[i];
+      { Bind each freshly loaded row to its FPages index (1:1 at open, no Gone
+        entries yet).  Without this the item Data is nil and the first page
+        operation after opening would map every selection to model index 0. }
+      LVPages.Items[i].Data := Pointer(PtrInt(i));
     end;
     FChanges := nil;
     FRenumber := True;

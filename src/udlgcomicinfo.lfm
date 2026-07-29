@@ -1,10 +1,9 @@
-object dlgComicInfo: TdlgComicInfo
+inherited dlgComicInfo: TdlgComicInfo
   Left = 400
   Height = 400
   Top = 150
   Width = 560
   Caption = 'Remove ComicInfo.xml'
   Position = poOwnerFormCenter
-  LCLVersion = '4.8.0.0'
   OnCreate = FormCreate
 end

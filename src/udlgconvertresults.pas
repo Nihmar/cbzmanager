@@ -38,8 +38,6 @@ procedure TdlgConvertResults.FormCreate(Sender: TObject);
 var
   Col: TListColumn;
 begin
-  InitDialogChrome(Self);
-
   PanelBottom := CreateBottomPanel(Self, 64);
 
   LblSummary := TLabel.Create(Self);

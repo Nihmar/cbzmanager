@@ -1234,7 +1234,7 @@ begin
     Dlg.Images := FFirstPages;
     if Dlg.ShowModal <> mrOk then Exit;
 
-    Options.SeriesName := Dlg.EditSeries.Text;
+    Options.SeriesName := Dlg.LblFolder.Caption;
     Options.ChapterStart := Dlg.EditChapterStart.Value;
     Options.ChapterEnd := Dlg.EditChapterEnd.Value;
     Options.ChaptersList := Dlg.ChaptersList;

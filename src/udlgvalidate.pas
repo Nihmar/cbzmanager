@@ -27,8 +27,6 @@ procedure TdlgValidate.FormCreate(Sender: TObject);
 var
   Col: TListColumn;
 begin
-  InitDialogChrome(Self);
-
   PanelBottom := CreateBottomPanel(Self, 44);
 
   BtnClose := CreateDialogButton(PanelBottom, 'Close',

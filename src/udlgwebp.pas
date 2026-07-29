@@ -47,8 +47,6 @@ implementation
 
 procedure TdlgWebp.FormCreate(Sender: TObject);
 begin
-  InitDialogChrome(Self);
-
   LabelQuality := TLabel.Create(Self);
   LabelQuality.Parent := Self;
   LabelQuality.Left := 12;

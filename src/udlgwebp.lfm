@@ -1,10 +1,9 @@
-object dlgWebp: TdlgWebp
+inherited dlgWebp: TdlgWebp
   Left = 400
   Height = 380
   Top = 150
   Width = 460
   Caption = 'Convert to WebP'
   Position = poOwnerFormCenter
-  LCLVersion = '4.8.0.0'
   OnCreate = FormCreate
 end

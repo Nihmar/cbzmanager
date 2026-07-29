@@ -3,6 +3,8 @@ object SettingsDialog: TSettingsDialog
   Height = 240
   Top = 30
   Width = 320
+  BorderIcons = [biSystemMenu, biMaximize]
+  BorderStyle = bsDialog
   Caption = 'SettingsDialog'
   LCLVersion = '4.8.0.0'
 end

@@ -41,8 +41,6 @@ procedure TdlgComicInfo.FormCreate(Sender: TObject);
 var
   Col: TListColumn;
 begin
-  InitDialogChrome(Self);
-
   LVFiles := CreateReportListView(Self, True);
   Col := LVFiles.Columns.Add;
   Col.Caption := 'File';

@@ -10,46 +10,54 @@ uses
 
 type
 
+  { TdlgMerge }
+
   TdlgMerge = class(TSettingsDialog)
-    procedure FormCreate(Sender: TObject);
-  private
-    BtnMerge: TButton;
-    BtnClose: TButton;
     BtnBuildSeq: TButton;
+    BtnClose: TButton;
+    BtnMerge: TButton;
+    CbGenerateComicInfo: TCheckBox;
+    CbDelete: TCheckBox;
+    CbManualCPV: TCheckBox;
+    CbForce: TCheckBox;
+    CbCustomSeq: TCheckBox;
+    EditChapterEnd: TSpinEdit;
+    EditCPV: TSpinEdit;
+    LblChaptersFrom: TLabel;
+    LblCPV: TLabel;
+    LblChaptersTo: TLabel;
+    MemoChapterSequence: TMemo;
+    PanelCustomMergeTop: TPanel;
+    PanelCustomMerge: TPanel;
+    PanelCPV: TPanel;
+    PanelRight: TPanel;
+    PanelBottom: TPanel;
+    PanelChapters: TPanel;
+    PanelLeft: TPanel;
+    LblFolder: TLabel;
+    EditChapterStart: TSpinEdit;
+    procedure BtnBuildSeqClick(Sender: TObject);  
+    procedure CbCustomSeqChange(Sender: TObject);
+    procedure CbForceChange(Sender: TObject);
+    procedure CbManualCPVChange(Sender: TObject);
+    procedure EditCPVChange(Sender: TObject);
+    procedure FormCreate(Sender: TObject);
+    procedure MemoChapterSequenceChange(Sender: TObject);
+  private
     Label1: TLabel;
     Label2: TLabel;
     Label3: TLabel;
-    LblSeries: TLabel;
-    LblFolder: TLabel;
     LblSeq: TLabel;
     LVFiles: TListView;
-    PanelBottom: TPanel;
-    PanelTop: TPanel;
     FFiles: TStringArray;
     FDir: string;
     FImages: TLazIntfImageList;
-    procedure CbManualCPVChange(Sender: TObject);
-    procedure CbForceChange(Sender: TObject);
-    procedure CbCustomSeqChange(Sender: TObject);
-    procedure BtnBuildSeqClick(Sender: TObject);
-    procedure EditCPVChange(Sender: TObject);
-    procedure EditChapterSeqChange(Sender: TObject);
     procedure RefreshVolumeColumn;
     function GetChaptersList: TIntArray;
     function GetGenerateComicInfo: boolean;
     procedure LoadSettings; override;
     procedure SaveSettings; override;
   public
-    EditSeries: TEdit;
-    EditChapterStart: TSpinEdit;
-    EditChapterEnd: TSpinEdit;
-    EditCPV: TSpinEdit;
-    CbManualCPV: TCheckBox;
-    CbCustomSeq: TCheckBox;
-    EditChapterSeq: TEdit;
-    CbForce: TCheckBox;
-    CbDelete: TCheckBox;
-    CbGenerateComicInfo: TCheckBox;
     property ChaptersList: TIntArray read GetChaptersList;
     property GenerateComicInfo: boolean read GetGenerateComicInfo;
     property Images: TLazIntfImageList read FImages write FImages;
@@ -64,160 +72,13 @@ implementation
 uses
   udlgseqbuilder;
 
-{ TdlgMerge }
+  { TdlgMerge }
 
 procedure TdlgMerge.FormCreate(Sender: TObject);
 var
   Col: TListColumn;
 begin
-  InitDialogChrome(Self);
-
-  PanelTop := TPanel.Create(Self);
-  PanelTop.Parent := Self;
-  PanelTop.Align := alTop;
-  PanelTop.Height := 192;  { room for folder label + shifted controls }
-  PanelTop.BevelOuter := bvNone;
-
-  LblSeries := TLabel.Create(Self);
-  LblSeries.Parent := PanelTop;
-  LblSeries.Left := 12;
-  LblSeries.Top := 12;
-  LblSeries.Caption := 'Series name';
-  LblSeries.Font.Height := -13;
-  LblSeries.Font.Style := [fsBold];
-
-  EditSeries := TEdit.Create(Self);
-  EditSeries.Parent := PanelTop;
-  EditSeries.Left := 12;
-  EditSeries.Top := 32;
-  EditSeries.Width := 536;
-  EditSeries.ReadOnly := True;
-
-  LblFolder := TLabel.Create(Self);
-  LblFolder.Parent := PanelTop;
-  LblFolder.Left := 12;
-  LblFolder.Top := 56;
-  LblFolder.Font.Color := clGray;
-  LblFolder.Font.Height := -11;
-  LblFolder.Caption := '';
-
-  Label1 := TLabel.Create(Self);
-  Label1.Parent := PanelTop;
-  Label1.Left := 12;
-  Label1.Top := 76;
-  Label1.Caption := 'Chapters from:';
-
-  EditChapterStart := TSpinEdit.Create(Self);
-  EditChapterStart.Parent := PanelTop;
-  EditChapterStart.Left := 90;
-  EditChapterStart.Top := 72;
-  EditChapterStart.Width := 56;
-  EditChapterStart.MinValue := 0;
-  EditChapterStart.MaxValue := 9999;
-  EditChapterStart.Value := 0;
-
-  Label2 := TLabel.Create(Self);
-  Label2.Parent := PanelTop;
-  Label2.Left := 154;
-  Label2.Top := 76;
-  Label2.Caption := 'a:';
-
-  EditChapterEnd := TSpinEdit.Create(Self);
-  EditChapterEnd.Parent := PanelTop;
-  EditChapterEnd.Left := 180;
-  EditChapterEnd.Top := 72;
-  EditChapterEnd.Width := 56;
-  EditChapterEnd.MinValue := 1;
-  EditChapterEnd.MaxValue := 9999;
-  EditChapterEnd.Value := 1;
-
-  Label3 := TLabel.Create(Self);
-  Label3.Parent := PanelTop;
-  Label3.Left := 260;
-  Label3.Top := 76;
-  Label3.Caption := 'Ch. per volume:';
-
-  EditCPV := TSpinEdit.Create(Self);
-  EditCPV.Parent := PanelTop;
-  EditCPV.Left := 366;
-  EditCPV.Top := 72;
-  EditCPV.Width := 56;
-  EditCPV.MinValue := 1;
-  EditCPV.MaxValue := 999;
-  EditCPV.Value := 7;
-  EditCPV.OnChange := @EditCPVChange;
-
-  CbManualCPV := TCheckBox.Create(Self);
-  CbManualCPV.Parent := PanelTop;
-  CbManualCPV.Left := 12;
-  CbManualCPV.Top := 104;
-  CbManualCPV.Width := 240;
-  CbManualCPV.Caption := 'Set CPV manually';
-  CbManualCPV.OnClick := @CbManualCPVChange;
-
-  CbForce := TCheckBox.Create(Self);
-  CbForce.Parent := PanelTop;
-  CbForce.Left := 260;
-  CbForce.Top := 104;
-  CbForce.Width := 280;
-  CbForce.Caption := 'Force extra chapters into last volume';
-  CbForce.OnClick := @CbForceChange;
-
-  CbCustomSeq := TCheckBox.Create(Self);
-  CbCustomSeq.Parent := PanelTop;
-  CbCustomSeq.Left := 12;
-  CbCustomSeq.Top := 124;
-  CbCustomSeq.Width := 160;
-  CbCustomSeq.Caption := 'Custom sequence:';
-  CbCustomSeq.OnClick := @CbCustomSeqChange;
-
-  LblSeq := TLabel.Create(Self);
-  LblSeq.Parent := PanelTop;
-  LblSeq.Left := 178;
-  LblSeq.Top := 128;
-  LblSeq.Caption := 'e.g. 5,6,7,3';
-  LblSeq.Enabled := False;
-
-  EditChapterSeq := TEdit.Create(Self);
-  EditChapterSeq.Parent := PanelTop;
-  EditChapterSeq.Left := 260;
-  EditChapterSeq.Top := 122;
-  EditChapterSeq.Width := 196;
-  EditChapterSeq.Enabled := False;
-  EditChapterSeq.OnChange := @EditChapterSeqChange;
-
-  BtnBuildSeq := TButton.Create(Self);
-  BtnBuildSeq.Parent := PanelTop;
-  BtnBuildSeq.Left := 462;
-  BtnBuildSeq.Top := 120;
-  BtnBuildSeq.Width := 80;
-  BtnBuildSeq.Height := 26;
-  BtnBuildSeq.Caption := '&Build...';
-  BtnBuildSeq.Enabled := False;
-  BtnBuildSeq.OnClick := @BtnBuildSeqClick;
-
-  CbGenerateComicInfo := TCheckBox.Create(Self);
-  CbGenerateComicInfo.Parent := PanelTop;
-  CbGenerateComicInfo.Left := 12;
-  CbGenerateComicInfo.Top := 152;
-  CbGenerateComicInfo.Width := 280;
-  CbGenerateComicInfo.Caption := 'Generate ComicInfo.xml per volume';
-  CbGenerateComicInfo.Checked := True;
-
-  PanelBottom := CreateBottomPanel(Self, 44);
-
-  CbDelete := TCheckBox.Create(Self);
-  CbDelete.Parent := PanelBottom;
-  CbDelete.Left := 12;
-  CbDelete.Top := 10;
-  CbDelete.Width := 260;
-  CbDelete.Caption := 'Permanently delete original chapters';
-
-  BtnMerge := CreateDialogButton(PanelBottom, '&Merge', 388, 7, mrOK, True, False);
-  BtnClose := CreateDialogButton(PanelBottom, '&Cancel', 476, 7, mrCancel,
-    False, True);
-
-  LVFiles := CreateReportListView(Self, False);
+  LVFiles := CreateReportListView(PanelRight, False);
 
   Col := LVFiles.Columns.Add;
   Col.Caption := '#';
@@ -234,6 +95,18 @@ begin
   EditCPV.Enabled := False;
 
   InitSettingsPersistence;
+end;
+
+procedure TdlgMerge.MemoChapterSequenceChange(Sender: TObject);
+begin
+  if CbCustomSeq.Checked then
+    RefreshVolumeColumn;
+end;
+
+procedure TdlgMerge.EditCPVChange(Sender: TObject);
+begin
+  if CbManualCPV.Checked then
+    RefreshVolumeColumn;
 end;
 
 procedure TdlgMerge.LoadSettings;
@@ -264,8 +137,7 @@ begin
   if CbManualCPV.Checked then
   begin
     CbCustomSeq.Checked := False;
-    EditChapterSeq.Enabled := False;
-    LblSeq.Enabled := False;
+    MemoChapterSequence.Enabled := False;
     BtnBuildSeq.Enabled := False;
   end;
   EditCPV.Enabled := CbManualCPV.Checked;
@@ -284,8 +156,7 @@ begin
     CbManualCPV.Checked := False;
     EditCPV.Enabled := False;
   end;
-  EditChapterSeq.Enabled := CbCustomSeq.Checked;
-  LblSeq.Enabled := CbCustomSeq.Checked;
+  MemoChapterSequence.Enabled := CbCustomSeq.Checked;
   BtnBuildSeq.Enabled := CbCustomSeq.Checked;
   RefreshVolumeColumn;
 end;
@@ -302,7 +173,7 @@ begin
   Builder := TdlgSeqBuilder.Create(Self);
   try
     Builder.LoadChapters(FFiles, FImages, FDir);
-    if Builder.ShowModal = mrOK then
+    if Builder.ShowModal = mrOk then
     begin
       Seq := Builder.GetSequence;
       if Length(Seq) > 0 then
@@ -313,10 +184,9 @@ begin
           if S <> '' then S := S + ',';
           S := S + IntToStr(Seq[i]);
         end;
-        EditChapterSeq.Text := S;
+        MemoChapterSequence.Text := S;
         CbCustomSeq.Checked := True;
-        EditChapterSeq.Enabled := True;
-        LblSeq.Enabled := True;
+        MemoChapterSequence.Enabled := True;
         CbManualCPV.Checked := False;
         EditCPV.Enabled := False;
         RefreshVolumeColumn;
@@ -327,18 +197,6 @@ begin
   end;
 end;
 
-procedure TdlgMerge.EditCPVChange(Sender: TObject);
-begin
-  if CbManualCPV.Checked then
-    RefreshVolumeColumn;
-end;
-
-procedure TdlgMerge.EditChapterSeqChange(Sender: TObject);
-begin
-  if CbCustomSeq.Checked then
-    RefreshVolumeColumn;
-end;
-
 function TdlgMerge.GetChaptersList: TIntArray;
 var
   Parts: TStringArray;
@@ -347,7 +205,7 @@ var
 begin
   Result := nil;
   if not CbCustomSeq.Checked then Exit;
-  S := Trim(EditChapterSeq.Text);
+  S := Trim(MemoChapterSequence.Text);
   if S = '' then Exit;
   Parts := S.Split([',', ';']);
   for i := 0 to High(Parts) do
@@ -415,7 +273,8 @@ begin
           if i < (LVFiles.Items.Count div CPV) * CPV then
             LVFiles.Items[i].SubItems[1] := Format('Vol.%d', [(i div CPV) + 1])
           else
-            LVFiles.Items[i].SubItems[1] := Format('Vol.%d', [(LVFiles.Items.Count div CPV)]);
+            LVFiles.Items[i].SubItems[1] :=
+              Format('Vol.%d', [(LVFiles.Items.Count div CPV)]);
         end;
       end
       else
@@ -442,7 +301,6 @@ var
 begin
   FFiles := AFiles;
   FDir := ADir;
-  EditSeries.Text := ASeriesName;
   LblFolder.Caption := ExtractFileName(ExcludeTrailingPathDelimiter(ADir));
   EditChapterEnd.Value := Length(AFiles);
 

@@ -163,8 +163,6 @@ end;
 
 procedure TdlgRows.FormCreate(Sender: TObject);
 begin
-  InitDialogChrome(Self);
-
   Label1 := TLabel.Create(Self);
   Label1.Parent := Self;
   Label1.Left := 12;

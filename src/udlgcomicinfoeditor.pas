@@ -117,8 +117,6 @@ procedure TdlgComicInfoEditor.FormCreate(Sender: TObject);
 var
   Tab: TTabSheet;
 begin
-  InitDialogChrome(Self);
-
   PanelBottom := CreateBottomPanel(Self, 44);
 
   CbBackup := TCheckBox.Create(Self);

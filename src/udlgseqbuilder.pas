@@ -146,7 +146,6 @@ var
   PanelBtns: TPanel;
   PanelZoomBar: TPanel;
 begin
-  InitDialogChrome(Self);
   BorderStyle := bsSizeable;
   BorderIcons := [biSystemMenu, biMinimize, biMaximize];
   OnShow := @FormShow;

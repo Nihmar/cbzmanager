@@ -40,9 +40,6 @@ type
     procedure SettingsFormClose(Sender: TObject; var CloseAction: TCloseAction);
   end;
 
-{ Applies the standard modal-dialog chrome (fixed border, system menu only). }
-procedure InitDialogChrome(ADialog: TForm);
-
 { Creates the bottom button strip: alBottom, no bevel, the given height. }
 function CreateBottomPanel(ADialog: TForm; AHeight: integer): TPanel;
 
@@ -54,17 +51,11 @@ function CreateDialogButton(AParent: TWinControl; const ACaption: string;
   ADefault, ACancel: boolean): TButton;
 
 { Creates a read-only, grid-lined vsReport list view filling the dialog. }
-function CreateReportListView(ADialog: TForm; ACheckboxes: boolean): TListView;
+function CreateReportListView(AParent: TWinControl; ACheckboxes: boolean): TListView;
 
 implementation
 
 {$R *.lfm}
-
-procedure InitDialogChrome(ADialog: TForm);
-begin
-  // ADialog.BorderStyle := bsDialog;
-  // ADialog.BorderIcons := [biSystemMenu];
-end;
 
 function CreateBottomPanel(ADialog: TForm; AHeight: integer): TPanel;
 begin
@@ -91,10 +82,10 @@ begin
   Result.Cancel := ACancel;
 end;
 
-function CreateReportListView(ADialog: TForm; ACheckboxes: boolean): TListView;
+function CreateReportListView(AParent: TWinControl; ACheckboxes: boolean): TListView;
 begin
-  Result := TListView.Create(ADialog);
-  Result.Parent := ADialog;
+  Result := TListView.Create(AParent);
+  Result.Parent := AParent;
   Result.Align := alClient;
   Result.BorderSpacing.Around := 8;
   Result.ViewStyle := vsReport;

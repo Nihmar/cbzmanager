@@ -1,10 +1,268 @@
-object dlgMerge: TdlgMerge
+inherited dlgMerge: TdlgMerge
   Left = 400
   Height = 480
   Top = 100
-  Width = 560
+  Width = 640
   Caption = 'Merge chapters into volumes'
+  ClientHeight = 480
+  ClientWidth = 640
   Position = poOwnerFormCenter
-  LCLVersion = '4.8.0.0'
   OnCreate = FormCreate
+  object PanelLeft: TPanel[0]
+    Left = 0
+    Height = 428
+    Top = 22
+    Width = 224
+    Align = alLeft
+    BevelOuter = bvNone
+    ClientHeight = 428
+    ClientWidth = 224
+    TabOrder = 0
+    object PanelChapters: TPanel
+      Left = 2
+      Height = 30
+      Top = 2
+      Width = 220
+      Align = alTop
+      BorderSpacing.Around = 2
+      BevelOuter = bvNone
+      ClientHeight = 30
+      ClientWidth = 220
+      TabOrder = 0
+      object LblChaptersFrom: TLabel
+        Left = 0
+        Height = 30
+        Top = 0
+        Width = 94
+        Align = alLeft
+        BorderSpacing.Right = 1
+        Caption = 'Chapters From:'
+        Layout = tlCenter
+      end
+      object EditChapterStart: TSpinEdit
+        Left = 95
+        Height = 30
+        Top = 0
+        Width = 50
+        Align = alLeft
+        BorderSpacing.Left = 1
+        BorderSpacing.Right = 1
+        MinValue = 9999
+        TabOrder = 0
+      end
+      object LblChaptersTo: TLabel
+        Left = 146
+        Height = 30
+        Top = 0
+        Width = 18
+        Align = alLeft
+        BorderSpacing.Left = 1
+        BorderSpacing.Right = 1
+        Caption = 'To:'
+        Layout = tlCenter
+      end
+      object EditChapterEnd: TSpinEdit
+        Left = 165
+        Height = 30
+        Top = 0
+        Width = 50
+        Align = alLeft
+        BorderSpacing.Left = 1
+        MinValue = 9999
+        TabOrder = 1
+      end
+    end
+    object PanelCPV: TPanel
+      Left = 2
+      Height = 30
+      Top = 34
+      Width = 220
+      Align = alTop
+      BorderSpacing.Around = 2
+      BevelOuter = bvNone
+      ClientHeight = 30
+      ClientWidth = 220
+      TabOrder = 1
+      object LblCPV: TLabel
+        Left = 0
+        Height = 30
+        Top = 0
+        Width = 93
+        Align = alLeft
+        BorderSpacing.Right = 1
+        Caption = 'Ch per volume:'
+        Layout = tlCenter
+      end
+      object EditCPV: TSpinEdit
+        Left = 94
+        Height = 30
+        Top = 0
+        Width = 50
+        Align = alLeft
+        BorderSpacing.Left = 1
+        BorderSpacing.Right = 1
+        MinValue = 9999
+        TabOrder = 0
+        OnChange = EditCPVChange
+      end
+      object CbManualCPV: TCheckBox
+        Left = 145
+        Height = 30
+        Top = 0
+        Width = 70
+        Align = alLeft
+        BorderSpacing.Left = 1
+        Caption = 'Manual'
+        TabOrder = 1
+        OnChange = CbManualCPVChange
+      end
+    end
+    object CbForce: TCheckBox
+      Left = 2
+      Height = 22
+      Top = 66
+      Width = 220
+      Align = alTop
+      BorderSpacing.Around = 2
+      Caption = 'Force extra ch.s into last volume'
+      TabOrder = 2
+      OnChange = CbForceChange
+    end
+    object CbGenerateComicInfo: TCheckBox
+      Left = 2
+      Height = 22
+      Top = 380
+      Width = 220
+      Align = alBottom
+      BorderSpacing.Around = 2
+      Caption = 'Generate ComicInfo.xml per vol'
+      TabOrder = 3
+    end
+    object CbDelete: TCheckBox
+      Left = 2
+      Height = 22
+      Top = 404
+      Width = 220
+      Align = alBottom
+      BorderSpacing.Around = 2
+      Caption = 'Permanently delete original ch.s'
+      TabOrder = 4
+      OnChange = CbForceChange
+    end
+    object PanelCustomMerge: TPanel
+      Left = 2
+      Height = 288
+      Top = 90
+      Width = 220
+      Align = alClient
+      BorderSpacing.Around = 2
+      BevelOuter = bvNone
+      ClientHeight = 288
+      ClientWidth = 220
+      TabOrder = 5
+      object PanelCustomMergeTop: TPanel
+        Left = 0
+        Height = 30
+        Top = 0
+        Width = 220
+        Align = alTop
+        BevelOuter = bvNone
+        ClientHeight = 30
+        ClientWidth = 220
+        TabOrder = 0
+        object CbCustomSeq: TCheckBox
+          Left = 0
+          Height = 30
+          Top = 0
+          Width = 133
+          Align = alLeft
+          Caption = 'Custom sequence'
+          TabOrder = 0
+          OnChange = CbCustomSeqChange
+        end
+        object BtnBuildSeq: TButton
+          Left = 145
+          Height = 30
+          Top = 0
+          Width = 75
+          Align = alRight
+          Caption = '&Build'
+          TabOrder = 1
+          OnClick = BtnBuildSeqClick
+        end
+      end
+      object MemoChapterSequence: TMemo
+        Left = 0
+        Height = 258
+        Top = 30
+        Width = 220
+        Align = alClient
+        BorderStyle = bsNone
+        ScrollBars = ssVertical
+        TabOrder = 1
+        OnChange = MemoChapterSequenceChange
+      end
+    end
+  end
+  object LblFolder: TLabel[1]
+    Left = 2
+    Height = 18
+    Top = 2
+    Width = 636
+    Align = alTop
+    Alignment = taCenter
+    BorderSpacing.Around = 2
+    Caption = 'Folder'
+    Color = clGray
+    Font.Color = clGray
+    Font.Height = -13
+    Layout = tlCenter
+    ParentColor = False
+    ParentFont = False
+  end
+  object PanelBottom: TPanel[2]
+    Left = 0
+    Height = 30
+    Top = 450
+    Width = 640
+    Align = alBottom
+    BevelOuter = bvNone
+    ClientHeight = 30
+    ClientWidth = 640
+    TabOrder = 1
+    object BtnClose: TButton
+      Left = 565
+      Height = 30
+      Top = 0
+      Width = 75
+      Align = alRight
+      BorderSpacing.Left = 4
+      Cancel = True
+      Caption = 'Close'
+      ModalResult = 2
+      TabOrder = 0
+    end
+    object BtnMerge: TButton
+      Left = 486
+      Height = 30
+      Top = 0
+      Width = 75
+      Align = alRight
+      BorderSpacing.Right = 4
+      Caption = 'Merge'
+      Default = True
+      ModalResult = 1
+      TabOrder = 1
+    end
+  end
+  object PanelRight: TPanel[3]
+    Left = 226
+    Height = 426
+    Top = 22
+    Width = 412
+    Align = alClient
+    BorderSpacing.Around = 2
+    BevelOuter = bvNone
+    TabOrder = 2
+  end
 end

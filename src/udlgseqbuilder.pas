@@ -6,24 +6,10 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, StdCtrls, ExtCtrls, ComCtrls,
-  IntfGraphics, uloaderthread, uimgutil, uservicemerge, udlgbase, Types;
+  IntfGraphics, uloaderthread, uimgutil, uservicemerge, udlgbase,
+  upreviewloader, Types;
 
 type
-  TPreviewLoader = class(TThread)
-  private
-    FFile: string;
-    FPages: TLazIntfImageList;
-    procedure HandlePage(const AName: string; AImage: TLazIntfImage;
-      var ACancel: boolean);
-  protected
-    procedure Execute; override;
-  public
-    constructor Create(const AFile: string);
-    destructor Destroy; override;
-    function ExtractPages: TLazIntfImageList;
-    property Pages: TLazIntfImageList read FPages;
-  end;
-
   { TdlgSeqBuilder }
 
   TdlgSeqBuilder = class(TForm)
@@ -98,51 +84,12 @@ implementation
 {$R *.lfm}
 
 uses
-  uzipeditor,
   LCLIntf,
   LCLType;
 
 const
   LVM_SETICONSPACING = $1000 + 53;
   LVM_ARRANGE = $1000 + 22;
-
-  { TPreviewLoader }
-
-constructor TPreviewLoader.Create(const AFile: string);
-begin
-  inherited Create(True);
-  FreeOnTerminate := False;
-  FFile := AFile;
-  FPages := TLazIntfImageList.Create(True);
-end;
-
-destructor TPreviewLoader.Destroy;
-begin
-  FPages.Free;
-  inherited;
-end;
-
-function TPreviewLoader.ExtractPages: TLazIntfImageList;
-begin
-  Result := FPages;
-  FPages := nil;
-end;
-
-procedure TPreviewLoader.Execute;
-begin
-  ForEachImage(FFile, @HandlePage);
-end;
-
-procedure TPreviewLoader.HandlePage(const AName: string; AImage: TLazIntfImage;
-  var ACancel: boolean);
-var
-  Small: TLazIntfImage;
-begin
-  Small := ScaleIntfImage(AImage, CacheW, CacheH);
-  AImage.Free;
-  FPages.Add(Small);
-  ACancel := Terminated;
-end;
 
 { TdlgSeqBuilder }
 

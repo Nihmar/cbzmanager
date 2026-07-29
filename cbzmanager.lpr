@@ -20,6 +20,7 @@ uses
   uImgUtil,
   uLog,
   uloaderthread,
+  upreviewloader,
   udlgrows,
   udlgvalidate,
   udlgcomicinfo,

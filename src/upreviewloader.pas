@@ -65,7 +65,10 @@ var
 begin
   Small := ScaleIntfImage(AImage, CacheW, CacheH);
   AImage.Free;
-  FPages.Add(Small);
+  { Skip undecodable pages (Small = nil) instead of adding a phantom blank
+    slot that would inflate the page count and show a stale frame. }
+  if Small <> nil then
+    FPages.Add(Small);
   ACancel := Terminated;
 end;
 

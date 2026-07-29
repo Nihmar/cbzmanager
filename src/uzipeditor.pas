@@ -468,29 +468,15 @@ function ConvertCBZToWebP(const FileName: string; Quality: integer;
   var
     RawStream: TMemoryStream;
     Img: TLazIntfImage;
-    FmtExt: string;
   begin
     Result := nil;
     RawStream := TMemoryStream.Create;
     try
       RawStream.CopyFrom(Source.Data, Source.Data.Size);
       RawStream.Position := 0;
-      FmtExt := DetectImageFormat(RawStream);
-      if FmtExt = '' then
-        FmtExt := Ext;  { fall back to extension }
-      try
-        if SameText(FmtExt, EXT_WEBP) then
-          Img := WebPToIntfImage(RawStream.Memory, RawStream.Size)
-        else
-          Img := StreamToIntfImage(RawStream, ReaderClassForExt(FmtExt));
-      except
-        on E: Exception do
-        begin
-          Log('TryWebPEncode: decode failed for %s (%s): %s',
-            [ExtractFileName(Ext), FmtExt, E.Message]);
-          Img := nil;
-        end;
-      end;
+      { Reuse the shared decoder (magic-byte detection + reader selection +
+        logging) instead of duplicating it here. }
+      Img := DecodeImage(RawStream, Ext);
     finally
       RawStream.Free;
     end;
@@ -594,7 +580,7 @@ function MergeIntoVolume(const SourceFiles: TStringArray; const ADir: string;
   AOnProgress: TServiceProgressEvent = nil): TZipEntries;
 var
   i, j, PageNum, Padding: integer;
-  SrcPath: string;
+  SrcPath, Ext: string;
   Entries: TZipEntries;
 begin
   Result := nil;
@@ -615,8 +601,13 @@ begin
         begin
           if SameText(Entries[j].Name, COMICINFO_XML) then
             Continue;
+          { Skip non-image entries (credits.txt, .nfo, Thumbs.db, …) so they
+            are not renumbered into the page sequence — mirrors the filter in
+            ConvertCBZToWebP and FilterPagesFromCBZ. }
+          Ext := LowerCase(ExtractFileExt(Entries[j].Name));
+          if not IsImageExt(Ext) then Continue;
           SetLength(Result, PageNum + 1);
-          Result[PageNum].Name := LowerCase(ExtractFileExt(Entries[j].Name));
+          Result[PageNum].Name := Ext;  { temp carrier; renamed below }
           Result[PageNum].Data := Entries[j].Data;
           Entries[j].Data := nil;
           Inc(PageNum);

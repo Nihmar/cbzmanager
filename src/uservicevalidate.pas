@@ -129,22 +129,18 @@ begin
     FullPath := CBZFullPath(ADir, AFiles[i]);
     Result[i].FileName := AFiles[i];
     try
-      if IsValidCBZ(FullPath) then
-      begin
-        Result[i].Valid := True;
-        Result[i].ImageCount := GetImageCount(FullPath);
-        Result[i].ErrorMsg := '';
-      end
+      { One central-directory parse per file: IsValidCBZ is itself
+        GetImageCount>0, so calling GetImageCount once and deriving Valid
+        from it halves the ZIP open/parse cost on this bulk-scan hot path.
+        (A count of 0 already means "no readable images"; there is no
+        separate "invalid ZIP" case here — a broken ZIP raises and is
+        handled below.) }
+      Result[i].ImageCount := GetImageCount(FullPath);
+      Result[i].Valid := Result[i].ImageCount > 0;
+      if Result[i].Valid then
+        Result[i].ErrorMsg := ''
       else
-      begin
-        Result[i].Valid := False;
-        Result[i].ImageCount := 0;
-        { Distinguish between "not a ZIP at all" and "ZIP without images" }
-        if GetImageCount(FullPath) = 0 then
-          Result[i].ErrorMsg := 'No readable images found'
-        else
-          Result[i].ErrorMsg := 'Invalid CBZ';
-      end;
+        Result[i].ErrorMsg := 'No readable images found';
     except
       on E: Exception do
       begin

@@ -219,15 +219,16 @@ begin
 
   try
     { Costruisce un TRawImage con lo stesso layout di memoria BGRA.
-      Init_BPP32_B8G8R8A8_BIO_TTB = 32 bpp, Blue-Green-Red-Alpha,
-      Bottom-Up (BIO = righe invertite), Top-To-Bottom. }
+      Init_BPP32_B8G8R8A8_BIO_TTB = 32 bpp, Blue-Green-Red-Alpha, byte order
+      LSB-first, righe top-to-bottom (LineOrder = riloTopToBottom). }
     RawImg.Init;
     RawImg.Description.Init_BPP32_B8G8R8A8_BIO_TTB(W, H);
     RawImg.CreateData(False);
 
     SrcStride := PtrUInt(W) * 4;
     { Copia le righe dalla sorgente al buffer raw. Entrambi usano lo
-      stesso layout BGRA e orientamento bottom-up, quindi è un Move(). }
+      stesso layout BGRA e lo stesso ordine di riga (top-to-bottom),
+      quindi è un Move() diretto. }
     for y := 0 to H - 1 do
       Move((Buf + PtrUInt(y) * SrcStride)^,
         (RawImg.Data + PtrUInt(y) * RawImg.Description.BytesPerLine)^,
@@ -289,15 +290,17 @@ begin
 
   Stride := W * 4; // BGRA = 4 bytes per pixel
 
-  { TLazIntfImage è bottom-up (BIO). Per la codifica dobbiamo passare
-    le righe in ordine top-down: invertiamo l'ordine durante la copia. }
+  { Le TLazIntfImage dell'app sono top-to-bottom (Init_..._TTB imposta
+    LineOrder = riloTopToBottom): la riga 0 è già quella in alto, come
+    richiede WebPEncodeBGRA. Copiamo quindi in ordine naturale — invertire
+    le righe produrrebbe un WebP capovolto. }
   Buf := GetMem(PtrUInt(Stride) * PtrUInt(H));
   if Buf = nil then Exit;
   try
     for y := 0 to H - 1 do
     begin
-      SrcLine := Img.GetDataLineStart(H - 1 - y);  { riga dal basso }
-      DstLine := Buf + PtrUInt(y) * PtrUInt(Stride); { riga in alto }
+      SrcLine := Img.GetDataLineStart(y);
+      DstLine := Buf + PtrUInt(y) * PtrUInt(Stride);
       Move(SrcLine^, DstLine^, Stride);
     end;
 

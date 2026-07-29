@@ -135,9 +135,12 @@ begin
     if Results[i].Removed then
       Inc(Removed);
 
-  ScanFiles(FFiles, FDir);
+  { Only rebuild the list when the dialog will stay open; on success we
+    close immediately, so re-scanning every archive would be wasted work. }
   if Removed > 0 then
-    ModalResult := mrOk;
+    ModalResult := mrOk
+  else
+    ScanFiles(FFiles, FDir);
 end;
 
 end.

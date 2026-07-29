@@ -228,7 +228,7 @@ procedure TdlgMerge.RefreshVolumeColumn;
 var
   i, VolNum, Consumed, SeqIdx: integer;
   Seq: TIntArray;
-  CPV: integer;
+  CPV, FullVols: integer;
 begin
   LVFiles.BeginUpdate;
   try
@@ -267,14 +267,17 @@ begin
       if CPV < 1 then CPV := 1;
       if CbForce.Checked then
       begin
-        { Force: last volume absorbs the leftovers }
+        { Force: last volume absorbs the leftovers.  When there are fewer
+          chapters than CPV there are zero "full" volumes, but the merge
+          still produces a single Vol.1, so clamp the leftover label to 1. }
+        FullVols := LVFiles.Items.Count div CPV;
+        if FullVols < 1 then FullVols := 1;
         for i := 0 to LVFiles.Items.Count - 1 do
         begin
           if i < (LVFiles.Items.Count div CPV) * CPV then
             LVFiles.Items[i].SubItems[1] := Format('Vol.%d', [(i div CPV) + 1])
           else
-            LVFiles.Items[i].SubItems[1] :=
-              Format('Vol.%d', [(LVFiles.Items.Count div CPV)]);
+            LVFiles.Items[i].SubItems[1] := Format('Vol.%d', [FullVols]);
         end;
       end
       else

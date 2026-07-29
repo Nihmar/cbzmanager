@@ -1452,7 +1452,7 @@ end;
 procedure TfrmMain.MnuDeleteRowsClick(Sender: TObject);
 var
   Dlg: TdlgRows;
-  i, m: integer;
+  i, m, Deleted: integer;
   Files: TStringArray;
   Thread: TDeletePagesThread;
 begin
@@ -1487,6 +1487,7 @@ begin
         { Single-file mode: operate on in-memory model.  Dlg.Selected is
           indexed by visible position; map each through LVPages.Items[].Data
           to the FPages (model) index before marking it Gone. }
+        Deleted := 0;
         for i := 0 to High(Dlg.Selected) do
           if Dlg.Selected[i] and (i < LVPages.Items.Count) then
           begin
@@ -1495,12 +1496,13 @@ begin
             begin
               FPages[m].Gone := True;
               AddChange(ckDeleted, FPages[m].Name);
+              Inc(Deleted);
             end;
           end;
         if Dlg.Renumber then
           FRenumber := True;
         RenderPages;
-        SetStatus(Format('%d pages deleted', [Length(FPages)]));
+        SetStatus(Format('%d pages deleted', [Deleted]));
       end;
     end;
   finally
@@ -2084,7 +2086,10 @@ procedure TfrmMain.ThreadTerminated(Sender: TObject);
 begin
   if Sender = FLoadThread then
   begin
-    FLoadThread := nil;
+    { FreeOnTerminate is False, so free the thread here (mirrors
+      PreviewLoaderTerminated); nil-ing without freeing would leak it
+      because FreeLoadThread only frees an Assigned field. }
+    FreeAndNil(FLoadThread);
     SetFolderOpsEnabled(True);
     SetStatus(Format('%d .cbz files', [LVFiles.Items.Count]));
     LVFiles.SetFocus;
@@ -2113,7 +2118,9 @@ var
 begin
   if Sender = FPagesThread then
   begin
-    FPagesThread := nil;
+    { FreeOnTerminate is False — free here so the thread is not leaked
+      (FreePagesThread only frees an Assigned field). }
+    FreeAndNil(FPagesThread);
     SetLength(FPages, FPagePreviews.Count);
     SetLength(FBaseline, FPagePreviews.Count);
     for i := 0 to FPagePreviews.Count - 1 do

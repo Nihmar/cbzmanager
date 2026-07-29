@@ -16,26 +16,28 @@ type
     BtnBuildSeq: TButton;
     BtnClose: TButton;
     BtnMerge: TButton;
+    CbForce: TCheckBox;
     CbGenerateComicInfo: TCheckBox;
     CbDelete: TCheckBox;
-    CbManualCPV: TCheckBox;
-    CbForce: TCheckBox;
     CbCustomSeq: TCheckBox;
+    CbManualCPV: TCheckBox;
     EditChapterEnd: TSpinEdit;
+    EditChapterStart: TSpinEdit;
     EditCPV: TSpinEdit;
+    GBSource: TGroupBox;
+    GBVolumes: TGroupBox;
+    GBOutput: TGroupBox;
     LblChaptersFrom: TLabel;
-    LblCPV: TLabel;
     LblChaptersTo: TLabel;
+    LblCPV: TLabel;
     MemoChapterSequence: TMemo;
+    PanelCPV: TPanel;
     PanelCustomMergeTop: TPanel;
     PanelCustomMerge: TPanel;
-    PanelCPV: TPanel;
     PanelRight: TPanel;
     PanelBottom: TPanel;
-    PanelChapters: TPanel;
     PanelLeft: TPanel;
     LblFolder: TLabel;
-    EditChapterStart: TSpinEdit;
     procedure BtnBuildSeqClick(Sender: TObject);  
     procedure CbCustomSeqChange(Sender: TObject);
     procedure CbForceChange(Sender: TObject);
@@ -44,10 +46,6 @@ type
     procedure FormCreate(Sender: TObject);
     procedure MemoChapterSequenceChange(Sender: TObject);
   private
-    Label1: TLabel;
-    Label2: TLabel;
-    Label3: TLabel;
-    LblSeq: TLabel;
     LVFiles: TListView;
     FFiles: TStringArray;
     FDir: string;
@@ -55,6 +53,7 @@ type
     procedure RefreshVolumeColumn;
     function GetChaptersList: TIntArray;
     function GetGenerateComicInfo: boolean;
+  protected
     procedure LoadSettings; override;
     procedure SaveSettings; override;
   public

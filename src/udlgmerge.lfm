@@ -10,208 +10,234 @@ inherited dlgMerge: TdlgMerge
   OnCreate = FormCreate
   object PanelLeft: TPanel[0]
     Left = 0
-    Height = 428
-    Top = 22
-    Width = 224
+    Height = 417
+    Top = 25
+    Width = 280
     Align = alLeft
     BevelOuter = bvNone
-    ClientHeight = 428
-    ClientWidth = 224
+    ClientHeight = 417
+    ClientWidth = 280
     TabOrder = 0
-    object PanelChapters: TPanel
-      Left = 2
-      Height = 30
-      Top = 2
-      Width = 220
+    object GBSource: TGroupBox
+      Left = 4
+      Height = 52
+      Top = 4
+      Width = 272
       Align = alTop
-      BorderSpacing.Around = 2
-      BevelOuter = bvNone
-      ClientHeight = 30
-      ClientWidth = 220
+      BorderSpacing.Around = 4
+      Caption = 'Source'
+      ClientHeight = 32
+      ClientWidth = 268
       TabOrder = 0
       object LblChaptersFrom: TLabel
-        Left = 0
-        Height = 30
-        Top = 0
-        Width = 94
+        Left = 4
+        Height = 24
+        Top = 4
+        Width = 81
         Align = alLeft
-        BorderSpacing.Right = 1
+        BorderSpacing.Around = 4
         Caption = 'Chapters From:'
         Layout = tlCenter
       end
       object EditChapterStart: TSpinEdit
-        Left = 95
-        Height = 30
-        Top = 0
+        Left = 89
+        Height = 24
+        Top = 4
         Width = 50
         Align = alLeft
-        BorderSpacing.Left = 1
-        BorderSpacing.Right = 1
-        MinValue = 9999
+        BorderSpacing.Around = 4
+        MaxValue = 9999
         TabOrder = 0
       end
       object LblChaptersTo: TLabel
-        Left = 146
-        Height = 30
-        Top = 0
-        Width = 18
+        Left = 143
+        Height = 24
+        Top = 4
+        Width = 16
         Align = alLeft
-        BorderSpacing.Left = 1
-        BorderSpacing.Right = 1
+        BorderSpacing.Around = 4
         Caption = 'To:'
         Layout = tlCenter
       end
       object EditChapterEnd: TSpinEdit
-        Left = 165
-        Height = 30
-        Top = 0
+        Left = 163
+        Height = 24
+        Top = 4
         Width = 50
         Align = alLeft
-        BorderSpacing.Left = 1
-        MinValue = 9999
+        BorderSpacing.Around = 4
+        MaxValue = 9999
+        MinValue = 1
         TabOrder = 1
+        Value = 1
       end
     end
-    object PanelCPV: TPanel
-      Left = 2
-      Height = 30
-      Top = 34
-      Width = 220
-      Align = alTop
-      BorderSpacing.Around = 2
-      BevelOuter = bvNone
-      ClientHeight = 30
-      ClientWidth = 220
-      TabOrder = 1
-      object LblCPV: TLabel
-        Left = 0
-        Height = 30
-        Top = 0
-        Width = 93
-        Align = alLeft
-        BorderSpacing.Right = 1
-        Caption = 'Ch per volume:'
-        Layout = tlCenter
-      end
-      object EditCPV: TSpinEdit
-        Left = 94
-        Height = 30
-        Top = 0
-        Width = 50
-        Align = alLeft
-        BorderSpacing.Left = 1
-        BorderSpacing.Right = 1
-        MinValue = 9999
-        TabOrder = 0
-        OnChange = EditCPVChange
-      end
-      object CbManualCPV: TCheckBox
-        Left = 145
-        Height = 30
-        Top = 0
-        Width = 70
-        Align = alLeft
-        BorderSpacing.Left = 1
-        Caption = 'Manual'
-        TabOrder = 1
-        OnChange = CbManualCPVChange
-      end
-    end
-    object CbForce: TCheckBox
-      Left = 2
-      Height = 22
-      Top = 66
-      Width = 220
-      Align = alTop
-      BorderSpacing.Around = 2
-      Caption = 'Force extra ch.s into last volume'
-      TabOrder = 2
-      OnChange = CbForceChange
-    end
-    object CbGenerateComicInfo: TCheckBox
-      Left = 2
-      Height = 22
-      Top = 380
-      Width = 220
-      Align = alBottom
-      BorderSpacing.Around = 2
-      Caption = 'Generate ComicInfo.xml per vol'
-      TabOrder = 3
-    end
-    object CbDelete: TCheckBox
-      Left = 2
-      Height = 22
-      Top = 404
-      Width = 220
-      Align = alBottom
-      BorderSpacing.Around = 2
-      Caption = 'Permanently delete original ch.s'
-      TabOrder = 4
-      OnChange = CbForceChange
-    end
-    object PanelCustomMerge: TPanel
-      Left = 2
-      Height = 288
-      Top = 90
-      Width = 220
+    object GBVolumes: TGroupBox
+      Left = 4
+      Height = 279
+      Top = 60
+      Width = 272
       Align = alClient
-      BorderSpacing.Around = 2
-      BevelOuter = bvNone
-      ClientHeight = 288
-      ClientWidth = 220
-      TabOrder = 5
-      object PanelCustomMergeTop: TPanel
+      BorderSpacing.Around = 4
+      Caption = 'Volumes'
+      ClientHeight = 259
+      ClientWidth = 268
+      TabOrder = 1
+      object PanelCPV: TPanel
         Left = 0
         Height = 30
         Top = 0
-        Width = 220
+        Width = 268
         Align = alTop
         BevelOuter = bvNone
         ClientHeight = 30
-        ClientWidth = 220
+        ClientWidth = 268
         TabOrder = 0
-        object CbCustomSeq: TCheckBox
+        object LblCPV: TLabel
+          Left = 4
+          Height = 22
+          Top = 4
+          Width = 81
+          Align = alLeft
+          BorderSpacing.Around = 4
+          Caption = 'Ch per volume:'
+          Layout = tlCenter
+        end
+        object EditCPV: TSpinEdit
+          Left = 89
+          Height = 22
+          Top = 4
+          Width = 50
+          Align = alLeft
+          BorderSpacing.Around = 4
+          MaxValue = 9999
+          MinValue = 1
+          TabOrder = 0
+          Value = 1
+          OnChange = EditCPVChange
+        end
+        object CbManualCPV: TCheckBox
+          Left = 143
+          Height = 22
+          Top = 4
+          Width = 58
+          Align = alLeft
+          BorderSpacing.Around = 4
+          Caption = 'Manual'
+          TabOrder = 1
+          OnChange = CbManualCPVChange
+        end
+      end
+      object CbForce: TCheckBox
+        Left = 4
+        Height = 19
+        Top = 34
+        Width = 260
+        Align = alTop
+        BorderSpacing.Around = 4
+        Caption = 'Force extra ch.s into last volume'
+        TabOrder = 1
+        OnChange = CbForceChange
+      end
+      object PanelCustomMerge: TPanel
+        Left = 2
+        Height = 200
+        Top = 57
+        Width = 264
+        Align = alClient
+        BorderSpacing.Around = 2
+        BevelOuter = bvNone
+        ClientHeight = 200
+        ClientWidth = 264
+        TabOrder = 2
+        object PanelCustomMergeTop: TPanel
           Left = 0
           Height = 30
           Top = 0
-          Width = 133
-          Align = alLeft
-          Caption = 'Custom sequence'
+          Width = 264
+          Align = alTop
+          BevelOuter = bvNone
+          ClientHeight = 30
+          ClientWidth = 264
           TabOrder = 0
-          OnChange = CbCustomSeqChange
+          object CbCustomSeq: TCheckBox
+            Left = 2
+            Height = 26
+            Top = 2
+            Width = 113
+            Align = alLeft
+            BorderSpacing.Around = 2
+            Caption = 'Custom sequence'
+            TabOrder = 0
+            OnChange = CbCustomSeqChange
+          end
+          object BtnBuildSeq: TButton
+            Left = 187
+            Height = 26
+            Top = 2
+            Width = 75
+            Align = alRight
+            BorderSpacing.Around = 2
+            Caption = '&Build'
+            TabOrder = 1
+            OnClick = BtnBuildSeqClick
+          end
         end
-        object BtnBuildSeq: TButton
-          Left = 145
-          Height = 30
-          Top = 0
-          Width = 75
-          Align = alRight
-          Caption = '&Build'
+        object MemoChapterSequence: TMemo
+          Left = 2
+          Height = 166
+          Top = 32
+          Width = 260
+          Align = alClient
+          BorderSpacing.Around = 2
+          BorderStyle = bsNone
+          ScrollBars = ssVertical
           TabOrder = 1
-          OnClick = BtnBuildSeqClick
+          OnChange = MemoChapterSequenceChange
         end
       end
-      object MemoChapterSequence: TMemo
-        Left = 0
-        Height = 258
-        Top = 30
-        Width = 220
-        Align = alClient
-        BorderStyle = bsNone
-        ScrollBars = ssVertical
+    end
+    object GBOutput: TGroupBox
+      Left = 4
+      Height = 70
+      Top = 343
+      Width = 272
+      Align = alBottom
+      BorderSpacing.Around = 4
+      Caption = 'Output'
+      ClientHeight = 50
+      ClientWidth = 268
+      TabOrder = 2
+      object CbDelete: TCheckBox
+        Left = 2
+        Height = 19
+        Top = 23
+        Width = 264
+        Align = alTop
+        BorderSpacing.Around = 2
+        Caption = 'Permanently delete original ch.s'
+        TabOrder = 0
+      end
+      object CbGenerateComicInfo: TCheckBox
+        Left = 2
+        Height = 19
+        Top = 2
+        Width = 264
+        Align = alTop
+        BorderSpacing.Around = 2
+        Caption = 'Generate ComicInfo.xml per vol'
         TabOrder = 1
-        OnChange = MemoChapterSequenceChange
       end
     end
   end
   object LblFolder: TLabel[1]
-    Left = 2
-    Height = 18
-    Top = 2
-    Width = 636
+    Left = 4
+    Height = 17
+    Top = 4
+    Width = 632
     Align = alTop
     Alignment = taCenter
-    BorderSpacing.Around = 2
+    BorderSpacing.Around = 4
     Caption = 'Folder'
     Color = clGray
     Font.Color = clGray
@@ -221,17 +247,18 @@ inherited dlgMerge: TdlgMerge
     ParentFont = False
   end
   object PanelBottom: TPanel[2]
-    Left = 0
+    Left = 4
     Height = 30
-    Top = 450
-    Width = 640
+    Top = 446
+    Width = 632
     Align = alBottom
+    BorderSpacing.Around = 4
     BevelOuter = bvNone
     ClientHeight = 30
-    ClientWidth = 640
+    ClientWidth = 632
     TabOrder = 1
     object BtnClose: TButton
-      Left = 565
+      Left = 557
       Height = 30
       Top = 0
       Width = 75
@@ -243,7 +270,7 @@ inherited dlgMerge: TdlgMerge
       TabOrder = 0
     end
     object BtnMerge: TButton
-      Left = 486
+      Left = 478
       Height = 30
       Top = 0
       Width = 75
@@ -256,10 +283,10 @@ inherited dlgMerge: TdlgMerge
     end
   end
   object PanelRight: TPanel[3]
-    Left = 226
-    Height = 426
-    Top = 22
-    Width = 412
+    Left = 282
+    Height = 417
+    Top = 25
+    Width = 356
     Align = alClient
     BorderSpacing.Around = 2
     BevelOuter = bvNone

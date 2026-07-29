@@ -640,7 +640,7 @@ function FilterPagesFromCBZ(const FileName: string;
   const PagesToDelete: array of boolean; Renumber: boolean): TZipEntries;
 var
   AllEntries: TZipEntries;
-  SrcIdx, PageNum, Padding, ImgCount: integer;
+  SrcIdx, Padding, ImgCount, Survivors, OutIdx, NameNum: integer;
   Ext: string;
   DeleteIdx: integer;  // 0-indexed position among image entries only
 begin
@@ -648,9 +648,12 @@ begin
   AllEntries := CollectZipEntries(FileName);
   try
     try
-      { First pass: count image-only survivors and compute padding }
+      { First pass: count total images and surviving images.  DeleteIdx must
+        advance once per image so it indexes PagesToDelete in lockstep with
+        the second pass; without this the survivor count (and thus the
+        Result allocation) is wrong. }
       ImgCount := 0;
-      PageNum := 0;
+      Survivors := 0;
       DeleteIdx := 0;
       for SrcIdx := 0 to High(AllEntries) do
       begin
@@ -658,17 +661,27 @@ begin
         Ext := LowerCase(ExtractFileExt(AllEntries[SrcIdx].Name));
         if not IsImageExt(Ext) then Continue;
         Inc(ImgCount);
-        if (DeleteIdx < Length(PagesToDelete)) and PagesToDelete[DeleteIdx] then
-          Continue;
-        Inc(PageNum);
+        if not ((DeleteIdx < Length(PagesToDelete)) and PagesToDelete[DeleteIdx]) then
+          Inc(Survivors);
+        Inc(DeleteIdx);
       end;
 
-      Padding := PagePaddingFor(PageNum);
-      SetLength(Result, PageNum);
-      PageNum := 0;
+      { Padding: when renumbering, output names run 1..Survivors; when keeping
+        the original numbers (with gaps) they run within 1..ImgCount, so pad
+        for the larger space to keep one uniform width across the archive. }
+      if Renumber then
+        Padding := PagePaddingFor(Survivors)
+      else
+        Padding := PagePaddingFor(ImgCount);
 
-      { Second pass: copy survivors }
+      SetLength(Result, Survivors);
+
+      { Second pass: copy survivors into compacted slots (OutIdx).  Each
+        surviving page is named either by its new sequential number
+        (Renumber) or by its original 1-based image position (keep the
+        numbers, leaving gaps where pages were removed). }
       DeleteIdx := 0;
+      OutIdx := 0;
       for SrcIdx := 0 to High(AllEntries) do
       begin
         if SameText(AllEntries[SrcIdx].Name, COMICINFO_XML) then Continue;
@@ -681,16 +694,21 @@ begin
         end;
 
         if Renumber then
-          Inc(PageNum)
+          NameNum := OutIdx + 1
         else
-          PageNum := DeleteIdx + 1;
-        Result[PageNum - 1].Name := FormatPageName(PageNum, Padding, Ext);
-        Result[PageNum - 1].Data := TMemoryStream.Create;
+          NameNum := DeleteIdx + 1;  { original 1-based position; gaps kept }
+
+        Result[OutIdx].Name := FormatPageName(NameNum, Padding, Ext);
+        Result[OutIdx].Data := TMemoryStream.Create;
         AllEntries[SrcIdx].Data.Position := 0;
-        Result[PageNum - 1].Data.CopyFrom(AllEntries[SrcIdx].Data,
+        Result[OutIdx].Data.CopyFrom(AllEntries[SrcIdx].Data,
           AllEntries[SrcIdx].Data.Size);
+        Inc(OutIdx);
         Inc(DeleteIdx);
       end;
+
+      { Safety: trim to the slots actually written (equals Survivors). }
+      SetLength(Result, OutIdx);
     except
       FreeZipEntries(Result);
       raise;

@@ -24,6 +24,12 @@ type
     procedure TestCollectZipEntries;
     procedure TestValidateCBZImages;
     procedure TestMergeIntoVolume;
+    procedure TestFilterPages_DeleteFirst_Renumber;
+    procedure TestFilterPages_DeleteLast_Renumber;
+    procedure TestFilterPages_KeepOriginalNumbers_DeleteFirst;
+    procedure TestFilterPages_KeepOriginalNumbers_DeleteMiddle;
+    procedure TestFilterPages_DeleteNone;
+    procedure TestFilterPages_DeleteAll;
   end;
 
   TImageUtilTest = class(TTestCase)
@@ -173,6 +179,105 @@ begin
     AssertEquals('page_004.jpg', 'page_004.jpg', Vol1[3].Name);
   finally
     FreeZipEntries(Vol1);
+  end;
+end;
+
+{ FilterPagesFromCBZ — regression tests.  FValidCBZ has 3 PNG images.
+  The delete mask is 1-indexed-by-image via a 0-based boolean array:
+  True = delete the image at that position. }
+
+procedure TZipEditorTest.TestFilterPages_DeleteFirst_Renumber;
+var
+  E: TZipEntries;
+begin
+  { Delete the first page; renumber survivors sequentially.
+    This case used to crash (Result sized to 0, then written at index 0). }
+  E := FilterPagesFromCBZ(FValidCBZ, [True, False, False], True);
+  try
+    AssertEquals('2 survivors', 2, Length(E));
+    AssertEquals('renumbered 1', 'page_001.png', E[0].Name);
+    AssertEquals('renumbered 2', 'page_002.png', E[1].Name);
+    AssertNotNull('data 0', E[0].Data);
+    AssertNotNull('data 1', E[1].Data);
+    AssertTrue('data 0 non-empty', E[0].Data.Size > 0);
+  finally
+    FreeZipEntries(E);
+  end;
+end;
+
+procedure TZipEditorTest.TestFilterPages_DeleteLast_Renumber;
+var
+  E: TZipEntries;
+begin
+  { Delete the last page; renumber.  This case used to leave a trailing
+    entry with Data=nil (Result over-sized) and crash on write. }
+  E := FilterPagesFromCBZ(FValidCBZ, [False, False, True], True);
+  try
+    AssertEquals('2 survivors', 2, Length(E));
+    AssertEquals('renumbered 1', 'page_001.png', E[0].Name);
+    AssertEquals('renumbered 2', 'page_002.png', E[1].Name);
+    AssertNotNull('data 1', E[1].Data);
+  finally
+    FreeZipEntries(E);
+  end;
+end;
+
+procedure TZipEditorTest.TestFilterPages_KeepOriginalNumbers_DeleteFirst;
+var
+  E: TZipEntries;
+begin
+  { Delete the first page WITHOUT renumbering: survivors keep their original
+    numbers (2 and 3), leaving a gap at 1, compacted into the array. }
+  E := FilterPagesFromCBZ(FValidCBZ, [True, False, False], False);
+  try
+    AssertEquals('2 survivors', 2, Length(E));
+    AssertEquals('kept original 2', 'page_002.png', E[0].Name);
+    AssertEquals('kept original 3', 'page_003.png', E[1].Name);
+  finally
+    FreeZipEntries(E);
+  end;
+end;
+
+procedure TZipEditorTest.TestFilterPages_KeepOriginalNumbers_DeleteMiddle;
+var
+  E: TZipEntries;
+begin
+  { Delete the middle page without renumbering: keep 1 and 3, gap at 2. }
+  E := FilterPagesFromCBZ(FValidCBZ, [False, True, False], False);
+  try
+    AssertEquals('2 survivors', 2, Length(E));
+    AssertEquals('kept original 1', 'page_001.png', E[0].Name);
+    AssertEquals('kept original 3', 'page_003.png', E[1].Name);
+  finally
+    FreeZipEntries(E);
+  end;
+end;
+
+procedure TZipEditorTest.TestFilterPages_DeleteNone;
+var
+  E: TZipEntries;
+begin
+  { Nothing marked: all pages survive. }
+  E := FilterPagesFromCBZ(FValidCBZ, [False, False, False], True);
+  try
+    AssertEquals('3 survivors', 3, Length(E));
+    AssertEquals('1', 'page_001.png', E[0].Name);
+    AssertEquals('3', 'page_003.png', E[2].Name);
+  finally
+    FreeZipEntries(E);
+  end;
+end;
+
+procedure TZipEditorTest.TestFilterPages_DeleteAll;
+var
+  E: TZipEntries;
+begin
+  { Every page marked: no survivors, empty result (caller skips the write). }
+  E := FilterPagesFromCBZ(FValidCBZ, [True, True, True], True);
+  try
+    AssertEquals('0 survivors', 0, Length(E));
+  finally
+    FreeZipEntries(E);
   end;
 end;
 

@@ -133,6 +133,9 @@ begin
     try
       for i := 0 to High(Entries) do
       begin
+        { Defensive: skip malformed entries with no data rather than
+          dereferencing nil (would crash the whole write). }
+        if Entries[i].Data = nil then Continue;
         Entries[i].Data.Position := 0;
         with ZEntries.AddFileEntry(Entries[i].Data, Entries[i].Name) do
           CompressionLevel := clmax;

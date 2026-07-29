@@ -5,7 +5,7 @@ unit ucomicinfo;
 interface
 
 uses
-  Classes, SysUtils;
+  Classes, SysUtils, uzipcore;
 
 type
   TComicInfo = record
@@ -54,13 +54,15 @@ function DefaultComicInfo: TComicInfo;
 function ParseComicInfoXML(const AXML: string): TComicInfo;
 function GenerateComicInfoXML(const AData: TComicInfo): string;
 function ReadComicInfoFromCBZ(const AFilePath: string): TComicInfo;
+{ Parse ComicInfo from already-collected entries (avoids re-opening the CBZ). }
+function ReadComicInfoFromEntries(const AEntries: TZipEntries): TComicInfo;
 procedure WriteComicInfoToCBZ(const AFilePath: string;
   const AData: TComicInfo; ABackup: boolean);
 
 implementation
 
 uses
-  DOM, XMLRead, uzipcore, uservicebase;
+  DOM, XMLRead, uservicebase;
 
 const
   UNSET_INT = -1;
@@ -265,24 +267,30 @@ begin
   Result := Result + '</ComicInfo>' + LineEnding;
 end;
 
-function ReadComicInfoFromCBZ(const AFilePath: string): TComicInfo;
+function ReadComicInfoFromEntries(const AEntries: TZipEntries): TComicInfo;
 var
-  Entries: TZipEntries;
   i: integer;
   XML: string;
 begin
   Result := DefaultComicInfo;
+  i := FindComicInfoIndex(AEntries);
+  if i >= 0 then
+  begin
+    AEntries[i].Data.Position := 0;
+    SetLength(XML, AEntries[i].Data.Size);
+    if Length(XML) > 0 then
+      AEntries[i].Data.Read(XML[1], Length(XML));
+    Result := ParseComicInfoXML(XML);
+  end;
+end;
+
+function ReadComicInfoFromCBZ(const AFilePath: string): TComicInfo;
+var
+  Entries: TZipEntries;
+begin
   Entries := CollectZipEntries(AFilePath);
   try
-    i := FindComicInfoIndex(Entries);
-    if i >= 0 then
-    begin
-      Entries[i].Data.Position := 0;
-      SetLength(XML, Entries[i].Data.Size);
-      if Length(XML) > 0 then
-        Entries[i].Data.Read(XML[1], Length(XML));
-      Result := ParseComicInfoXML(XML);
-    end;
+    Result := ReadComicInfoFromEntries(Entries);
   finally
     FreeZipEntries(Entries);
   end;

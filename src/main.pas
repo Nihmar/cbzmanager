@@ -1829,6 +1829,7 @@ begin
   BtnStageSave.Enabled := True;
   BtnStageRevert.Enabled := True;
   CbBackup.Enabled := True;
+  SetPageOpsEnabled(True);
 end;
 
 {
@@ -1876,10 +1877,13 @@ begin
     Snapshot[i].Data := FPages[i].Data;
   end;
 
-  { Disable stage bar during save }
+  { Disable stage bar AND page operations during save: the thread works on a
+    snapshot, so any edit made mid-save would be neither written nor kept as
+    a pending change (silently lost) and would desync the model from disk. }
   BtnStageSave.Enabled := False;
   BtnStageRevert.Enabled := False;
   CbBackup.Enabled := False;
+  SetPageOpsEnabled(False);
   LblStageMsg.Caption := 'Saving...';
   StatusProgress.Visible := True;
 

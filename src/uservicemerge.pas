@@ -162,12 +162,16 @@ end;
 function ExtractChapterNum(const AFileName: string): integer;
 var
   S: string;
+  DotPos: integer;
 begin
   S := ExtractChapterNumStr(AFileName);
-  if S <> '' then
-    Result := StrToIntDef(S, 0)
-  else
-    Result := 0;
+  { Use the integer part so decimal chapters (e.g. "010.5", common for manga
+    half-chapters) map to their whole-number index (10) instead of collapsing
+    to 0 and being silently dropped from a chapter range. }
+  DotPos := Pos('.', S);
+  if DotPos > 0 then
+    S := Copy(S, 1, DotPos - 1);
+  Result := StrToIntDef(Trim(S), 0);
 end;
 
 { Simple insertion sort — stable, adequate for typical chapter counts. }
@@ -309,7 +313,7 @@ var
   ChIdx, ListIdx, BatchSize: integer;
   UseList: boolean;
   SeriesName, VolName, FullPath: string;
-  ChBatch, Batch: TStringArray;
+  ChBatch, Batch, ToClean: TStringArray;
   VolEntries: TZipEntries;
   CI: TComicInfo;
   XML: string;
@@ -338,6 +342,7 @@ begin
   end;
 
   ChBatch := nil;
+  ToClean := nil;
   for i := 0 to High(AFiles) do
   begin
     ChNum := ExtractChapterNum(AFiles[i]);
@@ -457,12 +462,22 @@ begin
         end;
         WriteZipFromEntriesDeflated(FullPath, VolEntries);
         Inc(TotalCreated);
+        { Only chapters merged into a volume that was actually written are
+          eligible for cleanup — an empty/ComicInfo-only batch produces no
+          volume and its sources must be left alone. }
+        for n := 0 to BatchSize - 1 do
+        begin
+          SetLength(ToClean, Length(ToClean) + 1);
+          ToClean[High(ToClean)] := Batch[n];
+        end;
+        { Advance the volume number only for volumes actually written, so a
+          skipped batch does not leave a numbering gap. }
+        Inc(VolNum);
       end;
     finally
       FreeZipEntries(VolEntries);
     end;
 
-    Inc(VolNum);
     Inc(ChIdx, BatchSize);
   end;
 
@@ -470,9 +485,9 @@ begin
   Result.VolumesCreated := TotalCreated;
 
   { ---- Phase 3: Cleanup — remove or back up original chapter files ---- }
-  for n := 0 to ChIdx - 1 do
+  for n := 0 to High(ToClean) do
   begin
-    FullPath := CBZFullPath(ADir, ChBatch[n]);
+    FullPath := CBZFullPath(ADir, ToClean[n]);
     if Options.Delete then
       DeleteFile(FullPath)
     else

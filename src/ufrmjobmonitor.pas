@@ -75,7 +75,8 @@ begin
   FJobRunning := False;
   KeyPreview := True;
   OnKeyDown := @FormKeyDown;
-  RegisterLogObserver(@OnLogLine);
+  { The log observer is registered only while a job runs (StartJob..FinishJob)
+    so lines logged between/after jobs are not buffered unseen. }
 end;
 
 procedure TfrmJobMonitor.FormDestroy(Sender: TObject);
@@ -162,6 +163,14 @@ begin
   LblTask.Caption := '';
   LblElapsed.Caption := '00:00';
   MemoLog.Clear;
+  { Drop anything buffered before this job and start capturing log output. }
+  EnterCriticalSection(FLogLock);
+  try
+    FLogPending.Clear;
+  finally
+    LeaveCriticalSection(FLogLock);
+  end;
+  RegisterLogObserver(@OnLogLine);
   FStartTime := Now;
   FJobRunning := True;
   BtnClose.Enabled := False;
@@ -189,8 +198,16 @@ procedure TfrmJobMonitor.FinishJob;
 begin
   FJobRunning := False;
   TimerElapsed.Enabled := False;
-  // Final drain of any remaining log lines
+  // Final drain of any remaining log lines, then stop capturing so lines
+  // logged after the job are not buffered unseen for the window's lifetime.
   FlushLog;
+  UnregisterLogObserver;
+  EnterCriticalSection(FLogLock);
+  try
+    FLogPending.Clear;
+  finally
+    LeaveCriticalSection(FLogLock);
+  end;
   LblTask.Caption := 'Done';
   BtnClose.Enabled := True;
 end;

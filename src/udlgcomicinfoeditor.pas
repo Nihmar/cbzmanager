@@ -611,31 +611,32 @@ begin
   FRemoved := False;
   Caption := 'Manage ComicInfo.xml - ' + ChangeFileExt(AFileName, '');
 
+  { Open the archive once: detect ComicInfo.xml and, if present, parse it
+    from the same collected entries instead of re-opening the CBZ. }
   HasXML := False;
+  FData := DefaultComicInfo;
   try
     Entries := CollectZipEntries(AFilePath);
     try
       HasXML := FindComicInfoIndex(Entries) >= 0;
+      if HasXML then
+        FData := ReadComicInfoFromEntries(Entries);
     finally
       FreeZipEntries(Entries);
     end;
   except
     on E: Exception do
+    begin
       Log('ComicInfoEditor: could not inspect %s: %s', [AFilePath, E.Message]);
+      HasXML := False;
+      FData := DefaultComicInfo;
+    end;
   end;
 
   FExistingLoaded := HasXML;
   BtnRemove.Enabled := HasXML;
 
-  if HasXML then
-  begin
-    try
-      FData := ReadComicInfoFromCBZ(AFilePath);
-    except
-      FData := DefaultComicInfo;
-    end;
-  end
-  else
+  if not HasXML then
   begin
     FData := DefaultComicInfo;
 

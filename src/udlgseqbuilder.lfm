@@ -4,8 +4,271 @@ object dlgSeqBuilder: TdlgSeqBuilder
   Top = 80
   Width = 800
   Caption = 'Build volume sequence'
+  ClientHeight = 540
+  ClientWidth = 800
   Position = poOwnerFormCenter
   LCLVersion = '4.8.0.0'
   OnCreate = FormCreate
   OnDestroy = FormDestroy
+  OnKeyDown = FormKeyDown
+  OnShow = FormShow
+  object PanelTop: TPanel
+    Left = 0
+    Height = 60
+    Top = 0
+    Width = 800
+    Align = alTop
+    BevelOuter = bvNone
+    ClientHeight = 60
+    ClientWidth = 800
+    TabOrder = 0
+    object LblStatus: TLabel
+      Left = 4
+      Height = 20
+      Top = 4
+      Width = 792
+      Align = alTop
+      BorderSpacing.Around = 4
+      Caption = 'Volume 1'
+      Font.Height = -15
+      Font.Style = [fsBold]
+      Layout = tlCenter
+      ParentFont = False
+    end
+    object CbSequence: TComboBox
+      Left = 4
+      Height = 23
+      Top = 28
+      Width = 792
+      Align = alClient
+      BorderSpacing.Around = 4
+      ItemHeight = 15
+      ReadOnly = True
+      Style = csDropDownList
+      TabOrder = 0
+      TabStop = False
+    end
+  end
+  object PanelBottom: TPanel
+    Left = 0
+    Height = 48
+    Top = 492
+    Width = 800
+    Align = alBottom
+    BevelOuter = bvNone
+    ClientHeight = 48
+    ClientWidth = 800
+    TabOrder = 1
+    object BtnAddVolume: TButton
+      Left = 4
+      Height = 40
+      Top = 4
+      Width = 124
+      Align = alLeft
+      BorderSpacing.Around = 4
+      Caption = '&Add volume (0 ch.)'
+      Enabled = False
+      TabOrder = 0
+      OnClick = BtnAddVolumeClick
+    end
+    object BtnUndo: TButton
+      Left = 132
+      Height = 40
+      Top = 4
+      Width = 75
+      Align = alLeft
+      BorderSpacing.Around = 4
+      Caption = '&Undo last'
+      Enabled = False
+      TabOrder = 1
+      OnClick = BtnUndoClick
+    end
+    object BtnCancel: TButton
+      Left = 481
+      Height = 40
+      Top = 4
+      Width = 75
+      Align = alRight
+      BorderSpacing.Around = 4
+      Cancel = True
+      Caption = 'Cancel'
+      ModalResult = 2
+      TabOrder = 2
+    end
+    object BtnConfirm: TButton
+      Left = 402
+      Height = 40
+      Top = 4
+      Width = 75
+      Align = alRight
+      BorderSpacing.Around = 4
+      Caption = 'Confirm'
+      Default = True
+      ModalResult = 1
+      TabOrder = 3
+    end
+    object PanelZoomBar: TPanel
+      Left = 560
+      Height = 48
+      Top = 0
+      Width = 240
+      Align = alRight
+      BevelOuter = bvNone
+      ClientHeight = 48
+      ClientWidth = 240
+      TabOrder = 4
+      object LblZoomVal: TLabel
+        Left = 4
+        Height = 40
+        Top = 4
+        Width = 18
+        Align = alLeft
+        Alignment = taCenter
+        BorderSpacing.Around = 4
+        Caption = '128'
+        Layout = tlCenter
+      end
+      object ZoomScroll: TTrackBar
+        Left = 26
+        Height = 40
+        Top = 4
+        Width = 210
+        Frequency = 8
+        Max = 320
+        Min = 48
+        Position = 128
+        OnChange = ZoomScrollChange
+        Align = alClient
+        BorderSpacing.Around = 4
+        TabOrder = 0
+        OnMouseWheel = ZoomScrollMouseWheel
+      end
+    end
+  end
+  object PanelMiddle: TPanel
+    Left = 0
+    Height = 432
+    Top = 60
+    Width = 800
+    Align = alClient
+    BevelOuter = bvNone
+    ClientHeight = 432
+    ClientWidth = 800
+    TabOrder = 2
+    object PanelPreview: TPanel
+      Left = 560
+      Height = 432
+      Top = 0
+      Width = 240
+      Align = alRight
+      BevelOuter = bvNone
+      ClientHeight = 432
+      ClientWidth = 240
+      TabOrder = 0
+      object PanelPreviewNav: TPanel
+        Left = 0
+        Height = 38
+        Top = 394
+        Width = 240
+        Align = alBottom
+        BevelOuter = bvNone
+        ClientHeight = 38
+        ClientWidth = 240
+        TabOrder = 0
+        object BtnPrevPage: TButton
+          Left = 4
+          Height = 30
+          Top = 4
+          Width = 30
+          Align = alLeft
+          BorderSpacing.Around = 4
+          Caption = '<'
+          TabOrder = 0
+          OnClick = BtnPrevPageClick
+        end
+        object BtnNextPage: TButton
+          Left = 206
+          Height = 30
+          Top = 4
+          Width = 30
+          Align = alRight
+          BorderSpacing.Around = 4
+          Caption = '>'
+          TabOrder = 1
+          OnClick = BtnNextPageClick
+        end
+        object LblPreviewPage: TLabel
+          Left = 38
+          Height = 30
+          Top = 4
+          Width = 164
+          Align = alClient
+          Alignment = taCenter
+          BorderSpacing.Around = 4
+          Layout = tlCenter
+        end
+      end
+      object LblPreviewTitle: TLabel
+        Left = 4
+        Height = 15
+        Top = 4
+        Width = 232
+        Align = alTop
+        Alignment = taCenter
+        BorderSpacing.Around = 4
+        Caption = 'Double-click to preview'
+        Font.Height = -12
+        Layout = tlCenter
+        ParentFont = False
+      end
+      object ScrollBoxPreview: TScrollBox
+        Left = 4
+        Height = 367
+        Top = 23
+        Width = 232
+        HorzScrollBar.Page = 98
+        VertScrollBar.Page = 98
+        Align = alClient
+        BorderSpacing.Around = 4
+        BorderStyle = bsNone
+        ClientHeight = 367
+        ClientWidth = 232
+        TabOrder = 1
+        OnMouseWheel = PreviewMouseWheel
+        object ImgPreview: TImage
+          Left = 4
+          Height = 359
+          Top = 4
+          Width = 224
+          Align = alClient
+          BorderSpacing.Around = 4
+          Proportional = True
+          Stretch = True
+          OnMouseWheel = PreviewMouseWheel
+        end
+      end
+    end
+    object LVChapters: TListView
+      Left = 4
+      Height = 424
+      Top = 4
+      Width = 552
+      Align = alClient
+      BorderSpacing.Around = 4
+      Columns = <>
+      IconOptions.AutoArrange = True
+      IconOptions.WrapText = False
+      LargeImages = ILChapters
+      MultiSelect = True
+      ReadOnly = True
+      TabOrder = 1
+      ViewStyle = vsIcon
+      OnDblClick = LVChaptersDblClick
+      OnSelectItem = LVChaptersSelectItem
+    end
+  end
+  object ILChapters: TImageList
+    Left = 656
+    Top = 274
+  end
 end

@@ -92,6 +92,7 @@ begin
   Col.Width := 80;
 
   EditCPV.Enabled := False;
+  BtnBuildSeq.Enabled := False;
 
   InitSettingsPersistence;
 end;

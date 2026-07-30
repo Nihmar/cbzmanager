@@ -4,10 +4,33 @@ unit uloaderthread;
   Decodifica in background con pubblicazione a lotti sul thread principale.
 
   TThumbThread e' la base comune: i discendenti implementano Produce e per
-  ogni immagine pronta chiamano Emit; la base accumula, sincronizza e riempie
-  ListView + ImageList. Tutte le immagini vengono ridotte a CacheW x CacheH
-  prima di essere conservate, cosi' lo zoom non deve rileggere gli archivi e
-  l'occupazione di memoria resta limitata anche con centinaia di pagine.
+  ogni immagine pronta chiamano Emit; la base accumula, pubblica tramite Queue
+  e riempie ListView + ImageList. Tutte le immagini vengono ridotte a CacheW x
+  CacheH prima di essere conservate, cosi' lo zoom non deve rileggere gli
+  archivi e l'occupazione di memoria resta limitata anche con centinaia di
+  pagine.
+
+  Pubblicazione lotti
+  -------------------
+  A differenza di Synchronize, Queue non blocca il thread secondario:
+  il worker produce al massimo della velocita' mentre il main thread consuma
+  i lotti quando ha tempo.  La proprieta' delle immagini viene trasferita
+  dal worker al main thread tramite il campo FPendingBatch: il worker scrive
+  FPendingBatch + FPendingCount e subito dopo chiama Queue(@SyncAddThumbs);
+  SyncAddThumbs (eseguito sul main thread) consuma il lotto e azzera i campi.
+  Il worker non libera mai FPendingBatch nel finally di Execute perche'
+  SyncAddThumbs viene sempre processato prima di OnTerminate (stessa coda
+  FIFO gestita da CheckSynchronize).
+
+  Se il thread viene terminato mentre un lotto e' ancora in coda,
+  SyncAddThumbs controlla Terminated e chiama FreePendingBatch per
+  evitare memory leak.
+
+  Se per qualche motivo il worker producesse piu' velocemente di quanto
+  il main thread riesca a consumare, Flush attende brevemente con Sleep(1)
+  prima di sovrascrivere FPendingBatch.  In pratica questo non accade mai
+  perche' la decodifica delle immagini (I/O disco + decompressione) e'
+  lenta rispetto all'aggiunta di poche voci alla ListView.
 }
 
 {$mode ObjFPC}{$H+}
@@ -52,17 +75,24 @@ type
   private
     FBatch: TLoadedItems;
     FBatchCount: integer;
+    { Batch handed off to the main thread via Queue.  The worker swaps
+      FBatch into these fields before Queue so it can continue producing
+      without waiting; SyncAddThumbs consumes them on the main thread. }
+    FPendingBatch: TLoadedItems;
+    FPendingCount: integer;
     FImages: TImageList;
     FListView: TListView;
     FPages: TLazIntfImageList;
-    { Frees every image remaining in the unsent batch.  Called on
-      abnormal termination (exception or early Terminated) to prevent
-      memory leaks. }
+    { Frees every image remaining in FBatch (the current accumulation
+      buffer that hasn't been handed off yet).  Called from the
+      finally block of Execute on abnormal termination. }
     procedure FreeBatch;
-    { Publishes the current batch to the main thread via Synchronize.
-      If the batch is empty this is a no-op.  After the call the batch
-      array is cleared and ownership of all images is transferred to
-      the main thread (or freed, if Terminated). }
+    { Frees images in FPendingBatch.  Called from SyncAddThumbs when
+      Terminated is True (the main thread discards an already-queued
+      batch).  Never called from the worker thread. }
+    procedure FreePendingBatch;
+    { Publishes FPendingBatch to the ListView + ImageList.
+      Runs on the main thread via TThread.Queue. }
     procedure SyncAddThumbs;
   protected
     { Eseguita nel thread secondario: produce le immagini chiamando Emit e
@@ -135,6 +165,8 @@ begin
   inherited Create(True);
   FBatchCount := 0;
   SetLength(FBatch, 0);
+  FPendingCount := 0;
+  SetLength(FPendingBatch, 0);
 end;
 
 procedure TThumbThread.Execute;
@@ -150,7 +182,9 @@ begin
         Log('Thread: ECCEZIONE NON GESTITA %s: %s', [E.ClassName, E.Message]);
     end;
   finally
-    { lotto mai pubblicato (interruzione o eccezione): evita il leak }
+    { Lotto corrente mai pubblicato (interruzione o eccezione): evita il leak.
+      FPendingBatch NON va liberato qui: e' di proprieta' del main thread e
+      SyncAddThumbs lo processera' prima che il thread venga distrutto. }
     FreeBatch;
   end;
 end;
@@ -170,10 +204,17 @@ end;
 procedure TThumbThread.Flush;
 begin
   if FBatchCount = 0 then Exit;
-  { SyncAddThumbs consuma il lotto oppure lo libera se siamo Terminated }
-  TThread.Synchronize(nil, @SyncAddThumbs);
+  { Attende che il main thread abbia consumato il lotto precedente
+    (in pratica non serve mai perche' la decodifica e' lenta). }
+  while FPendingCount > 0 do
+    Sleep(1);
+  { Trasferisce la proprieta' al main thread. }
+  FPendingBatch := FBatch;
+  FPendingCount := FBatchCount;
+  FBatch := nil;
   FBatchCount := 0;
   SetLength(FBatch, 0);
+  TThread.Queue(nil, @SyncAddThumbs);
 end;
 
 procedure TThumbThread.FreeBatch;
@@ -186,6 +227,16 @@ begin
   SetLength(FBatch, 0);
 end;
 
+procedure TThumbThread.FreePendingBatch;
+var
+  i: integer;
+begin
+  for i := 0 to FPendingCount - 1 do
+    FPendingBatch[i].Image.Free;
+  FPendingCount := 0;
+  SetLength(FPendingBatch, 0);
+end;
+
 procedure TThumbThread.SyncAddThumbs;
 var
   i, ILIdx: integer;
@@ -195,18 +246,18 @@ begin
   if Terminated then
   begin
     { nessuno prendera' in carico le immagini del lotto }
-    FreeBatch;
+    FreePendingBatch;
     Exit;
   end;
 
   FListView.BeginUpdate;
   try
-    for i := 0 to FBatchCount - 1 do
+    for i := 0 to FPendingCount - 1 do
     begin
-      FPages.Add(FBatch[i].Image);
-      Thumb := MakeThumb(FBatch[i].Image, FImages.Width, FImages.Height);
+      FPages.Add(FPendingBatch[i].Image);
+      Thumb := MakeThumb(FPendingBatch[i].Image, FImages.Width, FImages.Height);
       { Bake ComicInfo badge into the thumbnail bitmap }
-      if FBatch[i].HasComicInfo then
+      if FPendingBatch[i].HasComicInfo then
       begin
         Thumb.Canvas.Brush.Color := clLime;
         Thumb.Canvas.Pen.Color := clGreen;
@@ -219,15 +270,19 @@ begin
         Thumb.Free;
       end;
       It := FListView.Items.Add;
-      It.Caption := ExtractChapterNumStr(FBatch[i].Name);
+      It.Caption := ExtractChapterNumStr(FPendingBatch[i].Name);
       if It.Caption = '' then
-        It.Caption := FBatch[i].Name;
-      It.SubItems.Add(FBatch[i].Name);  // hidden — full filename for file ops
+        It.Caption := FPendingBatch[i].Name;
+      It.SubItems.Add(FPendingBatch[i].Name);  // hidden — full filename for file ops
       It.ImageIndex := ILIdx;
     end;
   finally
     FListView.EndUpdate;
   end;
+  { Images are now owned by FPages; clear the pending batch without
+    freeing them. }
+  FPendingCount := 0;
+  SetLength(FPendingBatch, 0);
   Log('Sync: %d voci, ImageList=%d', [FListView.Items.Count, FImages.Count]);
 end;
 

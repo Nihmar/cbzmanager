@@ -24,7 +24,7 @@ object dlgSeqBuilder: TdlgSeqBuilder
     TabOrder = 0
     object LblStatus: TLabel
       Left = 4
-      Height = 20
+      Height = 21
       Top = 4
       Width = 792
       Align = alTop
@@ -37,12 +37,12 @@ object dlgSeqBuilder: TdlgSeqBuilder
     end
     object CbSequence: TComboBox
       Left = 4
-      Height = 23
-      Top = 28
+      Height = 27
+      Top = 29
       Width = 792
       Align = alClient
       BorderSpacing.Around = 4
-      ItemHeight = 15
+      ItemHeight = 25
       ReadOnly = True
       Style = csDropDownList
       TabOrder = 0
@@ -121,7 +121,7 @@ object dlgSeqBuilder: TdlgSeqBuilder
         Left = 4
         Height = 40
         Top = 4
-        Width = 18
+        Width = 23
         Align = alLeft
         Alignment = taCenter
         BorderSpacing.Around = 4
@@ -129,10 +129,10 @@ object dlgSeqBuilder: TdlgSeqBuilder
         Layout = tlCenter
       end
       object ZoomScroll: TTrackBar
-        Left = 26
+        Left = 31
         Height = 40
         Top = 4
-        Width = 210
+        Width = 205
         Frequency = 8
         Max = 320
         Min = 48
@@ -199,18 +199,17 @@ object dlgSeqBuilder: TdlgSeqBuilder
         end
         object LblPreviewPage: TLabel
           Left = 38
-          Height = 30
-          Top = 4
+          Height = 38
+          Top = 0
           Width = 164
           Align = alClient
           Alignment = taCenter
-          BorderSpacing.Around = 4
           Layout = tlCenter
         end
       end
       object LblPreviewTitle: TLabel
         Left = 4
-        Height = 15
+        Height = 17
         Top = 4
         Width = 232
         Align = alTop
@@ -223,21 +222,21 @@ object dlgSeqBuilder: TdlgSeqBuilder
       end
       object ScrollBoxPreview: TScrollBox
         Left = 4
-        Height = 367
-        Top = 23
+        Height = 365
+        Top = 25
         Width = 232
         HorzScrollBar.Page = 98
         VertScrollBar.Page = 98
         Align = alClient
         BorderSpacing.Around = 4
         BorderStyle = bsNone
-        ClientHeight = 367
+        ClientHeight = 365
         ClientWidth = 232
         TabOrder = 1
         OnMouseWheel = PreviewMouseWheel
         object ImgPreview: TImage
           Left = 4
-          Height = 359
+          Height = 357
           Top = 4
           Width = 224
           Align = alClient

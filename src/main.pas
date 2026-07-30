@@ -850,8 +850,20 @@ begin
   if Assigned(FLoadThread) then
   begin
     FLoadThread.Terminate;
-    FLoadThread.WaitFor;
-    FreeAndNil(FLoadThread);
+    { Poll with CheckSynchronize instead of blocking on WaitFor.
+      The worker may have queued calls (SyncAddThumbs via Queue,
+      OnTerminate via internal Synchronize) that need the main
+      thread to process them before the worker can finish. }
+    while not FLoadThread.Finished do
+    begin
+      CheckSynchronize;
+      Sleep(10);
+    end;
+    { Drain any remaining queued calls (OnTerminate, last Queue batch)
+      before freeing the thread.  CheckSynchronize processes them all. }
+    CheckSynchronize;
+    if Assigned(FLoadThread) then
+      FreeAndNil(FLoadThread);
   end;
 end;
 
@@ -860,8 +872,14 @@ begin
   if Assigned(FPagesThread) then
   begin
     FPagesThread.Terminate;
-    FPagesThread.WaitFor;
-    FreeAndNil(FPagesThread);
+    while not FPagesThread.Finished do
+    begin
+      CheckSynchronize;
+      Sleep(10);
+    end;
+    CheckSynchronize;
+    if Assigned(FPagesThread) then
+      FreeAndNil(FPagesThread);
   end;
 end;
 
@@ -2072,6 +2090,7 @@ begin
   FLoadThread.ListView := LVFiles;
   FLoadThread.Images := ILFilesFirstPages;
   FLoadThread.Pages := FFirstPages;
+  FLoadThread.FreeOnTerminate := True;
   FLoadThread.Start;
   SetStatus(Format('Loading: %s', [ADir]));
 end;
@@ -2093,7 +2112,8 @@ begin
     { FreeOnTerminate is False, so free the thread here (mirrors
       PreviewLoaderTerminated); nil-ing without freeing would leak it
       because FreeLoadThread only frees an Assigned field. }
-    FreeAndNil(FLoadThread);
+    // FreeAndNil(FLoadThread);
+    FLoadThread := nil;
     SetFolderOpsEnabled(True);
     SetStatus(Format('%d .cbz files', [LVFiles.Items.Count]));
     LVFiles.SetFocus;

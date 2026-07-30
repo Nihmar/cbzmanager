@@ -14,11 +14,12 @@ object frmMain: TfrmMain
   OnDestroy = FormDestroy
   OnKeyDown = FormKeyDown
   object ToolBar: TToolBar
-    Left = 0
+    Left = 4
     Height = 22
-    Top = 0
-    Width = 1000
+    Top = 4
+    Width = 992
     AutoSize = True
+    BorderSpacing.Around = 4
     BorderWidth = 4
     Caption = 'ToolBar'
     EdgeBorders = [ebBottom]
@@ -73,7 +74,7 @@ object frmMain: TfrmMain
   object PanelTop: TPanel
     Left = 0
     Height = 60
-    Top = 22
+    Top = 30
     Width = 1000
     Align = alTop
     BevelOuter = bvNone
@@ -176,17 +177,17 @@ object frmMain: TfrmMain
   end
   object PanelMiddle: TPanel
     Left = 0
-    Height = 510
-    Top = 82
+    Height = 502
+    Top = 90
     Width = 1000
     Align = alClient
     BevelOuter = bvNone
-    ClientHeight = 510
+    ClientHeight = 502
     ClientWidth = 1000
     TabOrder = 3
     object LVFiles: TListView
       Left = 4
-      Height = 502
+      Height = 494
       Top = 4
       Width = 507
       Align = alClient
@@ -208,12 +209,12 @@ object frmMain: TfrmMain
     end
     object PanelSingleFile: TPanel
       Left = 520
-      Height = 510
+      Height = 502
       Top = 0
       Width = 480
       Align = alRight
       BevelOuter = bvNone
-      ClientHeight = 510
+      ClientHeight = 502
       ClientWidth = 480
       TabOrder = 1
       Visible = False
@@ -474,7 +475,7 @@ object frmMain: TfrmMain
       end
       object LVPages: TListView
         Left = 4
-        Height = 408
+        Height = 400
         Top = 98
         Width = 472
         Align = alClient
@@ -496,7 +497,7 @@ object frmMain: TfrmMain
     end
     object SplitterPreview: TSplitter
       Left = 515
-      Height = 510
+      Height = 502
       Top = 0
       Width = 5
       Align = alRight

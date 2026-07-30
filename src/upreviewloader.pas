@@ -36,7 +36,7 @@ uses
 constructor TPreviewLoader.Create(const AFile: string);
 begin
   inherited Create(True);
-  FreeOnTerminate := False;
+  FreeOnTerminate := True;
   FFile := AFile;
   FPages := TLazIntfImageList.Create(True);
 end;

@@ -253,12 +253,12 @@ begin
   if (FPreviewLoader.FatalException <> nil) or (FPreviewLoader.Pages.Count = 0) then
   begin
     LblPreviewPage.Caption := 'No pages';
-    FreeAndNil(FPreviewLoader);
+    FPreviewLoader := nil;
     Exit;
   end;
 
   FPreviewPages := FPreviewLoader.ExtractPages;
-  FreeAndNil(FPreviewLoader);
+  FPreviewLoader := nil;
 
   FPreviewIndex := 0;
   ShowPreviewPage;
@@ -337,8 +337,7 @@ begin
   if FPreviewLoader <> nil then
   begin
     FPreviewLoader.Terminate;
-    FPreviewLoader.WaitFor;
-    FreeAndNil(FPreviewLoader);
+    FPreviewLoader := nil;
   end;
 end;
 

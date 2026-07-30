@@ -54,21 +54,21 @@ type
       Renumber / BatchAll / DeletePermanently - checkbox states }
 
   TdlgRows = class(TSettingsDialog)
-    procedure FormCreate(Sender: TObject);
-    procedure FormShow(Sender: TObject);
-    procedure FormCloseQuery(Sender: TObject; var CanClose: boolean);
-  private
-    BtnOk: TButton;
     BtnCancel: TButton;
+    BtnOk: TButton;
     CbRenumber: TCheckBox;
     CbBatchAll: TCheckBox;
     CbDeletePerm: TCheckBox;
     EditRanges: TEdit;
-    Label1: TLabel;
-    Label2: TLabel;
+    LabelPreview: TLabel;
+    LabelExample: TLabel;
     MemoPreview: TMemo;
     PanelBottom: TPanel;
-    PanelPreview: TPanel;
+    procedure EditRangesChange(Sender: TObject);
+    procedure FormCreate(Sender: TObject);
+    procedure FormShow(Sender: TObject);
+    procedure FormCloseQuery(Sender: TObject; var CanClose: boolean);
+  private
     FPageCount: integer;
     FDirectory: string;
     FSelected: TBooleanDynArray;
@@ -79,7 +79,6 @@ type
     procedure SetPageCount(AValue: integer);
     procedure ParseRanges;
     procedure UpdatePreview;
-    procedure EditRangesChange(Sender: TObject);
     procedure LoadSettings; override;
     procedure SaveSettings; override;
   public
@@ -163,76 +162,6 @@ end;
 
 procedure TdlgRows.FormCreate(Sender: TObject);
 begin
-  Label1 := TLabel.Create(Self);
-  Label1.Parent := Self;
-  Label1.Left := 12;
-  Label1.Top := 12;
-  Label1.Caption := 'Rows to delete (e.g. 1, 4, 7-10, 15)';
-  Label1.Font.Height := -13;
-  Label1.Font.Style := [fsBold];
-
-  EditRanges := TEdit.Create(Self);
-  EditRanges.Parent := Self;
-  EditRanges.Left := 12;
-  EditRanges.Top := 32;
-  EditRanges.Width := 476;
-  EditRanges.Font.Height := -13;
-  EditRanges.OnChange := @EditRangesChange;
-
-  Label2 := TLabel.Create(Self);
-  Label2.Parent := Self;
-  Label2.Left := 12;
-  Label2.Top := 72;
-  Label2.Caption := 'Preview';
-  Label2.Font.Height := -13;
-  Label2.Font.Style := [fsBold];
-
-  PanelPreview := TPanel.Create(Self);
-  PanelPreview.Parent := Self;
-  PanelPreview.Left := 12;
-  PanelPreview.Top := 92;
-  PanelPreview.Width := 476;
-  PanelPreview.Height := 130;
-  PanelPreview.BevelOuter := bvLowered;
-
-  MemoPreview := TMemo.Create(Self);
-  MemoPreview.Parent := PanelPreview;
-  MemoPreview.Align := alClient;
-  MemoPreview.BorderSpacing.Around := 4;
-  MemoPreview.BorderStyle := bsNone;
-  MemoPreview.Color := clBtnFace;
-  MemoPreview.Font.Height := -11;
-  MemoPreview.ReadOnly := True;
-  MemoPreview.ScrollBars := ssAutoVertical;
-
-  CbRenumber := TCheckBox.Create(Self);
-  CbRenumber.Parent := Self;
-  CbRenumber.Left := 12;
-  CbRenumber.Top := 238;
-  CbRenumber.Width := 164;
-  CbRenumber.Caption := 'Renumber remaining pages';
-  CbRenumber.Checked := True;
-
-  CbBatchAll := TCheckBox.Create(Self);
-  CbBatchAll.Parent := Self;
-  CbBatchAll.Left := 12;
-  CbBatchAll.Top := 266;
-  CbBatchAll.Width := 165;
-  CbBatchAll.Caption := 'Apply to all files in directory';
-
-  CbDeletePerm := TCheckBox.Create(Self);
-  CbDeletePerm.Parent := Self;
-  CbDeletePerm.Left := 12;
-  CbDeletePerm.Top := 294;
-  CbDeletePerm.Width := 239;
-  CbDeletePerm.Caption := 'Permanently delete (no _OLD.cbz backup)';
-
-  PanelBottom := CreateBottomPanel(Self, 48);
-
-  BtnOk := CreateDialogButton(PanelBottom, '&Delete', 324, 9, mrOK, True, False);
-  BtnCancel := CreateDialogButton(PanelBottom, '&Cancel', 412, 9, mrCancel,
-    False, True);
-
   FPageCount := 0;
   FSelected := nil;
 

@@ -4,7 +4,60 @@ object dlgConvertResults: TdlgConvertResults
   Top = 150
   Width = 750
   Caption = 'WebP conversion results'
+  ClientHeight = 420
+  ClientWidth = 750
   Position = poOwnerFormCenter
   LCLVersion = '4.8.0.0'
   OnCreate = FormCreate
+  object PanelBottom: TPanel
+    Left = 0
+    Height = 64
+    Top = 356
+    Width = 750
+    Align = alBottom
+    BevelOuter = bvNone
+    ClientHeight = 64
+    ClientWidth = 750
+    TabOrder = 0
+    object BtnClose: TButton
+      Left = 671
+      Height = 56
+      Top = 4
+      Width = 75
+      Align = alRight
+      BorderSpacing.Around = 4
+      Cancel = True
+      Caption = 'Close'
+      Default = True
+      TabOrder = 0
+    end
+    object LblSummary: TLabel
+      Left = 4
+      Height = 56
+      Top = 4
+      Width = 663
+      Align = alClient
+      BorderSpacing.Around = 4
+      Caption = 'LblSummary'
+      Font.Height = -13
+      Font.Style = [fsBold]
+      Layout = tlCenter
+      ParentFont = False
+    end
+  end
+  object LVResult: TListView
+    Left = 4
+    Height = 348
+    Top = 4
+    Width = 742
+    Align = alClient
+    BorderSpacing.Around = 4
+    Columns = <>
+    GridLines = True
+    ReadOnly = True
+    RowSelect = True
+    ScrollBars = ssAutoVertical
+    TabOrder = 1
+    ViewStyle = vsReport
+  end
 end

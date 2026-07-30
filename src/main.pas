@@ -850,20 +850,7 @@ begin
   if Assigned(FLoadThread) then
   begin
     FLoadThread.Terminate;
-    { Poll with CheckSynchronize instead of blocking on WaitFor.
-      The worker may have queued calls (SyncAddThumbs via Queue,
-      OnTerminate via internal Synchronize) that need the main
-      thread to process them before the worker can finish. }
-    while not FLoadThread.Finished do
-    begin
-      CheckSynchronize;
-      Sleep(10);
-    end;
-    { Drain any remaining queued calls (OnTerminate, last Queue batch)
-      before freeing the thread.  CheckSynchronize processes them all. }
-    CheckSynchronize;
-    if Assigned(FLoadThread) then
-      FreeAndNil(FLoadThread);
+    FLoadThread := nil;
   end;
 end;
 
@@ -872,14 +859,7 @@ begin
   if Assigned(FPagesThread) then
   begin
     FPagesThread.Terminate;
-    while not FPagesThread.Finished do
-    begin
-      CheckSynchronize;
-      Sleep(10);
-    end;
-    CheckSynchronize;
-    if Assigned(FPagesThread) then
-      FreeAndNil(FPagesThread);
+    FPagesThread := nil;
   end;
 end;
 
@@ -983,6 +963,7 @@ begin
   FPagesThread.ListView := LVPages;
   FPagesThread.Images := ILPages;
   FPagesThread.Pages := FPagePreviews;
+  FPagesThread.FreeOnTerminate := True;
   FPagesThread.Start;
 end;
 
@@ -2109,10 +2090,8 @@ procedure TfrmMain.ThreadTerminated(Sender: TObject);
 begin
   if Sender = FLoadThread then
   begin
-    { FreeOnTerminate is False, so free the thread here (mirrors
-      PreviewLoaderTerminated); nil-ing without freeing would leak it
-      because FreeLoadThread only frees an Assigned field. }
-    // FreeAndNil(FLoadThread);
+    { FreeOnTerminate is True — the thread auto-frees.  We just nil
+      the field so we don't keep a dangling reference. }
     FLoadThread := nil;
     SetFolderOpsEnabled(True);
     SetStatus(Format('%d .cbz files', [LVFiles.Items.Count]));
@@ -2142,9 +2121,9 @@ var
 begin
   if Sender = FPagesThread then
   begin
-    { FreeOnTerminate is False — free here so the thread is not leaked
-      (FreePagesThread only frees an Assigned field). }
-    FreeAndNil(FPagesThread);
+    { FreeOnTerminate is True — the thread auto-frees.  We just nil
+      the field so we don't keep a dangling reference. }
+    FPagesThread := nil;
     SetLength(FPages, FPagePreviews.Count);
     SetLength(FBaseline, FPagePreviews.Count);
     for i := 0 to FPagePreviews.Count - 1 do

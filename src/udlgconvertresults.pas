@@ -5,17 +5,29 @@ unit udlgconvertresults;
 interface
 
 uses
-  Classes, SysUtils, Math, Forms, Controls, Graphics, StdCtrls,
-  ComCtrls, ExtCtrls, userviceconvert, udlgbase;
+  Classes,
+  SysUtils,
+  Math,
+  Forms,
+  Controls,
+  Graphics,
+  StdCtrls,
+  ComCtrls,
+  ExtCtrls,
+  userviceconvert,
+  udlgbase;
 
 type
+
+  { TdlgConvertResults }
+
   TdlgConvertResults = class(TForm)
+    BtnClose: TButton;
+    LblSummary: TLabel;
+    LVResult: TListView;
+    PanelBottom: TPanel;
     procedure FormCreate(Sender: TObject);
   private
-    LVResult: TListView;
-    LblSummary: TLabel;
-    PanelBottom: TPanel;
-    BtnClose: TButton;
   public
     procedure ShowResults(const AResults: TConvertResults);
   end;
@@ -38,22 +50,6 @@ procedure TdlgConvertResults.FormCreate(Sender: TObject);
 var
   Col: TListColumn;
 begin
-  PanelBottom := CreateBottomPanel(Self, 64);
-
-  LblSummary := TLabel.Create(Self);
-  LblSummary.Parent := PanelBottom;
-  LblSummary.Left := 12;
-  LblSummary.Top := 8;
-  LblSummary.Width := 500;
-  LblSummary.Font.Height := -13;
-  LblSummary.Font.Style := [fsBold];
-
-  BtnClose := CreateDialogButton(PanelBottom, 'Close',
-    PanelBottom.ClientWidth - DLG_BTN_WIDTH - 8, 26, mrOK, True, True);
-  BtnClose.Anchors := [akTop, akRight];
-
-  LVResult := CreateReportListView(Self, False);
-
   Col := LVResult.Columns.Add;
   Col.Caption := 'File';
   Col.Width := 220;

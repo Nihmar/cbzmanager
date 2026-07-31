@@ -564,6 +564,10 @@ object frmMain: TfrmMain
         Caption = 'Delete rows...'
         OnClick = MnuDeleteRowsClick
       end
+      object MnuDeletePages: TMenuItem
+        Caption = 'Delete pages...'
+        OnClick = MnuDeletePagesClick
+      end
       object SepArch1: TMenuItem
         Caption = '-'
       end
@@ -699,6 +703,10 @@ object frmMain: TfrmMain
     object MnuCtxDeleteRows: TMenuItem
       Caption = 'Delete rows...'
       OnClick = MnuDeleteRowsClick
+    end
+    object MnuCtxDeletePages: TMenuItem
+      Caption = 'Delete pages...'
+      OnClick = MnuDeletePagesClick
     end
     object MnuCtxReorder: TMenuItem
       Caption = 'Reorder pages...'

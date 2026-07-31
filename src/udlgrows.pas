@@ -62,6 +62,8 @@ type
     EditRanges: TEdit;
     LabelPreview: TLabel;
     LabelExample: TLabel;
+    LabelFiles: TLabel;
+    MemoFiles: TMemo;
     MemoPreview: TMemo;
     PanelBottom: TPanel;
     procedure EditRangesChange(Sender: TObject);
@@ -72,11 +74,13 @@ type
     FPageCount: integer;
     FDirectory: string;
     FSelected: TBooleanDynArray;
+    FFileList: TStringList;
     function GetSelectedCount: integer;
     function GetRenumber: boolean;
     function GetBatchAll: boolean;
     function GetDeletePermanently: boolean;
     procedure SetPageCount(AValue: integer);
+    procedure SetFileList(AValue: TStringList);
     procedure ParseRanges;
     procedure UpdatePreview;
     procedure LoadSettings; override;
@@ -92,6 +96,10 @@ type
     property Renumber: boolean read GetRenumber;
     property BatchAll: boolean read GetBatchAll;
     property DeletePermanently: boolean read GetDeletePermanently;
+    { Optional per-file scope description, one "name (N pages)" line per
+      target archive.  Shown in a read-only memo; the caller keeps ownership.
+      When nil (or empty) the file-scope area is hidden. }
+    property FileList: TStringList read FFileList write SetFileList;
   end;
 
 implementation
@@ -164,6 +172,7 @@ procedure TdlgRows.FormCreate(Sender: TObject);
 begin
   FPageCount := 0;
   FSelected := nil;
+  FFileList := nil;
 
   InitSettingsPersistence;
 end;
@@ -221,6 +230,20 @@ begin
     AValue := 0;
   FPageCount := AValue;
   Reset;
+end;
+
+{ Copies the per-file scope lines into the memo and reveals the area only
+  when there is something to show (the preview "Delete rows" flow has no
+  file list).  The caller keeps ownership of AValue. }
+procedure TdlgRows.SetFileList(AValue: TStringList);
+begin
+  FFileList := AValue;
+  LabelFiles.Visible := (AValue <> nil) and (AValue.Count > 0);
+  MemoFiles.Visible := LabelFiles.Visible;
+  if LabelFiles.Visible then
+    MemoFiles.Lines.Assign(AValue)
+  else
+    MemoFiles.Clear;
 end;
 
 function TdlgRows.GetSelectedCount: integer;

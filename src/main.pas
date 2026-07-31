@@ -136,6 +136,7 @@ type
     MnuManageComicInfo: TMenuItem;
     MnuRemoveComicInfo: TMenuItem;
     MnuDeleteRows: TMenuItem;
+    MnuDeletePages: TMenuItem;
 
     SepArch1: TMenuItem;
     MnuReload: TMenuItem;
@@ -221,6 +222,7 @@ type
     MnuCtxManageComicInfo: TMenuItem;
     MnuCtxRemoveComicInfo: TMenuItem;
     MnuCtxDeleteRows: TMenuItem;
+    MnuCtxDeletePages: TMenuItem;
     MnuCtxReorder: TMenuItem;
     SepCtx1: TMenuItem;
     MnuCtxValidate: TMenuItem;
@@ -258,6 +260,7 @@ type
     procedure ConvertThreadTerminated(Sender: TObject);
 
     procedure MnuDeleteRowsClick(Sender: TObject);
+    procedure MnuDeletePagesClick(Sender: TObject);
     procedure DeleteRowsThreadTerminated(Sender: TObject);
     procedure MnuExitClick(Sender: TObject);
 
@@ -347,6 +350,9 @@ type
     { Collect file names from LvFiles. When AAll=True returns every file;
       otherwise returns selected files, or all files if none selected. }
     function GetFileList(AAll: boolean = False): TStringArray;
+    { Collect the filenames of the explicitly selected LVFiles items only.
+      Never falls back to the whole directory (unlike GetFileList). }
+    function GetSelectedFiles: TStringArray;
     { Return the full filename for an LVFiles item — reads the original
       filename stored in SubItems[0] (set by SyncAddThumbs), falling back
       to the visible Caption for backward compatibility. }
@@ -524,6 +530,7 @@ begin
   MnuManageComicInfo.Enabled := AEnabled;
   MnuRemoveComicInfo.Enabled := AEnabled;
   MnuDeleteRows.Enabled := AEnabled;
+  MnuDeletePages.Enabled := AEnabled;
 end;
 
 procedure TfrmMain.SetPageOpsEnabled(AEnabled: boolean);
@@ -1030,6 +1037,8 @@ begin
   MnuCtxManageComicInfo.Enabled := (LVFiles.Selected <> nil) and Ready;
   MnuCtxRemoveComicInfo.Enabled := Ready and MnuRemoveComicInfo.Enabled;
   MnuCtxDeleteRows.Enabled := Ready and MnuDeleteRows.Enabled;
+  MnuCtxDeletePages.Enabled := (LVFiles.SelCount > 0) and Ready and
+    MnuDeletePages.Enabled;
   MnuCtxReorder.Enabled := Ready;
 end;
 
@@ -1459,6 +1468,9 @@ var
 begin
   Thread := Sender as TDeletePagesThread;
   FinishServiceThread(nil, MnuDeleteRows);
+  { The "Delete pages..." flow disables MnuDeletePages for the duration of
+    the job — restore it too (no-op when the job came from "Delete rows..."). }
+  MnuDeletePages.Enabled := True;
   if Thread.Result.Success then
   begin
     LoadDirectory(FDir);
@@ -1542,6 +1554,70 @@ begin
     end;
   finally
     Dlg.Free;
+  end;
+end;
+
+{
+  MnuDeletePagesClick
+  -------------------
+  Deletes the user-selected page(s) from all *explicitly selected* CBZ files
+  in the file list, in the background.
+
+  The page-count of every target archive is read first (central-directory
+  only, so it is fast); the range dialog is sized to the largest archive and
+  shows each file with its own count, because selections of mixed length
+  are normal.  FilterPagesFromCBZ clamps the mask per archive, so a page
+  number beyond a file's page count simply does nothing there.
+}
+procedure TfrmMain.MnuDeletePagesClick(Sender: TObject);
+var
+  Files: TStringArray;
+  Counts: TStringList;
+  i, MaxCount, Cnt: integer;
+  FullPath: string;
+  Dlg: TdlgRows;
+  Thread: TDeletePagesThread;
+begin
+  if FDir = '' then
+  begin
+    SetStatus(RSOpenFolderFirst);
+    Exit;
+  end;
+  Files := GetSelectedFiles;
+  if Length(Files) = 0 then
+  begin
+    SetStatus('Select at least one file');
+    Exit;
+  end;
+  Counts := TStringList.Create;
+  try
+    MaxCount := 0;
+    for i := 0 to High(Files) do
+    begin
+      FullPath := IncludeTrailingPathDelimiter(FDir) + Files[i];
+      Cnt := GetImageCount(FullPath);
+      if Cnt > MaxCount then
+        MaxCount := Cnt;
+      Counts.Add(Format('%s (%d pages)', [Files[i], Cnt]));
+    end;
+
+    Dlg := TdlgRows.Create(Self);
+    try
+      Dlg.PageCount := MaxCount;
+      Dlg.Directory := FDir;
+      Dlg.FileList := Counts;
+      if Dlg.ShowModal = mrOk then
+      begin
+        Thread := TDeletePagesThread.Create(Files, FDir, Dlg.Selected,
+          Dlg.Renumber, Dlg.DeletePermanently, @UpdateProgress);
+        BeginServiceThread(Thread, 'Deleting pages...',
+          @DeleteRowsThreadTerminated, nil, MnuDeletePages);
+      end;
+    finally
+      Dlg.Free;
+    end;
+  finally
+    Counts.Free;
   end;
 end;
 
@@ -2060,6 +2136,29 @@ begin
       Inc(n);
     end;
   SetLength(Result, n);
+end;
+
+{
+  GetSelectedFiles
+  ----------------
+  Collects the filenames of the explicitly selected LVFiles items only.
+  Unlike GetFileList, an empty selection yields an empty array — the caller
+  decides what that means (used by destructive operations that must not
+  silently apply to the whole directory).
+}
+function TfrmMain.GetSelectedFiles: TStringArray;
+var
+  i, n: integer;
+begin
+  Result := nil;
+  SetLength(Result, LVFiles.SelCount);
+  n := 0;
+  for i := 0 to LVFiles.Items.Count - 1 do
+    if LVFiles.Items[i].Selected then
+    begin
+      Result[n] := ItemFileName(LVFiles.Items[i]);
+      Inc(n);
+    end;
 end;
 
 {

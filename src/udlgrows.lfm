@@ -1,12 +1,12 @@
 inherited dlgRows: TdlgRows
   Left = 400
-  Height = 315
+  Height = 380
   Top = 200
   Width = 500
   BorderIcons = [biSystemMenu, biMinimize, biMaximize]
   BorderStyle = bsSizeable
   Caption = 'Delete rows'
-  ClientHeight = 315
+  ClientHeight = 380
   ClientWidth = 500
   Position = poOwnerFormCenter
   OnCloseQuery = FormCloseQuery
@@ -98,7 +98,34 @@ inherited dlgRows: TdlgRows
     State = cbChecked
     TabOrder = 4
   end
-  object PanelBottom: TPanel[7]
+  object LabelFiles: TLabel[7]
+    Left = 4
+    Height = 18
+    Top = 260
+    Width = 492
+    Align = alTop
+    BorderSpacing.Around = 4
+    Caption = 'Files to modify'
+    Font.Height = -13
+    Font.Style = [fsBold]
+    ParentFont = False
+    Visible = False
+  end
+  object MemoFiles: TMemo[8]
+    Left = 4
+    Top = 282
+    Width = 492
+    Align = alClient
+    BorderSpacing.Around = 4
+    BorderStyle = bsNone
+    Font.Height = -11
+    ParentFont = False
+    ReadOnly = True
+    ScrollBars = ssAutoVertical
+    TabOrder = 5
+    Visible = False
+  end
+  object PanelBottom: TPanel[9]
     Left = 0
     Height = 48
     Top = 267
@@ -107,7 +134,7 @@ inherited dlgRows: TdlgRows
     BevelOuter = bvNone
     ClientHeight = 48
     ClientWidth = 500
-    TabOrder = 5
+    TabOrder = 6
     object BtnCancel: TButton
       Left = 421
       Height = 40

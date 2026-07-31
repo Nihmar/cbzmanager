@@ -978,11 +978,26 @@ end;
 {
   LVFilesDblClick
   ---------------
-  Opens the currently selected file in the preview pane on double-click.
+  Opens the file under the cursor in the preview pane on double-click.
+
+  The item is resolved by position rather than from LVFiles.Selected: on
+  some platforms (e.g. Qt/KDE) the first click on a freshly loaded,
+  unfocused list may only focus the control, so the selection can be stale
+  when the first double-click fires.  Falling back to the selection covers
+  widgetsets where GetItemAt is unavailable at this point.
 }
 procedure TfrmMain.LVFilesDblClick(Sender: TObject);
+var
+  P: TPoint;
+  It: TListItem;
 begin
-  OpenPreview(LVFiles.Selected);
+  P := LVFiles.ScreenToClient(Mouse.CursorPos);
+  It := LVFiles.GetItemAt(P.X, P.Y);
+  if It = nil then
+    It := LVFiles.Selected;
+  if It <> nil then
+    LVFiles.Selected := It;
+  OpenPreview(It);
 end;
 
 {

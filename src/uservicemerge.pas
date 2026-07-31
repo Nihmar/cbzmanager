@@ -116,8 +116,11 @@ uses
 
 { Extracts the chapter-number portion of a filename as a raw string,
   preserving leading zeros and any formatting.
-  E.g. "Series - 0001.cbz" → "0001", "Manga - 042_extra.cbz" → "042".
+  E.g. "Series - 0001.cbz" → "0001", "Manga - 042_extra.cbz" → "042_extra",
+  "Manga - _042.cbz" → "042".
   Also handles volume names: "Series V012.cbz" → "V012".
+  The underscore suffix is kept so variant/part files (e.g. "010_15") stay
+  distinguishable from the plain chapter in the UI.
   Returns empty string if no pattern match is found. }
 function ExtractChapterNumStr(const AFileName: string): string;
 var
@@ -135,10 +138,6 @@ begin
     { Strip leading underscore: "_0000" → "0000" }
     if (Length(Result) > 0) and (Result[1] = '_') then
       Delete(Result, 1, 1);
-    { Strip trailing suffix after underscore: "0001_extra" → "0001" }
-    p := Pos('_', Result);
-    if p > 0 then
-      Result := Copy(Result, 1, p - 1);
   end
   else
   begin
@@ -148,13 +147,7 @@ begin
     begin
       S := Trim(Copy(Base, p + 2, Length(Base)));
       if (Length(S) > 0) and (S[1] in ['0'..'9']) then
-      begin
-        { Strip trailing suffix after underscore: "V001_extra" → "V001" }
-        p := Pos('_', S);
-        if p > 0 then
-          S := Copy(S, 1, p - 1);
         Result := 'V' + S;
-      end;
     end;
   end;
 end;
@@ -162,16 +155,16 @@ end;
 function ExtractChapterNum(const AFileName: string): integer;
 var
   S: string;
-  DotPos: integer;
+  i: integer;
 begin
   S := ExtractChapterNumStr(AFileName);
-  { Use the integer part so decimal chapters (e.g. "010.5", common for manga
-    half-chapters) map to their whole-number index (10) instead of collapsing
-    to 0 and being silently dropped from a chapter range. }
-  DotPos := Pos('.', S);
-  if DotPos > 0 then
-    S := Copy(S, 1, DotPos - 1);
-  Result := StrToIntDef(Trim(S), 0);
+  { Use the integer part so decimal chapters (e.g. "010.5") and sub-chapter
+    markers (e.g. "010_15") map to their whole-number index (10) instead of
+    collapsing to 0 and being silently dropped from a chapter range. }
+  i := 1;
+  while (i <= Length(S)) and (S[i] in ['0'..'9']) do
+    Inc(i);
+  Result := StrToIntDef(Copy(S, 1, i - 1), 0);
 end;
 
 { Simple insertion sort — stable, adequate for typical chapter counts. }

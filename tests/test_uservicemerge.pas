@@ -18,6 +18,15 @@ type
     procedure DetectSeriesName_EmptyList;
     procedure DetectSeriesName_ComplexName;
 
+    procedure ExtractChapterNumStr_Plain;
+    procedure ExtractChapterNumStr_UnderscoreSuffix;
+    procedure ExtractChapterNumStr_LeadingUnderscore;
+    procedure ExtractChapterNumStr_Decimal;
+    procedure ExtractChapterNumStr_Volume;
+    procedure ExtractChapterNumStr_VolumeSuffix;
+    procedure ExtractChapterNumStr_NoPattern;
+    procedure ExtractChapterNumStr_NonNumericChapter;
+
     procedure CalcCPV_SymmetricVolumes;
     procedure CalcCPV_NoVolumes;
     procedure CalcCPV_ImpossibleDetect;
@@ -97,6 +106,51 @@ begin
   SetLength(Files, 1);
   Files[0] := 'Attack - On - Titan - 12.cbz';
   AssertEquals('Attack - On - Titan', TMergeService.DetectSeriesName(Files));
+end;
+
+{ ExtractChapterNumStr }
+
+procedure TMergeServiceTest.ExtractChapterNumStr_Plain;
+begin
+  AssertEquals('0001', ExtractChapterNumStr('Bleach - 0001.cbz'));
+end;
+
+procedure TMergeServiceTest.ExtractChapterNumStr_UnderscoreSuffix;
+begin
+  { The suffix must be kept so variant/part files stay distinguishable }
+  AssertEquals('010_15', ExtractChapterNumStr('Naruto - 010_15.cbz'));
+  AssertEquals('042_extra', ExtractChapterNumStr('Manga - 042_extra.cbz'));
+end;
+
+procedure TMergeServiceTest.ExtractChapterNumStr_LeadingUnderscore;
+begin
+  AssertEquals('0002', ExtractChapterNumStr('Series - _0002.cbz'));
+end;
+
+procedure TMergeServiceTest.ExtractChapterNumStr_Decimal;
+begin
+  AssertEquals('010.5', ExtractChapterNumStr('Manga - 010.5.cbz'));
+end;
+
+procedure TMergeServiceTest.ExtractChapterNumStr_Volume;
+begin
+  AssertEquals('V012', ExtractChapterNumStr('Series V012.cbz'));
+end;
+
+procedure TMergeServiceTest.ExtractChapterNumStr_VolumeSuffix;
+begin
+  AssertEquals('V012_extra', ExtractChapterNumStr('Series V012_extra.cbz'));
+end;
+
+procedure TMergeServiceTest.ExtractChapterNumStr_NoPattern;
+begin
+  AssertEquals('', ExtractChapterNumStr('nodash.cbz'));
+  AssertEquals('', ExtractChapterNumStr('also_nodash_01.cbz'));
+end;
+
+procedure TMergeServiceTest.ExtractChapterNumStr_NonNumericChapter;
+begin
+  AssertEquals('extra', ExtractChapterNumStr('Series - extra.cbz'));
 end;
 
 { CalculateChaptersPerVolume }

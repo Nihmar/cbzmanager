@@ -1,6 +1,9 @@
 program testrunner;
 {$mode objfpc}{$h+}
 uses
+  { LCL programs must link the widgetset's registration unit, otherwise the
+    linker reports undefined WSRegister* symbols. }
+  interfaces,
   consoletestrunner,
   fpcunit,
   testregistry,

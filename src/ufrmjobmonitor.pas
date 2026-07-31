@@ -57,8 +57,11 @@ type
     procedure StartJob(const ATitle: string);
     { Update progress bar and current task label.  Also appends AMsg to log. }
     procedure UpdateProgress(APercent: integer; const AMsg: string);
-    { Mark the job as finished.  Enables Close, stops the timer. }
+    { Mark the job as finished.  Enables Close, stops the timer, and brings
+      the monitor back to the front so the final state is visible. }
     procedure FinishJob;
+    { Bring the monitor to the front of the Z-order and give it focus. }
+    procedure ActivateOnTop;
   end;
 
 implementation
@@ -210,6 +213,21 @@ begin
   end;
   LblTask.Caption := 'Done';
   BtnClose.Enabled := True;
+  // The job is over: raise the monitor so the user sees the final log and
+  // can close it, instead of the main form stealing focus/visibility.
+  ActivateOnTop;
+end;
+
+{ Raises the monitor above the main form and gives it focus.  Safe to call
+  even while a modal dialog is up — activation is refused by the OS then,
+  and the OnTerminate handlers re-call this once the dialog closes. }
+procedure TfrmJobMonitor.ActivateOnTop;
+begin
+  if Visible then
+  begin
+    BringToFront;
+    SetFocus;
+  end;
 end;
 
 end.

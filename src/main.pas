@@ -1142,6 +1142,10 @@ begin
   Dlg.ShowResults(Thread.Result);
   Dlg.ShowModal;
   Dlg.Free;
+  { Closing the results dialog returns focus to the main form; raise the
+    job monitor again so it stays on top as requested. }
+  if FJobMonitor <> nil then
+    FJobMonitor.ActivateOnTop;
   SetStatus(Format('Validation complete: %d files', [Length(Thread.Result)]));
 end;
 
@@ -1206,6 +1210,10 @@ begin
   finally
     Dlg.Free;
   end;
+  { Closing the results dialog returns focus to the main form; raise the
+    job monitor again so it stays on top as requested. }
+  if FJobMonitor <> nil then
+    FJobMonitor.ActivateOnTop;
 end;
 
 {
@@ -2095,7 +2103,11 @@ begin
     FLoadThread := nil;
     SetFolderOpsEnabled(True);
     SetStatus(Format('%d .cbz files', [LVFiles.Items.Count]));
-    LVFiles.SetFocus;
+    { Don't yank focus back to the file list while the job monitor is still
+      open — it runs right after conversions/merges/deletes and stays on
+      top until the user closes it. }
+    if (FJobMonitor = nil) or not FJobMonitor.Visible then
+      LVFiles.SetFocus;
   end;
 end;
 

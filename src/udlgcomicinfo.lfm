@@ -4,6 +4,69 @@ inherited dlgComicInfo: TdlgComicInfo
   Top = 150
   Width = 560
   Caption = 'Remove ComicInfo.xml'
+  ClientHeight = 400
+  ClientWidth = 560
   Position = poOwnerFormCenter
   OnCreate = FormCreate
+  object PanelBottom: TPanel[0]
+    Left = 0
+    Height = 44
+    Top = 356
+    Width = 560
+    Align = alBottom
+    BevelOuter = bvNone
+    ClientHeight = 44
+    ClientWidth = 560
+    TabOrder = 0
+    object CbBackup: TCheckBox
+      Left = 4
+      Height = 36
+      Top = 4
+      Width = 281
+      Align = alLeft
+      BorderSpacing.Around = 4
+      Caption = 'Create backup (_OLD.cbz) before rewriting'
+      TabOrder = 0
+    end
+    object BtnClose: TButton
+      Left = 481
+      Height = 36
+      Top = 4
+      Width = 75
+      Align = alRight
+      BorderSpacing.Around = 4
+      Cancel = True
+      Caption = 'Close'
+      Default = True
+      ModalResult = 1
+      TabOrder = 1
+    end
+    object BtnRemove: TButton
+      Left = 402
+      Height = 36
+      Top = 4
+      Width = 75
+      Align = alRight
+      BorderSpacing.Around = 4
+      Caption = 'Remove'
+      TabOrder = 2
+      OnClick = BtnRemoveClick
+    end
+  end
+  object LVFiles: TListView[1]
+    Left = 4
+    Height = 348
+    Top = 4
+    Width = 552
+    Align = alClient
+    BorderSpacing.Around = 4
+    Checkboxes = True
+    Columns = <>
+    GridLines = True
+    ReadOnly = True
+    RowSelect = True
+    ScrollBars = ssAutoBoth
+    TabOrder = 1
+    ViewStyle = vsReport
+  end
 end

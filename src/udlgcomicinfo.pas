@@ -5,22 +5,33 @@ unit udlgcomicinfo;
 interface
 
 uses
-  Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls,
-  ComCtrls, ExtCtrls, udlgbase, usettings;
+  Classes,
+  SysUtils,
+  Forms,
+  Controls,
+  Graphics,
+  Dialogs,
+  StdCtrls,
+  ComCtrls,
+  ExtCtrls,
+  udlgbase,
+  usettings;
 
 type
 
+  { TdlgComicInfo }
+
   TdlgComicInfo = class(TSettingsDialog)
-    procedure FormCreate(Sender: TObject);
-  private
-    BtnRemove: TButton;
     BtnClose: TButton;
+    BtnRemove: TButton;
     CbBackup: TCheckBox;
     LVFiles: TListView;
-    PanelBottom: TPanel;
+    PanelBottom: TPanel;                  
+    procedure BtnRemoveClick(Sender: TObject);
+    procedure FormCreate(Sender: TObject);
+  private
     FDir: string;
     FFiles: TStringArray;
-    procedure BtnRemoveClick(Sender: TObject);
     procedure LoadSettings; override;
     procedure SaveSettings; override;
   public
@@ -41,25 +52,12 @@ procedure TdlgComicInfo.FormCreate(Sender: TObject);
 var
   Col: TListColumn;
 begin
-  LVFiles := CreateReportListView(Self, True);
   Col := LVFiles.Columns.Add;
   Col.Caption := 'File';
   Col.AutoSize := True;
   Col := LVFiles.Columns.Add;
   Col.Caption := 'ComicInfo.xml';
   Col.Width := 120;
-
-  PanelBottom := CreateBottomPanel(Self, 88);
-
-  CbBackup := TCheckBox.Create(Self);
-  CbBackup.Parent := PanelBottom;
-  CbBackup.SetBounds(12, 8, 540, 24);
-  CbBackup.Caption := 'Create backup (_OLD.cbz) before rewriting';
-
-  BtnClose := CreateDialogButton(PanelBottom, 'Close', 472, 44, mrOk, True, True);
-  BtnRemove := CreateDialogButton(PanelBottom, '&Remove', 384, 44, mrNone,
-    False, False);
-  BtnRemove.OnClick := @BtnRemoveClick;
 
   LVFiles.Clear;
   InitSettingsPersistence;

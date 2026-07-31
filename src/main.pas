@@ -363,6 +363,7 @@ implementation
 uses
   LCLType,
   LCLIntf,
+  Process,
   uImgUtil,
   uLog,
   uWebp,
@@ -1340,12 +1341,39 @@ end;
 procedure TfrmMain.MnuCtxOpenInDirClick(Sender: TObject);
 var
   DirPath: string;
+  P: TProcess;
+  Opened: boolean;
 begin
   if (FDir = '') or (LVFiles.Selected = nil) then Exit;
   DirPath := ExcludeTrailingPathDelimiter(FDir);
-  { OpenDocument opens the directory in the platform's default file manager
-    (Explorer on Windows, Finder on macOS, xdg-open on Linux). }
-  if not OpenDocument(DirPath) then
+  {$IFDEF WINDOWS}
+  { OpenDocument hands the folder to explorer.exe as a command-line
+    argument, which some Windows versions mis-parse when the name contains
+    an apostrophe ("A Man's Man"); quoting the path fixes it. }
+  Opened := OpenDocument('"' + DirPath + '"');
+  {$ELSE}
+    {$IFDEF LINUX}
+    { LCL's Unix OpenDocument corrupts paths containing an apostrophe: it
+      wraps the path with QuotedStr (single quotes, doubled apostrophes) and
+      feeds it through a command-line string, so the opener receives the
+      literal quotes.  Spawn xdg-open directly instead — TProcess passes
+      Parameters as argv entries, so the path is delivered unchanged. }
+    Opened := False;
+    P := TProcess.Create(nil);
+    try
+      P.Executable := 'xdg-open';
+      P.Parameters.Add(DirPath);
+      P.Execute;
+      Opened := True;
+    except
+      Opened := False;
+    end;
+    P.Free;
+    {$ELSE}
+    Opened := OpenDocument(DirPath);
+    {$ENDIF}
+  {$ENDIF}
+  if not Opened then
     SetStatus('Could not open directory');
 end;
 

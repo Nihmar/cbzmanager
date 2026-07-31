@@ -91,6 +91,13 @@ type
     class function CalculateChaptersPerVolume(const AFiles: TStringArray;
       const SeriesName: string): integer;
 
+    { Find the highest existing volume number among files named
+      "<SeriesName> VNNN.cbz" (a suffix such as "_OLD" is allowed).
+      Returns 0 when no volume matches or the series name is empty, so a
+      following merge can start numbering at 1. }
+    class function LastVolumeNumber(const AFiles: TStringArray;
+      const SeriesName: string): integer;
+
     { Perform the merge operation.
 
       Parameters:
@@ -274,6 +281,38 @@ begin
 end;
 
 { ---------------------------------------------------------------------------
+  LastVolumeNumber
+
+  Scans AFiles for files starting with "<SeriesName> V" followed by digits
+  (the volume pattern written by Merge), and returns the largest number
+  found.  A suffix after the digits is tolerated ("Series V012_OLD.cbz").
+  Files of other series are ignored, so the result only reflects the series
+  being merged.
+  --------------------------------------------------------------------------- }
+class function TMergeService.LastVolumeNumber(const AFiles: TStringArray;
+  const SeriesName: string): integer;
+var
+  i, p, Num, Err: integer;
+  BaseName, S: string;
+begin
+  Result := 0;
+  if SeriesName = '' then Exit;
+  for i := 0 to High(AFiles) do
+  begin
+    BaseName := ChangeFileExt(AFiles[i], '');
+    if not StartsStr(SeriesName + ' V', BaseName) then Continue;
+    { The number starts right after "<SeriesName> V" }
+    S := Copy(BaseName, Length(SeriesName) + 3, MaxInt);
+    p := 1;
+    while (p <= Length(S)) and (S[p] in ['0'..'9']) do
+      Inc(p);
+    Val(Copy(S, 1, p - 1), Num, Err);
+    if (Err = 0) and (Num > Result) then
+      Result := Num;
+  end;
+end;
+
+{ ---------------------------------------------------------------------------
   Merge
 
   Core merge routine.  It proceeds in three phases:
@@ -370,7 +409,9 @@ begin
   end;
 
   TotalCreated := 0;
-  VolNum := 1;
+  { Number new volumes after the highest existing one, so repeated merges
+    extend the series instead of overwriting earlier volumes. }
+  VolNum := LastVolumeNumber(AFiles, SeriesName) + 1;
   ChIdx := 0;
   ListIdx := 0;
 

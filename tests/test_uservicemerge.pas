@@ -31,9 +31,16 @@ type
     procedure CalcCPV_NoVolumes;
     procedure CalcCPV_ImpossibleDetect;
 
+    procedure LastVolumeNumber_None;
+    procedure LastVolumeNumber_Mixed;
+    procedure LastVolumeNumber_Suffix;
+    procedure LastVolumeNumber_EmptySeries;
+    procedure LastVolumeNumber_OtherSeries;
+
     procedure Merge_TwoChapters;
     procedure Merge_DeleteOriginals;
     procedure Merge_NoChapters;
+    procedure Merge_ContinuesFromLastVolume;
   end;
 
 implementation
@@ -195,6 +202,66 @@ begin
   AssertEquals('(1-1)/2=0', 0, TMergeService.CalculateChaptersPerVolume(Files, 'Series'));
 end;
 
+{ LastVolumeNumber }
+
+procedure TMergeServiceTest.LastVolumeNumber_None;
+var
+  Files: TStringArray;
+begin
+  SetLength(Files, 2);
+  Files[0] := 'Series - 008.cbz';
+  Files[1] := 'Series - 009.cbz';
+  AssertEquals('No volumes', 0, TMergeService.LastVolumeNumber(Files, 'Series'));
+end;
+
+procedure TMergeServiceTest.LastVolumeNumber_Mixed;
+var
+  Files: TStringArray;
+begin
+  SetLength(Files, 5);
+  Files[0] := 'Series V001.cbz';
+  Files[1] := 'Series V002.cbz';
+  Files[2] := 'Series V003.cbz';
+  Files[3] := 'Series - 010.cbz';
+  Files[4] := 'Series - 011.cbz';
+  AssertEquals('Highest volume is 3', 3,
+    TMergeService.LastVolumeNumber(Files, 'Series'));
+end;
+
+procedure TMergeServiceTest.LastVolumeNumber_Suffix;
+var
+  Files: TStringArray;
+begin
+  SetLength(Files, 3);
+  Files[0] := 'Series V001.cbz';
+  Files[1] := 'Series V002_OLD.cbz';
+  Files[2] := 'Series V005_extra.cbz';
+  AssertEquals('Suffix tolerated, highest is 5', 5,
+    TMergeService.LastVolumeNumber(Files, 'Series'));
+end;
+
+procedure TMergeServiceTest.LastVolumeNumber_EmptySeries;
+var
+  Files: TStringArray;
+begin
+  SetLength(Files, 1);
+  Files[0] := 'Series V001.cbz';
+  AssertEquals('Empty series name', 0,
+    TMergeService.LastVolumeNumber(Files, ''));
+end;
+
+procedure TMergeServiceTest.LastVolumeNumber_OtherSeries;
+var
+  Files: TStringArray;
+begin
+  SetLength(Files, 3);
+  Files[0] := 'Bleach V007.cbz';
+  Files[1] := 'Series - 010.cbz';
+  Files[2] := 'Series V002.cbz';
+  AssertEquals('Other series ignored', 2,
+    TMergeService.LastVolumeNumber(Files, 'Series'));
+end;
+
 { Merge }
 
 procedure TMergeServiceTest.Merge_TwoChapters;
@@ -294,6 +361,49 @@ begin
 
   AssertFalse('No chapters → failure', Res.Success);
   AssertTrue('Error message set', Res.ErrorMsg <> '');
+end;
+
+procedure TMergeServiceTest.Merge_ContinuesFromLastVolume;
+var
+  Png: TMemoryStream;
+  Files: TStringArray;
+  Opts: TMergeOptions;
+  Res: TMergeResult;
+begin
+  { Existing V001 volume, then chapters 2 and 3 → the new volume must be
+    numbered V002, not overwrite V001. }
+  Png := CreateMinimalPNGStream;
+  CreateCBZ(FTempDir + 'Test V001.cbz', [Png], ['v.png']);
+  Png.Free;
+
+  Png := CreateMinimalPNGStream;
+  CreateCBZ(FTempDir + 'Test - 02.cbz', [Png], ['c.png']);
+  Png.Free;
+
+  Png := CreateMinimalPNGStream;
+  CreateCBZ(FTempDir + 'Test - 03.cbz', [Png], ['c.png']);
+  Png.Free;
+
+  SetLength(Files, 3);
+  Files[0] := 'Test V001.cbz';
+  Files[1] := 'Test - 02.cbz';
+  Files[2] := 'Test - 03.cbz';
+
+  Opts.SeriesName := 'Test';
+  Opts.ChapterStart := 2;
+  Opts.ChapterEnd := 99;
+  Opts.ChaptersPerVolume := 2;
+  Opts.Force := False;
+  Opts.Delete := False;
+
+  Res := TMergeService.Merge(Files, FTempDir, Opts);
+
+  AssertTrue('Merge succeeded', Res.Success);
+  AssertEquals('1 volume created', 1, Res.VolumesCreated);
+  AssertTrue('Existing volume untouched',
+    FileExists(FTempDir + 'Test V001.cbz'));
+  AssertTrue('New volume continues numbering',
+    FileExists(FTempDir + 'Test V002.cbz'));
 end;
 
 initialization

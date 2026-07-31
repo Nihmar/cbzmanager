@@ -50,6 +50,9 @@ type
     FFiles: TStringArray;
     FDir: string;
     FImages: TLazIntfImageList;
+    { Highest volume number already present in the directory; proposed
+      volumes start one after it (0 when the series has no volumes yet). }
+    FLastVolume: integer;
     procedure RefreshVolumeColumn;
     function GetChaptersList: TIntArray;
     function GetGenerateComicInfo: boolean;
@@ -241,7 +244,7 @@ begin
           LVFiles.Items[i].SubItems[1] := '?';
         Exit;
       end;
-      VolNum := 1;
+      VolNum := FLastVolume + 1;
       Consumed := 0;
       SeqIdx := 0;
       for i := 0 to LVFiles.Items.Count - 1 do
@@ -275,9 +278,11 @@ begin
         for i := 0 to LVFiles.Items.Count - 1 do
         begin
           if i < (LVFiles.Items.Count div CPV) * CPV then
-            LVFiles.Items[i].SubItems[1] := Format('Vol.%d', [(i div CPV) + 1])
+            LVFiles.Items[i].SubItems[1] :=
+              Format('Vol.%d', [FLastVolume + (i div CPV) + 1])
           else
-            LVFiles.Items[i].SubItems[1] := Format('Vol.%d', [FullVols]);
+            LVFiles.Items[i].SubItems[1] := Format('Vol.%d',
+              [FLastVolume + FullVols]);
         end;
       end
       else
@@ -285,7 +290,8 @@ begin
         { Without Force: only full volumes — leftovers stay unassigned }
         for i := 0 to LVFiles.Items.Count - 1 do
           if i < (LVFiles.Items.Count div CPV) * CPV then
-            LVFiles.Items[i].SubItems[1] := Format('Vol.%d', [(i div CPV) + 1])
+            LVFiles.Items[i].SubItems[1] :=
+              Format('Vol.%d', [FLastVolume + (i div CPV) + 1])
           else
             LVFiles.Items[i].SubItems[1] := '-';
       end;
@@ -304,6 +310,7 @@ var
 begin
   FFiles := AFiles;
   FDir := ADir;
+  FLastVolume := TMergeService.LastVolumeNumber(AFiles, ASeriesName);
   LblFolder.Caption := ExtractFileName(ExcludeTrailingPathDelimiter(ADir));
   EditChapterEnd.Value := Length(AFiles);
 

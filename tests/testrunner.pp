@@ -9,6 +9,7 @@ uses
   testregistry,
   test_uzipeditor,
   test_uservicemerge,
+  test_uclimode,
   test_uservicevalidate,
   test_uservicecomicinfo,
   test_ucomicinfo,

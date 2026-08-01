@@ -12,6 +12,7 @@ uses
   Interfaces, // this includes the LCL widgetset
   Forms,
   main,
+  uclimode,
   { you can add units after this }
   uzipcore,
   usettings,
@@ -35,6 +36,13 @@ uses
   {$R *.res}
 
 begin
+  { Headless (CLI) mode: when launched with a known command as the first
+    argument, run the service layer directly and exit before any GUI or
+    widgetset initialization.  Unknown or missing arguments fall through
+    to the normal GUI startup. }
+  if IsHeadlessCommand(ParamStr(1)) then
+    Halt(RunHeadlessFromParams);
+
   RequireDerivedFormResource := True;
   Application.Scaled:=True;
   {$PUSH}

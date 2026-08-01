@@ -36,6 +36,28 @@ make test           # compile and run FPCUnit test suite
 make clean          # remove test build artifacts
 ```
 
+### Headless (CLI) mode
+
+The same binary doubles as a command-line tool: when launched with a known
+command as its first argument it runs without any GUI (no display server
+needed) and exits, otherwise the desktop application starts.
+
+```bash
+cbzmanager validate <dir>                 # verify CBZ files and images
+cbzmanager convert-webp <dir> [--delete]  # convert images to WebP (quality 75%, only if smaller)
+cbzmanager merge <dir> [--delete] [--force] [--chapters N1,N2,...] [--chapters-per-volume N]
+cbzmanager --help
+cbzmanager --version
+```
+
+- Flags may appear before or after the directory.
+- Exit codes: `0` success (or a benign no-op such as "not enough chapters"),
+  `1` runtime error, `2` usage error.
+- `merge` processes every series found in the directory, one after the other.
+- The commands mirror the Python reference CLI
+  (`porting/cbz_manager`); `delete-pages`, `find-similar` and
+  `delete-pages-by-id` are not ported.
+
 ## Dependencies
 
 ### libwebp (optional)
@@ -79,6 +101,7 @@ The DLL architecture must match the build target (64-bit DLL for x86_64-win64, e
 src/
   main.pas / main.lfm           Main form (UI + orchestration)
   uservicebase.pas               Base service class, file utilities
+  uclimode.pas                   Headless (CLI) mode: argument parsing + dispatch
   uservicevalidate.pas           CBZ validation service
   userviceconvert.pas            WebP conversion service
   uservicemerge.pas              Chapter merge service
@@ -108,6 +131,7 @@ tests/
   test_helpers.pas               Shared test utilities
   test_uzipeditor.pas            ZIP editor tests
   test_uservicevalidate.pas      Validation service tests
+  test_uclimode.pas              Headless CLI tests
   test_uservicemerge.pas         Merge service tests
   test_uservicecomicinfo.pas     ComicInfo service tests
   test_ucomicinfo.pas            ComicInfo XML parsing tests

@@ -3,6 +3,7 @@ program testrunner;
 uses
   { LCL programs must link the widgetset's registration unit, otherwise the
     linker reports undefined WSRegister* symbols. }
+  cthreads,
   interfaces,
   consoletestrunner,
   fpcunit,
@@ -10,6 +11,7 @@ uses
   test_uzipeditor,
   test_uservicemerge,
   test_uclimode,
+  test_udlgseqbuilder,
   test_uservicevalidate,
   test_uservicecomicinfo,
   test_ucomicinfo,

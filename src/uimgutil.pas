@@ -294,7 +294,11 @@ begin
           ix := sx0;
           while ix < sx1 do
           begin
-            C := Src.Colors[ix, iy];
+            { Belt-and-braces: never sample outside the source bounds, even
+              if a source image description ever reports dimensions
+              inconsistent with its data (would otherwise surface as a
+              range-check error in debug builds with range checks on). }
+            C := Src.Colors[Min(ix, Src.Width - 1), Min(iy, Src.Height - 1)];
             Inc(R, C.Red);
             Inc(G, C.Green);
             Inc(B, C.Blue);
@@ -311,7 +315,7 @@ begin
         C.Green := G div N;
         C.Blue := B div N;
         C.Alpha := A div N;
-        Result.Colors[x, y] := C;
+        Result.Colors[Min(x, DW - 1), Min(y, DH - 1)] := C;
       end;
     end;
   except

@@ -57,6 +57,10 @@ type
     FDir: string;
     FFiles: TStringArray;
     FImages: TLazIntfImageList;
+    { For each file in FFiles, its index into FImages (thumbnail); -1 when
+      no thumbnail is available.  Lets the caller pass a chapter-only file
+      list whose thumbnails live in a larger, full-directory image list. }
+    FImageIdx: TIntArray;
     FVolumes: TIntArray;
     FRemovedCount: integer;
 
@@ -67,6 +71,7 @@ type
 
     procedure ApplyZoom;
     procedure RebuildGrid;
+    function ChapterRangeStr(AStart, ACount: integer): string;
     procedure RefreshStatus;
     procedure ShowPreviewPage;
     procedure StartPreview(AFileIndex: integer);
@@ -74,9 +79,22 @@ type
     procedure StopPreviewLoader;
     function SelectedCount: integer;
   public
+    { AFiles are the chapters in merge order; AImageIdx[i] is the index of
+      AFiles[i]'s thumbnail inside AImages (may be -1). }
     procedure LoadChapters(const AFiles: TStringArray;
-      AImages: TLazIntfImageList; const ADir: string);
+      AImages: TLazIntfImageList; const AImageIdx: TIntArray;
+      const ADir: string);
     function GetSequence: TIntArray;
+
+    { True when the selected set (booleans over the visible items) is
+      exactly the first ACount items — the only selection the merge can
+      honour, because volumes are assembled in list order. }
+    function IsFrontBlockSelection(const ASelected: array of boolean;
+      ACount: integer): boolean;
+
+    { Adds a volume of the next N chapters (front-consumption), updating
+      the grid, status and undo state. }
+    procedure AddVolume(N: integer);
   end;
 
 implementation
@@ -85,7 +103,8 @@ implementation
 
 uses
   LCLIntf,
-  LCLType;
+  LCLType,
+  uLog;
 
 const
   LVM_SETICONSPACING = $1000 + 53;
@@ -186,21 +205,53 @@ begin
       Inc(Result);
 end;
 
-procedure TdlgSeqBuilder.BtnAddVolumeClick(Sender: TObject);
+function TdlgSeqBuilder.IsFrontBlockSelection(const ASelected: array of boolean;
+  ACount: integer): boolean;
 var
-  N: integer;
+  i: integer;
 begin
-  N := SelectedCount;
-  if N = 0 then Exit;
+  Result := False;
+  if (ACount <= 0) or (Length(ASelected) < ACount) then Exit;
+  for i := 0 to Length(ASelected) - 1 do
+    if ASelected[i] <> (i < ACount) then Exit;
+  Result := True;
+end;
 
+procedure TdlgSeqBuilder.AddVolume(N: integer);
+begin
+  if N <= 0 then Exit;
   SetLength(FVolumes, Length(FVolumes) + 1);
   FVolumes[High(FVolumes)] := N;
   Inc(FRemovedCount, N);
-
   ClearPreview;
   RebuildGrid;
   RefreshStatus;
   BtnUndo.Enabled := True;
+end;
+
+procedure TdlgSeqBuilder.BtnAddVolumeClick(Sender: TObject);
+var
+  N, i: integer;
+  Selected: array of boolean;
+begin
+  N := SelectedCount;
+  if N = 0 then Exit;
+
+  { The merge assembles volumes in list order (the preview and the merge
+    service both consume the chapters front-to-back), so the selection
+    must be exactly the first N remaining chapters.  Arbitrary selections
+    would make the volume contain different chapters than the user sees. }
+  SetLength(Selected, LVChapters.Items.Count);
+  for i := 0 to LVChapters.Items.Count - 1 do
+    Selected[i] := LVChapters.Items[i].Selected;
+  if not IsFrontBlockSelection(Selected, N) then
+  begin
+    LblStatus.Caption :=
+      'Select chapters from the start (volumes are assembled in list order)';
+    Exit;
+  end;
+
+  AddVolume(N);
 end;
 
 procedure TdlgSeqBuilder.BtnUndoClick(Sender: TObject);
@@ -222,7 +273,20 @@ var
 begin
   Item := LVChapters.Selected;
   if Item = nil then Exit;
-  StartPreview(FRemovedCount + Item.Index);
+  try
+    StartPreview(FRemovedCount + Item.Index);
+  except
+    on E: Exception do
+    begin
+      { A failed preview must never crash the dialog: log the cause and
+        degrade to the 'No pages' state instead of showing an exception
+        dialog (e.g. range-check errors on unusual images). }
+      Log('SeqBuilder preview failed: %s: %s', [E.ClassName, E.Message]);
+      StopPreviewLoader;
+      ClearPreview;
+      LblPreviewPage.Caption := 'No pages';
+    end;
+  end;
 end;
 
 procedure TdlgSeqBuilder.StartPreview(AFileIndex: integer);
@@ -250,6 +314,13 @@ end;
 
 procedure TdlgSeqBuilder.PreviewLoaderTerminated(Sender: TObject);
 begin
+  { Only the CURRENT loader may update the preview.  A superseded loader
+    (replaced by a newer double-click, or the form closing while it was
+    still running) must not touch the UI: StopPreviewLoader has already
+    nilled FPreviewLoader, so Sender <> FPreviewLoader and we bail out.
+    The thread frees itself (FreeOnTerminate). }
+  if Sender <> FPreviewLoader then Exit;
+
   if (FPreviewLoader.FatalException <> nil) or (FPreviewLoader.Pages.Count = 0) then
   begin
     LblPreviewPage.Caption := 'No pages';
@@ -423,10 +494,12 @@ begin
 
     for i := FRemovedCount to High(FFiles) do
     begin
-      if i < FImages.Count then
-        Idx := AppendThumb(ILChapters, FImages[i])
-      else
-        Idx := -1;
+      { Thumbnail via the index map: the chapter list may be a subset of
+        the image list's directory, and some files may lack a thumbnail. }
+      Idx := -1;
+      if (i < Length(FImageIdx)) and (FImageIdx[i] >= 0) and
+         (FImageIdx[i] < FImages.Count) then
+        Idx := AppendThumb(ILChapters, FImages[FImageIdx[i]]);
 
       It := LVChapters.Items.Add;
       It.Caption := ChangeFileExt(FFiles[i], '');
@@ -451,11 +524,33 @@ begin
   BtnAddVolume.Caption := 'Add volume (0 ch.)';
 end;
 
+{ Compact chapter list for a volume: "0001, 0002, 0003" or
+  "0001 … 0008" for longer runs. }
+function TdlgSeqBuilder.ChapterRangeStr(AStart, ACount: integer): string;
+var
+  i: integer;
+begin
+  if ACount <= 3 then
+  begin
+    Result := '';
+    for i := AStart to AStart + ACount - 1 do
+    begin
+      if Result <> '' then
+        Result := Result + ', ';
+      Result := Result + ChangeFileExt(FFiles[i], '');
+    end;
+  end
+  else
+    Result := ChangeFileExt(FFiles[AStart], '') + ' … ' +
+      ChangeFileExt(FFiles[AStart + ACount - 1], '');
+end;
+
 procedure TdlgSeqBuilder.RefreshStatus;
 var
-  i, Remaining: integer;
+  i, Remaining, Pos: integer;
 begin
-  LblStatus.Caption := Format('Volume %d | Select chapters, then press "Add volume"',
+  LblStatus.Caption := Format(
+    'Volume %d | Select the next chapters (in order), then press "Add volume"',
     [Length(FVolumes) + 1]);
 
   Remaining := Length(FFiles) - FRemovedCount;
@@ -469,8 +564,13 @@ begin
     end
     else
     begin
+      Pos := 0;
       for i := 0 to High(FVolumes) do
-        CbSequence.Items.Add(Format('Vol.%d: %d ch.', [i + 1, FVolumes[i]]));
+      begin
+        CbSequence.Items.Add(Format('Vol.%d: %d ch. (%s)',
+          [i + 1, FVolumes[i], ChapterRangeStr(Pos, FVolumes[i])]));
+        Inc(Pos, FVolumes[i]);
+      end;
       if Remaining = 0 then
         CbSequence.Items.Add('  (all assigned)')
       else
@@ -483,10 +583,12 @@ begin
 end;
 
 procedure TdlgSeqBuilder.LoadChapters(const AFiles: TStringArray;
-  AImages: TLazIntfImageList; const ADir: string);
+  AImages: TLazIntfImageList; const AImageIdx: TIntArray;
+  const ADir: string);
 begin
   FFiles := AFiles;
   FImages := AImages;
+  FImageIdx := AImageIdx;
   FDir := ADir;
   FRemovedCount := 0;
   FVolumes := nil;

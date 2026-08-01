@@ -61,6 +61,11 @@ type
       incalculable.  Drives the volume-column preview when the user is not
       in manual CPV mode, so the preview matches the service's planning. }
     FAutoCPVF: Double;
+    { The chapter list the merge will operate on (filtered to the detected
+      series, in merge order) — the same rows shown in LVFiles.  The
+      sequence builder receives exactly this list so the preview, the
+      builder and the merge all agree on which chapters exist. }
+    FChapters: TChapterArray;
     procedure RefreshVolumeColumn;
     function GetChaptersList: TIntArray;
     function GetGenerateComicInfo: boolean;
@@ -183,14 +188,35 @@ procedure TdlgMerge.BtnBuildSeqClick(Sender: TObject);
 var
   Builder: TdlgSeqBuilder;
   Seq: TIntArray;
-  i: integer;
+  BuildFiles: TStringArray;
+  BuildIdx: TIntArray;
+  i, j: integer;
   S: string;
 begin
   if FImages = nil then Exit;
+  if Length(FChapters) = 0 then Exit;
+
+  { The builder must work on the SAME universe as the preview and the
+    merge: the chapters of the detected series, in merge order.  Each
+    chapter's thumbnail is looked up in the full-directory image list via
+    an index map. }
+  SetLength(BuildFiles, Length(FChapters));
+  SetLength(BuildIdx, Length(FChapters));
+  for i := 0 to High(FChapters) do
+  begin
+    BuildFiles[i] := FChapters[i].FileName;
+    BuildIdx[i] := -1;
+    for j := 0 to High(FFiles) do
+      if FFiles[j] = FChapters[i].FileName then
+      begin
+        BuildIdx[i] := j;
+        Break;
+      end;
+  end;
 
   Builder := TdlgSeqBuilder.Create(Self);
   try
-    Builder.LoadChapters(FFiles, FImages, FDir);
+    Builder.LoadChapters(BuildFiles, FImages, BuildIdx, FDir);
     if Builder.ShowModal = mrOk then
     begin
       Seq := Builder.GetSequence;
@@ -244,49 +270,21 @@ end;
 
 procedure TdlgMerge.RefreshVolumeColumn;
 var
-  i, j, VolNum, Consumed, SeqIdx, Count, TotalFull, BatchSize: integer;
-  Seq: TIntArray;
+  i, Count, TotalFull, BatchSize: integer;
+  Labels: TStringArray;
   CPVF: Double;
 begin
   LVFiles.BeginUpdate;
   try
     if CbCustomSeq.Checked then
     begin
-      Seq := GetChaptersList;
-      if Length(Seq) = 0 then
-      begin
-        for i := 0 to LVFiles.Items.Count - 1 do
-          LVFiles.Items[i].SubItems[1] := '?';
-        Exit;
-      end;
-      VolNum := FLastVolume + 1;
-      Consumed := 0;
-      SeqIdx := 0;
-      for i := 0 to LVFiles.Items.Count - 1 do
-      begin
-        if SeqIdx <= High(Seq) then
-        begin
-          { A batch that does not fully fit the remaining rows is skipped
-            entirely (the service breaks there too, matching the Python
-            reference) — label the remaining rows as unassigned. }
-          if Seq[SeqIdx] > LVFiles.Items.Count - i then
-          begin
-            for j := i to LVFiles.Items.Count - 1 do
-              LVFiles.Items[j].SubItems[1] := '-';
-            Break;
-          end;
-          LVFiles.Items[i].SubItems[1] := Format('Vol.%d', [VolNum]);
-          Inc(Consumed);
-          if Consumed >= Seq[SeqIdx] then
-          begin
-            Inc(VolNum);
-            Inc(SeqIdx);
-            Consumed := 0;
-          end;
-        end
-        else
-          LVFiles.Items[i].SubItems[1] := '-';
-      end;
+      { The custom-sequence labeling is a pure function (shared with the
+        unit tests): sequence counts per volume, continuing after
+        FLastVolume; batches that do not fit are skipped ('-'). }
+      Labels := CustomSequenceLabels(LVFiles.Items.Count, GetChaptersList,
+        FLastVolume);
+      for i := 0 to High(Labels) do
+        LVFiles.Items[i].SubItems[1] := Labels[i];
     end
     else
     begin
@@ -359,6 +357,7 @@ begin
     by chapter number (specials last).  Volume files and _OLD backups are
     excluded here and never participate in the merge. }
   Chapters := TMergeService.CollectChapters(AFiles, ASeriesName);
+  FChapters := Chapters;
   MaxCh := 1;
   for i := 0 to High(Chapters) do
     if Chapters[i].Number > MaxCh then

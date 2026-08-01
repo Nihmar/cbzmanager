@@ -44,6 +44,9 @@ const
     auto-calculated one is available. }
   DEFAULT_CHAPTERS_PER_VOLUME = 7;
 
+type
+  TIntArray = array of integer;
+
 { Extract the chapter-number portion of a CBZ filename as a string,
   preserving leading zeros. Returns empty string if no pattern found. }
 function ExtractChapterNumStr(const AFileName: string): string;
@@ -64,6 +67,15 @@ function IsVolumeFile(const AFileName, ASeriesName: string): boolean;
   is alphabetic. }
 function IsChapterFile(const AFileName: string; out ASeries: string;
   out ANumber: integer; out AIsSpecial: boolean): boolean;
+
+{ Builds the Volume-column labels for ACount chapters grouped by the custom
+  sequence ASeq (chapter counts per volume), continuing after ALastVolume.
+  A batch that does not fully fit the remaining rows is skipped (its
+  chapters stay unassigned, shown as '-'), mirroring the merge service and
+  the Python reference.  An empty sequence yields '?' for every row.
+  Pure function — used by the merge dialog preview and by unit tests. }
+function CustomSequenceLabels(ACount: integer; const ASeq: TIntArray;
+  ALastVolume: integer): TStringArray;
 
 type
   { TChapterInfo — a chapter file and its numeric sort key.  Specials
@@ -89,7 +101,6 @@ type
       Delete          — If True, original chapter files are deleted after a
                         successful merge; otherwise they are renamed to
                         *_OLD.cbz. }
-  TIntArray = array of integer;
 
   TMergeOptions = record
     SeriesName: string;
@@ -252,6 +263,56 @@ begin
       Dec(j);
     end;
     AChapters[j + 1] := Key;
+  end;
+end;
+
+{ ---------------------------------------------------------------------------
+  CustomSequenceLabels
+
+  Pure labeling of the Volume column for a custom chapter sequence —
+  extracted so the dialog preview logic is unit-testable without a GUI.
+  --------------------------------------------------------------------------- }
+function CustomSequenceLabels(ACount: integer; const ASeq: TIntArray;
+  ALastVolume: integer): TStringArray;
+var
+  i, j, VolNum, Consumed, SeqIdx: integer;
+begin
+  Result := nil;
+  SetLength(Result, ACount);
+  if ACount = 0 then Exit;
+  if Length(ASeq) = 0 then
+  begin
+    for i := 0 to ACount - 1 do
+      Result[i] := '?';
+    Exit;
+  end;
+  VolNum := ALastVolume + 1;
+  Consumed := 0;
+  SeqIdx := 0;
+  for i := 0 to ACount - 1 do
+  begin
+    if SeqIdx <= High(ASeq) then
+    begin
+      { A batch that does not fully fit the remaining rows is skipped
+        entirely (the merge service breaks there too) — label the
+        remaining rows as unassigned. }
+      if ASeq[SeqIdx] > ACount - i then
+      begin
+        for j := i to ACount - 1 do
+          Result[j] := '-';
+        Break;
+      end;
+      Result[i] := Format('Vol.%d', [VolNum]);
+      Inc(Consumed);
+      if Consumed >= ASeq[SeqIdx] then
+      begin
+        Inc(VolNum);
+        Inc(SeqIdx);
+        Consumed := 0;
+      end;
+    end
+    else
+      Result[i] := '-';
   end;
 end;
 

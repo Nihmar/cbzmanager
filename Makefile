@@ -37,7 +37,7 @@ test-compile:
 	  tests/testrunner.pp
 
 test: test-compile
-	./bin/tests/testrunner --all
+	QT_QPA_PLATFORM=offscreen ./bin/tests/testrunner --all
 
 man:
 	@if command -v groff >/dev/null 2>&1; then \

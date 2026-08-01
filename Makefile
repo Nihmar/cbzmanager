@@ -23,11 +23,14 @@ test-compile:
 	  -Fu/usr/lib/fpc/3.2.2/units/x86_64-linux/fcl-fpcunit \
 	  -Fu/usr/lib/fpc/3.2.2/units/x86_64-linux/paszlib \
 	  -Fu/usr/lib/lazarus/lcl/units/x86_64-linux \
+	  -Fu/usr/lib/lazarus/lcl/units/x86_64-linux/qt6 \
 	  -Fu/usr/lib/lazarus/components/lazutils/lib/x86_64-linux \
 	  -Fu/usr/lib/lazarus/packager/units/x86_64-linux \
 	  -Fu/usr/lib/lazarus/components/freetype/lib/x86_64-linux \
+	  -Fu$$HOME/.lazarus/lib/units/x86_64-linux/qt6 \
 	  -Fusrc -Fulib \
 	  -FEbin/tests -FUobj/tests \
+	  -dLCL -dLCLqt6 \
 	  tests/testrunner.pp
 
 test: test-compile

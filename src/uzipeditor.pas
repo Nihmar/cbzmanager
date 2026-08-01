@@ -579,9 +579,10 @@ end;
 function MergeIntoVolume(const SourceFiles: TStringArray; const ADir: string;
   AOnProgress: TServiceProgressEvent = nil): TZipEntries;
 var
-  i, j, PageNum, Padding: integer;
+  i, j, k, PageNum, Padding: integer;
   SrcPath, Ext: string;
   Entries: TZipEntries;
+  Key: TZipEntryData;
 begin
   Result := nil;
   if Length(SourceFiles) = 0 then Exit;
@@ -597,6 +598,22 @@ begin
       SrcPath := IncludeTrailingPathDelimiter(ADir) + SourceFiles[i];
       Entries := CollectZipEntries(SrcPath);
       try
+        { Sort entries by name (ordinal, case-sensitive) before filtering,
+          matching the Python reference's sorted(namelist()): the archive's
+          internal storage order must not decide page order.  Insertion
+          sort is stable — equal names keep archive order. }
+        for j := 1 to High(Entries) do
+        begin
+          Key := Entries[j];
+          k := j - 1;
+          while (k >= 0) and (CompareStr(Entries[k].Name, Key.Name) > 0) do
+          begin
+            Entries[k + 1] := Entries[k];
+            Dec(k);
+          end;
+          Entries[k + 1] := Key;
+        end;
+
         for j := 0 to High(Entries) do
         begin
           if SameText(Entries[j].Name, COMICINFO_XML) then

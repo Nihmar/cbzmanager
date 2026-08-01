@@ -25,6 +25,7 @@ type
     procedure TestValidateCBZImages;
     procedure TestMergeIntoVolume;
     procedure TestMergeIntoVolume_SkipsNonImage;
+    procedure TestMergeIntoVolume_SortsEntries;
     procedure TestFilterPages_DeleteFirst_Renumber;
     procedure TestFilterPages_DeleteLast_Renumber;
     procedure TestFilterPages_KeepOriginalNumbers_DeleteFirst;
@@ -217,6 +218,58 @@ begin
   end;
 end;
 
+procedure TZipEditorTest.TestMergeIntoVolume_SortsEntries;
+var
+  Vol: TZipEntries;
+  Sources: TStringArray;
+  A, M, Z: TMemoryStream;
+  Data: string;
+begin
+  { Entries stored in the archive in non-alphabetical order (z, a, m) must
+    end up in alphabetical page order, like the Python reference's
+    sorted(namelist()).  Before the fix this test fails: TUnZipper emits
+    entries in archive (central-directory) order, so page_001 was 'z'. }
+  A := TMemoryStream.Create;
+  A.WriteBuffer('AAA', 3);
+  A.Position := 0;
+  M := TMemoryStream.Create;
+  M.WriteBuffer('MMM', 3);
+  M.Position := 0;
+  Z := TMemoryStream.Create;
+  Z.WriteBuffer('ZZZ', 3);
+  Z.Position := 0;
+  CreateCBZ(FTempDir + 'ch_order.cbz', [Z, A, M], ['z.jpg', 'a.jpg', 'm.jpg']);
+  A.Free;
+  M.Free;
+  Z.Free;
+
+  SetLength(Sources, 1);
+  Sources[0] := 'ch_order.cbz';
+
+  Vol := MergeIntoVolume(Sources, FTempDir);
+  try
+    AssertEquals('3 pages', 3, Length(Vol));
+    AssertEquals('page_001.jpg', 'page_001.jpg', Vol[0].Name);
+    AssertEquals('page_002.jpg', 'page_002.jpg', Vol[1].Name);
+    AssertEquals('page_003.jpg', 'page_003.jpg', Vol[2].Name);
+    { Alphabetical source order a.jpg, m.jpg, z.jpg must become pages 1..3 }
+    SetLength(Data, Vol[0].Data.Size);
+    Vol[0].Data.Position := 0;
+    Vol[0].Data.ReadBuffer(Data[1], Vol[0].Data.Size);
+    AssertEquals('page_001 is a.jpg', 'AAA', Data);
+    SetLength(Data, Vol[1].Data.Size);
+    Vol[1].Data.Position := 0;
+    Vol[1].Data.ReadBuffer(Data[1], Vol[1].Data.Size);
+    AssertEquals('page_002 is m.jpg', 'MMM', Data);
+    SetLength(Data, Vol[2].Data.Size);
+    Vol[2].Data.Position := 0;
+    Vol[2].Data.ReadBuffer(Data[1], Vol[2].Data.Size);
+    AssertEquals('page_003 is z.jpg', 'ZZZ', Data);
+  finally
+    FreeZipEntries(Vol);
+  end;
+end;
+
 { FilterPagesFromCBZ — regression tests.  FValidCBZ has 3 PNG images.
   The delete mask is 1-indexed-by-image via a 0-based boolean array:
   True = delete the image at that position. }
@@ -339,8 +392,9 @@ begin
   AssertNotNull('.jpg', ReaderClassForExt('.jpg'));
   AssertNotNull('.bmp', ReaderClassForExt('.bmp'));
   AssertNotNull('.gif', ReaderClassForExt('.gif'));
-  AssertNull('.webp', ReaderClassForExt('.webp'));
-  AssertNull('.tiff', ReaderClassForExt('.tiff'));  // no built-in TIFF reader
+  AssertNotNull('.tiff', ReaderClassForExt('.tiff'));
+  AssertNotNull('.tif', ReaderClassForExt('.tif'));
+  AssertNull('.webp', ReaderClassForExt('.webp'));  // handled by uWebP separately
   AssertNull('.txt', ReaderClassForExt('.txt'));
 end;
 

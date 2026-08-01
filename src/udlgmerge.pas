@@ -53,6 +53,14 @@ type
     { Highest volume number already present in the directory; proposed
       volumes start one after it (0 when the series has no volumes yet). }
     FLastVolume: integer;
+    { Series name the merge operates on — the name passed to LoadChapters.
+      Volume files are named "<SeriesName> VNNN.cbz" after it. }
+    FSeriesName: string;
+    { Auto-calculated chapters-per-volume as a REAL value (Python reference
+      semantics, e.g. 3.75), fallbacked to DEFAULT_CHAPTERS_PER_VOLUME when
+      incalculable.  Drives the volume-column preview when the user is not
+      in manual CPV mode, so the preview matches the service's planning. }
+    FAutoCPVF: Double;
     procedure RefreshVolumeColumn;
     function GetChaptersList: TIntArray;
     function GetGenerateComicInfo: boolean;
@@ -62,6 +70,7 @@ type
   public
     property ChaptersList: TIntArray read GetChaptersList;
     property GenerateComicInfo: boolean read GetGenerateComicInfo;
+    property SeriesName: string read FSeriesName;
     property Images: TLazIntfImageList read FImages write FImages;
     procedure LoadChapters(const AFiles: TStringArray; const ADir: string;
       const ASeriesName: string);
@@ -142,7 +151,13 @@ begin
     CbCustomSeq.Checked := False;
     MemoChapterSequence.Enabled := False;
     BtnBuildSeq.Enabled := False;
-  end;
+  end
+  else
+    { Back to auto: restore the spin to the auto-calculated value so the
+      preview and the service agree.  FAutoCPVF is 0 before LoadChapters
+      ran (LoadSettings can fire this handler during FormCreate). }
+    if FAutoCPVF >= 1.0 then
+      EditCPV.Value := Trunc(FAutoCPVF);
   EditCPV.Enabled := CbManualCPV.Checked;
   RefreshVolumeColumn;
 end;
@@ -229,9 +244,9 @@ end;
 
 procedure TdlgMerge.RefreshVolumeColumn;
 var
-  i, VolNum, Consumed, SeqIdx: integer;
+  i, j, VolNum, Consumed, SeqIdx, Count, TotalFull, BatchSize: integer;
   Seq: TIntArray;
-  CPV, FullVols: integer;
+  CPVF: Double;
 begin
   LVFiles.BeginUpdate;
   try
@@ -251,6 +266,15 @@ begin
       begin
         if SeqIdx <= High(Seq) then
         begin
+          { A batch that does not fully fit the remaining rows is skipped
+            entirely (the service breaks there too, matching the Python
+            reference) — label the remaining rows as unassigned. }
+          if Seq[SeqIdx] > LVFiles.Items.Count - i then
+          begin
+            for j := i to LVFiles.Items.Count - 1 do
+              LVFiles.Items[j].SubItems[1] := '-';
+            Break;
+          end;
           LVFiles.Items[i].SubItems[1] := Format('Vol.%d', [VolNum]);
           Inc(Consumed);
           if Consumed >= Seq[SeqIdx] then
@@ -266,32 +290,48 @@ begin
     end
     else
     begin
-      CPV := EditCPV.Value;
-      if CPV < 1 then CPV := 1;
+      { Mirrors the service's planning: manual CPV uses the spin's integer
+        value; auto uses the float (Python reference) estimate, which can
+        be fractional (e.g. 3.75 → 4 volumes of 3, leftovers unassigned).
+        TotalFull is int(count / CPVF) — the Python reference's
+        int(num_chapters / chapters_per_volume). }
+      Count := LVFiles.Items.Count;
+      if CbManualCPV.Checked then
+      begin
+        CPVF := EditCPV.Value;
+        if CPVF < 1 then CPVF := 1;
+      end
+      else
+      begin
+        CPVF := FAutoCPVF;
+        if CPVF < 1 then CPVF := 1;  { 0 before LoadChapters ran }
+      end;
+      BatchSize := Trunc(CPVF);
+      if BatchSize < 1 then BatchSize := 1;
+      TotalFull := Trunc(Count / CPVF);
       if CbForce.Checked then
       begin
-        { Force: last volume absorbs the leftovers.  When there are fewer
-          chapters than CPV there are zero "full" volumes, but the merge
-          still produces a single Vol.1, so clamp the leftover label to 1. }
-        FullVols := LVFiles.Items.Count div CPV;
-        if FullVols < 1 then FullVols := 1;
-        for i := 0 to LVFiles.Items.Count - 1 do
+        { Force: the last volume absorbs the leftovers.  When there are
+          fewer chapters than CPV there are zero "full" volumes, but the
+          merge still produces a single Vol.1, so clamp the label to 1. }
+        if TotalFull < 1 then TotalFull := 1;
+        for i := 0 to Count - 1 do
         begin
-          if i < (LVFiles.Items.Count div CPV) * CPV then
+          if i < TotalFull * BatchSize then
             LVFiles.Items[i].SubItems[1] :=
-              Format('Vol.%d', [FLastVolume + (i div CPV) + 1])
+              Format('Vol.%d', [FLastVolume + (i div BatchSize) + 1])
           else
             LVFiles.Items[i].SubItems[1] := Format('Vol.%d',
-              [FLastVolume + FullVols]);
+              [FLastVolume + TotalFull]);
         end;
       end
       else
       begin
         { Without Force: only full volumes — leftovers stay unassigned }
-        for i := 0 to LVFiles.Items.Count - 1 do
-          if i < (LVFiles.Items.Count div CPV) * CPV then
+        for i := 0 to Count - 1 do
+          if i < TotalFull * BatchSize then
             LVFiles.Items[i].SubItems[1] :=
-              Format('Vol.%d', [FLastVolume + (i div CPV) + 1])
+              Format('Vol.%d', [FLastVolume + (i div BatchSize) + 1])
           else
             LVFiles.Items[i].SubItems[1] := '-';
       end;
@@ -306,36 +346,50 @@ procedure TdlgMerge.LoadChapters(const AFiles: TStringArray;
 var
   i: integer;
   It: TListItem;
-  AutoCPV: integer;
+  Chapters: TChapterArray;
+  MaxCh: integer;
 begin
   FFiles := AFiles;
   FDir := ADir;
+  FSeriesName := ASeriesName;
   FLastVolume := TMergeService.LastVolumeNumber(AFiles, ASeriesName);
   LblFolder.Caption := ExtractFileName(ExcludeTrailingPathDelimiter(ADir));
-  EditChapterEnd.Value := Length(AFiles);
 
-  { Auto-fill the chapters-per-volume default from the existing volumes in the
-    directory — but only when the user is not in manual CPV mode, so a
-    remembered manual value (restored by LoadSettings) is preserved. }
+  { The merge list shows only the chapters of the detected series, sorted
+    by chapter number (specials last).  Volume files and _OLD backups are
+    excluded here and never participate in the merge. }
+  Chapters := TMergeService.CollectChapters(AFiles, ASeriesName);
+  MaxCh := 1;
+  for i := 0 to High(Chapters) do
+    if Chapters[i].Number > MaxCh then
+      MaxCh := Chapters[i].Number;
+  { Default range = everything, so a plain "Merge" click behaves like the
+    Python reference, which always merges all chapters. }
+  EditChapterEnd.Value := MaxCh;
+
+  { Auto-fill the chapters-per-volume default from the existing volumes in
+    the directory — but only when the user is not in manual CPV mode, so a
+    remembered manual value (restored by LoadSettings) is preserved.  The
+    REAL value (Python reference semantics, can be fractional) is kept in
+    FAutoCPVF for the volume-column preview; the spin shows its integer
+    part. }
+  FAutoCPVF :=
+    TMergeService.CalculateChaptersPerVolumeFloat(AFiles, ASeriesName);
+  if FAutoCPVF < 1.0 then
+    FAutoCPVF := DEFAULT_CHAPTERS_PER_VOLUME;
   if not CbManualCPV.Checked then
-  begin
-    AutoCPV := TMergeService.CalculateChaptersPerVolume(AFiles, ASeriesName);
-    if AutoCPV >= 1 then
-      EditCPV.Value := AutoCPV
-    else
-      EditCPV.Value := 7;
-  end;
+    EditCPV.Value := Trunc(FAutoCPVF);
 
   LVFiles.BeginUpdate;
   try
     LVFiles.Items.Clear;
-    for i := 0 to High(AFiles) do
+    for i := 0 to High(Chapters) do
     begin
       It := LVFiles.Items.Add;
       It.Caption := IntToStr(i + 1);
-      It.SubItems.Add(ExtractChapterNumStr(AFiles[i]));
+      It.SubItems.Add(ExtractChapterNumStr(Chapters[i].FileName));
       if It.SubItems[0] = '' then
-        It.SubItems[0] := ChangeFileExt(AFiles[i], '');
+        It.SubItems[0] := ChangeFileExt(Chapters[i].FileName, '');
       It.SubItems.Add('');  // placeholder — filled by RefreshVolumeColumn below
     end;
   finally

@@ -6,6 +6,9 @@
 
     - Automatic detection of a series name from chapter filenames
       (expects the pattern "Title - NNNN.cbz").
+    - Strict file classification: only real chapter files of the merged
+      series participate; volume files ("Title VNNN.cbz") and _OLD backups
+      are never merged and never cleaned up.
     - Automatic calculation of chapters-per-volume by inspecting existing
       volume files already present in the directory.
     - Grouping chapters into batches of a configurable size and writing each
@@ -18,6 +21,16 @@
 
   The unit depends on uZipEditor (for CBZ read/write/merge primitives) and
   uservicebase (for TServiceProgressEvent, BackupFile, and TStringArray).
+
+  Documented divergences from the Python reference (see AGENTS.md):
+    - Non-image zip entries are dropped by MergeIntoVolume instead of being
+      renumbered as pages.
+    - Force below CPV still produces a single volume (Python skips).
+    - Auto CPV < 1 falls back to DEFAULT_CHAPTERS_PER_VOLUME (Python
+      crashes on 0 and writes empty volumes for (0,1)).
+    - Chapter range [ChapterStart, ChapterEnd] is a GUI feature; the
+      default covers every chapter.
+    - Empty batches produce no volume file.
 }
 unit uservicemerge;
 {$mode objfpc}{$h+}
@@ -35,7 +48,33 @@ const
   preserving leading zeros. Returns empty string if no pattern found. }
 function ExtractChapterNumStr(const AFileName: string): string;
 
+{ Strict volume classification (mirrors the Python reference regex
+  ^(.+)\s(V\d+)\.cbz$): AFileName is a volume file of ASeriesName when its
+  stem is exactly "<SeriesName> V<digits>".  Backups such as
+  "Series V001_OLD.cbz" and any other suffix are NOT volumes and must never
+  be merged or cleaned up. }
+function IsVolumeFile(const AFileName, ASeriesName: string): boolean;
+
+{ Strict chapter classification (mirrors the Python reference regexes
+  _CHAPTER_RE / _SPECIAL_RE): AFileName is a chapter file when its stem is
+  "<Series> - <digits>" (optionally with "_<digits>" sub-chapter suffixes)
+  or "<Series> - <alpha-tag>" (specials such as "SP01").  "_OLD" backups,
+  decimal chapters, and any other names are rejected.  On success returns
+  the series name, the numeric part (0 for specials), and whether the tag
+  is alphabetic. }
+function IsChapterFile(const AFileName: string; out ASeries: string;
+  out ANumber: integer; out AIsSpecial: boolean): boolean;
+
 type
+  { TChapterInfo — a chapter file and its numeric sort key.  Specials
+    receive synthetic numbers after the highest regular chapter, assigned
+    by CollectChapters. }
+  TChapterInfo = record
+    FileName: string;
+    Number: integer;
+    IsSpecial: boolean;
+  end;
+  TChapterArray = array of TChapterInfo;
   { TMergeOptions — Configuration parameters for a merge operation.
 
     Fields:
@@ -85,18 +124,36 @@ type
     class function DetectSeriesName(const AFiles: TStringArray): string;
 
     { Calculate chapters-per-volume from existing volume files.
-      Scans AFiles for "Title VNNN.cbz", extracts the highest chapter number
-      from matching chapter files, and returns (max_chapter-1) / num_volumes.
-      Returns 0 if calculation is impossible (no volumes or no chapters). }
+      Counts strict volume files ("Title VNNN.cbz" — backups excluded) and
+      takes the lowest regular chapter of the series, then returns
+      (lowest_chapter-1) / num_volumes.  Returns 0 if calculation is
+      impossible (no volumes, no chapters, or volumes already cover
+      chapter 1). }
     class function CalculateChaptersPerVolume(const AFiles: TStringArray;
       const SeriesName: string): integer;
 
-    { Find the highest existing volume number among files named
-      "<SeriesName> VNNN.cbz" (a suffix such as "_OLD" is allowed).
-      Returns 0 when no volume matches or the series name is empty, so a
-      following merge can start numbering at 1. }
+    { Float variant of CalculateChaptersPerVolume, matching the Python
+      reference exactly: chapters_per_volume = (lowest_chapter - 1) /
+      num_volumes with REAL division, so irregular volumes yield
+      fractional values (e.g. 4 volumes covering chapters 1..15 →
+      15/4 = 3.75).  Returns 0.0 when the calculation is impossible. }
+    class function CalculateChaptersPerVolumeFloat(const AFiles: TStringArray;
+      const SeriesName: string): Double;
+
+    { Find the highest existing volume number among files named exactly
+      "<SeriesName> VNNN.cbz".  Backups ("<SeriesName> VNNN_OLD.cbz") do
+      not count.  Returns 0 when no volume matches or the series name is
+      empty, so a following merge can start numbering at 1. }
     class function LastVolumeNumber(const AFiles: TStringArray;
       const SeriesName: string): integer;
+
+    { Collect the chapter files of ASeriesName from AFiles, sorted by
+      (chapter number, filename).  Volume files, _OLD backups, and files of
+      other series are ignored.  Specials (e.g. "SP01") receive synthetic
+      numbers after the highest regular chapter, mirroring the Python
+      reference. }
+    class function CollectChapters(const AFiles: TStringArray;
+      const ASeriesName: string): TChapterArray;
 
     { Perform the merge operation.
 
@@ -174,24 +231,127 @@ begin
   Result := StrToIntDef(Copy(S, 1, i - 1), 0);
 end;
 
-{ Simple insertion sort — stable, adequate for typical chapter counts. }
-procedure SortChaptersByNumber(var AChapters: TStringArray);
+{ Simple insertion sort of TChapterArray by (Number, FileName) — stable,
+  adequate for typical chapter counts.  Ties on number are broken by
+  filename so the order is deterministic regardless of input order. }
+procedure SortChapters(var AChapters: TChapterArray);
 var
   i, j: integer;
-  Key: string;
-  KeyNum: integer;
+  Key: TChapterInfo;
 begin
   for i := 1 to High(AChapters) do
   begin
     Key := AChapters[i];
-    KeyNum := ExtractChapterNum(Key);
     j := i - 1;
-    while (j >= 0) and (ExtractChapterNum(AChapters[j]) > KeyNum) do
+    while (j >= 0) and
+          ((AChapters[j].Number > Key.Number) or
+           ((AChapters[j].Number = Key.Number) and
+            (AChapters[j].FileName > Key.FileName))) do
     begin
       AChapters[j + 1] := AChapters[j];
       Dec(j);
     end;
     AChapters[j + 1] := Key;
+  end;
+end;
+
+{ ---------------------------------------------------------------------------
+  IsVolumeFile
+
+  Strict volume classification mirroring the Python reference regex
+  ^(.+)\s(V\d+)\.cbz$: the stem must be exactly "<SeriesName> V<digits>".
+  Anything else — "Series V001_OLD.cbz", "Series V001_extra.cbz" — is not
+  a volume and must never be merged, numbered, or cleaned up.
+  --------------------------------------------------------------------------- }
+function IsVolumeFile(const AFileName, ASeriesName: string): boolean;
+var
+  Base, S: string;
+  i: integer;
+begin
+  Result := False;
+  if ASeriesName = '' then Exit;
+  Base := ChangeFileExt(AFileName, '');
+  if not StartsStr(ASeriesName + ' V', Base) then Exit;
+  { The remainder after "<SeriesName> V" must be all digits. }
+  S := Copy(Base, Length(ASeriesName) + 3, MaxInt);
+  if S = '' then Exit;
+  for i := 1 to Length(S) do
+    if not (S[i] in ['0'..'9']) then Exit;
+  Result := True;
+end;
+
+{ ---------------------------------------------------------------------------
+  IsChapterFile
+
+  Strict chapter classification mirroring the Python reference regexes
+  _CHAPTER_RE (numeric tags) and _SPECIAL_RE (alphabetic tags):
+
+    "Series - 001.cbz"      → chapter 1
+    "Series - 010_15.cbz"   → chapter 10 (sub-chapter suffix)
+    "Series - SP01.cbz"     → special tag
+    "Series - 001_OLD.cbz"  → rejected (backup)
+    "Series - 010.5.cbz"    → rejected (decimal, not a Python pattern)
+
+  Returns the series name, the numeric part (0 for specials), and whether
+  the tag is alphabetic.
+  --------------------------------------------------------------------------- }
+function IsChapterFile(const AFileName: string; out ASeries: string;
+  out ANumber: integer; out AIsSpecial: boolean): boolean;
+var
+  Base, Tag: string;
+  p, i: integer;
+begin
+  Result := False;
+  ASeries := '';
+  ANumber := 0;
+  AIsSpecial := False;
+  Base := ChangeFileExt(AFileName, '');
+  { Rightmost " -" separates the series name from the chapter tag, so
+    series names containing hyphens ("Spider-Man - 001.cbz") work. }
+  p := RPos(' -', Base);
+  if p <= 0 then Exit;
+  ASeries := Trim(Copy(Base, 1, p - 1));
+  if ASeries = '' then Exit;
+  Tag := Trim(Copy(Base, p + 2, MaxInt));
+  if Tag = '' then Exit;
+
+  if Tag[1] in ['0'..'9'] then
+  begin
+    { Numeric tag: <digits>(_<digits>)* — "010", "010_15", "010_15_2" }
+    i := 1;
+    while (i <= Length(Tag)) and (Tag[i] in ['0'..'9']) do
+      Inc(i);
+    ANumber := StrToIntDef(Copy(Tag, 1, i - 1), 0);
+    while i <= Length(Tag) do
+    begin
+      { Each remaining group must be "_<digits>"; "_OLD" is rejected. }
+      if (Tag[i] <> '_') or (i = Length(Tag)) or
+         not (Tag[i + 1] in ['0'..'9']) then
+        Exit;
+      Inc(i, 2);
+      while (i <= Length(Tag)) and (Tag[i] in ['0'..'9']) do
+        Inc(i);
+    end;
+    Result := True;
+  end
+  else if Tag[1] in ['A'..'Z', 'a'..'z'] then
+  begin
+    { Special tag: [A-Za-z][A-Za-z0-9]*(_<digits>)* — "SP01", "Omake" }
+    i := 2;
+    while (i <= Length(Tag)) and
+          (Tag[i] in ['A'..'Z', 'a'..'z', '0'..'9']) do
+      Inc(i);
+    while i <= Length(Tag) do
+    begin
+      if (Tag[i] <> '_') or (i = Length(Tag)) or
+         not (Tag[i + 1] in ['0'..'9']) then
+        Exit;
+      Inc(i, 2);
+      while (i <= Length(Tag)) and (Tag[i] in ['0'..'9']) do
+        Inc(i);
+    end;
+    AIsSpecial := True;
+    Result := True;
   end;
 end;
 
@@ -227,31 +387,37 @@ begin
 end;
 
 { ---------------------------------------------------------------------------
-  CalculateChaptersPerVolume
+  CalculateChaptersPerVolumeFloat
 
-  Estimates the chapters-per-volume (CPV) value by examining files already
-  present in the directory.  It assumes chapters are named
-  "SeriesName - NNNN.cbz" and volumes are named "SeriesName VNNN.cbz".
+  Python-exact CPV estimate: chapters_per_volume = (lowest_chapter - 1) /
+  num_volumes with REAL division, so irregular existing volumes yield
+  fractional values (e.g. 4 volumes covering chapters 1..15 → 15/4 =
+  3.75).  The integer CalculateChaptersPerVolume is the Trunc() of this
+  value (same semantics as Python's int()).
 
   Algorithm:
-    1. Count how many existing volume files are present (VolCount).
-    2. Find the lowest chapter number among all chapter files (LowestCh).
-    3. CPV = (LowestCh - 1) div VolCount.
+    1. Count how many existing volume files are present (VolCount) using
+       strict classification — backups like "Series V001_OLD.cbz" do not
+       count.
+    2. Find the lowest regular chapter number of the series (specials and
+       _OLD backups are excluded).
+    3. CPV = (LowestCh - 1) / VolCount.
 
   The idea is that if volume 1 already covers chapters 1..N, then
   chapter N+1 is the start of volume 2, so the number of chapters *not*
   yet in any volume divided by the number of existing volumes gives CPV.
 
   Returns:
-    The estimated CPV (>= 1), or 0 if there is not enough data.
+    The estimated CPV (> 0), or 0.0 if there is not enough data.
   --------------------------------------------------------------------------- }
-class function TMergeService.CalculateChaptersPerVolume(
-  const AFiles: TStringArray; const SeriesName: string): integer;
+class function TMergeService.CalculateChaptersPerVolumeFloat(
+  const AFiles: TStringArray; const SeriesName: string): Double;
 var
   i, ChNum, LowestCh, VolCount: integer;
-  BaseName: string;
+  Series: string;
+  IsSpecial: boolean;
 begin
-  Result := 0;
+  Result := 0.0;
   if (SeriesName = '') or (Length(AFiles) = 0) then Exit;
 
   LowestCh := MaxInt;
@@ -259,57 +425,118 @@ begin
 
   for i := 0 to High(AFiles) do
   begin
-    BaseName := ChangeFileExt(AFiles[i], '');
-    if StartsStr(SeriesName + ' V', BaseName) then
+    if IsVolumeFile(AFiles[i], SeriesName) then
     begin
       Inc(VolCount);
       Continue;
     end;
-    ChNum := ExtractChapterNum(AFiles[i]);
-    if (ChNum >= 0) and (ChNum < LowestCh) then
+    { Only regular chapters of this series can lower the lowest-chapter
+      bound; specials are numbered after the regular chapters and _OLD
+      backups are not chapters at all. }
+    if IsChapterFile(AFiles[i], Series, ChNum, IsSpecial) and
+       (Series = SeriesName) and not IsSpecial and
+       (ChNum < LowestCh) then
       LowestCh := ChNum;
   end;
 
-  { If we have at least one volume and the lowest chapter is >= 1,
-    the existing volumes cover chapters 1..(LowestCh-1). }
-  if (VolCount > 0) and (LowestCh > 1) then
-    Result := (LowestCh - 1) div VolCount;
+  { If we have at least one volume and the lowest real chapter is >= 1,
+    the existing volumes cover chapters 1..(LowestCh-1).  LowestCh stays
+    MaxInt when the series has no regular chapters left (fully merged
+    folder) — then there is nothing to estimate from and we return 0. }
+  if (VolCount > 0) and (LowestCh > 1) and (LowestCh < MaxInt) then
+    Result := (LowestCh - 1) / VolCount;
+end;
 
-  { Clamp to sensible range }
-  if Result < 1 then
-    Result := 0;
+{ ---------------------------------------------------------------------------
+  CalculateChaptersPerVolume
+
+  Integer truncation of CalculateChaptersPerVolumeFloat, for callers that
+  need a whole-number CPV (e.g. the dialog's spin edit).  Same semantics
+  as Python's int() on the float value.
+  --------------------------------------------------------------------------- }
+class function TMergeService.CalculateChaptersPerVolume(
+  const AFiles: TStringArray; const SeriesName: string): integer;
+begin
+  Result := Trunc(CalculateChaptersPerVolumeFloat(AFiles, SeriesName));
 end;
 
 { ---------------------------------------------------------------------------
   LastVolumeNumber
 
-  Scans AFiles for files starting with "<SeriesName> V" followed by digits
-  (the volume pattern written by Merge), and returns the largest number
-  found.  A suffix after the digits is tolerated ("Series V012_OLD.cbz").
-  Files of other series are ignored, so the result only reflects the series
-  being merged.
+  Scans AFiles for files named exactly "<SeriesName> VNNN.cbz" (the volume
+  pattern written by Merge) and returns the largest number found.  A suffix
+  after the digits ("Series V012_OLD.cbz") is NOT a volume and does not
+  count.  Files of other series are ignored, so the result only reflects
+  the series being merged.
   --------------------------------------------------------------------------- }
 class function TMergeService.LastVolumeNumber(const AFiles: TStringArray;
   const SeriesName: string): integer;
 var
-  i, p, Num, Err: integer;
-  BaseName, S: string;
+  i, Num, Err: integer;
+  S: string;
 begin
   Result := 0;
   if SeriesName = '' then Exit;
   for i := 0 to High(AFiles) do
   begin
-    BaseName := ChangeFileExt(AFiles[i], '');
-    if not StartsStr(SeriesName + ' V', BaseName) then Continue;
-    { The number starts right after "<SeriesName> V" }
-    S := Copy(BaseName, Length(SeriesName) + 3, MaxInt);
-    p := 1;
-    while (p <= Length(S)) and (S[p] in ['0'..'9']) do
-      Inc(p);
-    Val(Copy(S, 1, p - 1), Num, Err);
+    if not IsVolumeFile(AFiles[i], SeriesName) then Continue;
+    { The number starts right after "<SeriesName> V"; IsVolumeFile
+      guarantees the remainder is all digits. }
+    S := Copy(ChangeFileExt(AFiles[i], ''), Length(SeriesName) + 3, MaxInt);
+    Val(S, Num, Err);
     if (Err = 0) and (Num > Result) then
       Result := Num;
   end;
+end;
+
+{ ---------------------------------------------------------------------------
+  CollectChapters
+
+  Builds the ordered chapter list of ASeriesName from AFiles:
+
+    1. Every file classified as a chapter of ASeriesName is collected;
+       regular chapters carry their numeric part, specials carry 0.
+    2. The list is sorted by (number, filename).
+    3. Specials are assigned sequential numbers after the highest regular
+       chapter (Python reference behaviour: with regular chapters up to 100,
+       "SP01" becomes chapter 101, "SP02" 102, ...) in filename order.
+    4. The list is re-sorted so specials land after the regular chapters.
+  --------------------------------------------------------------------------- }
+class function TMergeService.CollectChapters(const AFiles: TStringArray;
+  const ASeriesName: string): TChapterArray;
+var
+  i, MaxNum, NextNum: integer;
+  Series: string;
+  Num: integer;
+  IsSpecial: boolean;
+begin
+  Result := nil;
+  if ASeriesName = '' then Exit;
+
+  MaxNum := 0;
+  for i := 0 to High(AFiles) do
+    if IsChapterFile(AFiles[i], Series, Num, IsSpecial) and
+       (Series = ASeriesName) then
+    begin
+      SetLength(Result, Length(Result) + 1);
+      Result[High(Result)].FileName := AFiles[i];
+      Result[High(Result)].Number := Num;
+      Result[High(Result)].IsSpecial := IsSpecial;
+      if not IsSpecial and (Num > MaxNum) then
+        MaxNum := Num;
+    end;
+
+  SortChapters(Result);
+
+  NextNum := MaxNum + 1;
+  for i := 0 to High(Result) do
+    if Result[i].IsSpecial then
+    begin
+      Result[i].Number := NextNum;
+      Inc(NextNum);
+    end;
+
+  SortChapters(Result);
 end;
 
 { ---------------------------------------------------------------------------
@@ -321,8 +548,10 @@ end;
     - Resolve the series name (explicit or auto-detected).
     - Determine chapters-per-volume (explicit or auto-calculated; falls
       back to 7 if no data is available).
-    - Build a sorted chapter batch from files whose embedded chapter
-      number falls within [ChapterStart, ChapterEnd].
+    - Build a sorted chapter batch from the chapter files of the series
+      (strict classification — volume files and _OLD backups never
+      participate) whose chapter number falls within
+      [ChapterStart, ChapterEnd].
 
   Phase 2 — Volume creation
     - Group the chapter batch into slices of CPV chapters each.
@@ -335,17 +564,25 @@ end;
 
   Phase 3 — Cleanup
     - For every chapter file that was part of the merge, either delete it
-      or rename it to *_OLD.cbz according to Options.Delete.
+      or rename it to *_OLD.cbz according to Options.Delete.  A guard
+      re-checks the strict classification so volume files, backups, and
+      files of other series can never be renamed or deleted.
   --------------------------------------------------------------------------- }
 class function TMergeService.Merge(const AFiles: TStringArray;
   const ADir: string; const Options: TMergeOptions;
   AOnProgress: TServiceProgressEvent = nil): TMergeResult;
 var
-  i, n, ChNum, CPV, VolNum, TotalCreated, Remaining, TotalBatches: integer;
+  i, n, CPV, VolNum, TotalCreated, Remaining, TotalBatches: integer;
   ChIdx, ListIdx, BatchSize: integer;
   UseList: boolean;
+  CPVF: Double;
   SeriesName, VolName, FullPath: string;
   ChBatch, Batch, ToClean: TStringArray;
+  CreatedPaths: TStringArray;
+  Chapters: TChapterArray;
+  CleanSeries: string;
+  CleanNum: integer;
+  CleanSpecial: boolean;
   VolEntries: TZipEntries;
   CI: TComicInfo;
   XML: string;
@@ -364,36 +601,42 @@ begin
   if SeriesName = '' then
     SeriesName := 'Unknown';
 
-  { Determine CPV: explicit > auto-calculate > hard-coded fallback of 7 }
-  CPV := Options.ChaptersPerVolume;
-  if CPV < 1 then
+  { Determine CPV: explicit > auto-calculate > hard-coded fallback of 7.
+    The auto value uses the Python reference's REAL division
+    ((lowest-1)/num_volumes), which can be fractional (e.g. 3.75); CPV is
+    its integer part (Python int()), and TotalBatches uses the float as
+    Python does (int(num_chapters / chapters_per_volume)). }
+  if Options.ChaptersPerVolume >= 1 then
+    CPVF := Options.ChaptersPerVolume
+  else
   begin
-    CPV := CalculateChaptersPerVolume(AFiles, SeriesName);
-    if CPV < 1 then
-      CPV := DEFAULT_CHAPTERS_PER_VOLUME; // sensible default when no data exists
+    CPVF := CalculateChaptersPerVolumeFloat(AFiles, SeriesName);
+    if CPVF < 1.0 then
+      CPVF := DEFAULT_CHAPTERS_PER_VOLUME; // sensible default when no data exists
   end;
+  CPV := Trunc(CPVF);
 
+  { Build the chapter batch from CollectChapters: only chapter files of the
+    merged series whose number falls within [ChapterStart, ChapterEnd].
+    Volume files, _OLD backups, and files of other series never enter the
+    batch, so they are never merged and never cleaned up.  The list comes
+    pre-sorted by (chapter number, filename). }
   ChBatch := nil;
   ToClean := nil;
-  for i := 0 to High(AFiles) do
-  begin
-    ChNum := ExtractChapterNum(AFiles[i]);
-    if (ChNum >= Options.ChapterStart) and (ChNum <= Options.ChapterEnd) then
+  Chapters := TMergeService.CollectChapters(AFiles, SeriesName);
+  for i := 0 to High(Chapters) do
+    if (Chapters[i].Number >= Options.ChapterStart) and
+       (Chapters[i].Number <= Options.ChapterEnd) then
     begin
       SetLength(ChBatch, Length(ChBatch) + 1);
-      ChBatch[High(ChBatch)] := AFiles[i];
+      ChBatch[High(ChBatch)] := Chapters[i].FileName;
     end;
-  end;
 
   if Length(ChBatch) = 0 then
   begin
     Result.ErrorMsg := 'No matching chapter files found';
     Exit;
   end;
-
-  { Sort chapters by extracted number so filesystem order doesn't matter.
-    A simple insertion sort suffices — chapter lists are rarely huge. }
-  SortChaptersByNumber(ChBatch);
 
   { ---- Phase 2: Volume creation ----------------------------------------- }
 
@@ -402,11 +645,11 @@ begin
   if UseList then
     TotalBatches := Length(Options.ChaptersList)
   else
-  begin
-    { Only full volumes are created.  With Force, leftover chapters are
-      absorbed into the last volume — the count stays the same. }
-    TotalBatches := Length(ChBatch) div CPV;
-  end;
+    { Only full volumes are created.  Python reference:
+      num_new_volumes = int(num_chapters / chapters_per_volume).  With
+      Force, leftover chapters are absorbed into the last volume — the
+      count stays the same. }
+    TotalBatches := Trunc(Length(ChBatch) / CPVF);
 
   TotalCreated := 0;
   { Number new volumes after the highest existing one, so repeated merges
@@ -414,113 +657,157 @@ begin
   VolNum := LastVolumeNumber(AFiles, SeriesName) + 1;
   ChIdx := 0;
   ListIdx := 0;
+  CreatedPaths := nil;
 
   if Assigned(AOnProgress) and (TotalBatches > 0) then
     AOnProgress(0, Format('Merging 0/%d volumes', [TotalBatches]));
 
-  while ChIdx < Length(ChBatch) do
-  begin
-    { Without Force: stop after full volumes, leaving leftovers untouched }
-    if not Options.Force then
-      if TotalBatches > 0 then
+  try
+    while ChIdx < Length(ChBatch) do
+    begin
+      { Without Force: stop after full volumes, leaving leftovers untouched.
+        TotalBatches = 0 (fewer chapters than CPV — the Python reference's
+        "Not enough chapters") breaks immediately, so nothing is created. }
+      if not Options.Force then
         if TotalCreated >= TotalBatches then
           Break;
 
-    Remaining := Length(ChBatch) - ChIdx;
+      Remaining := Length(ChBatch) - ChIdx;
 
-    if Assigned(AOnProgress) and (TotalBatches > 0) then
-      AOnProgress((TotalCreated * 100) div TotalBatches,
-        Format('Writing volume %d/%d', [TotalCreated + 1, TotalBatches]));
+      if Assigned(AOnProgress) and (TotalBatches > 0) then
+        AOnProgress((TotalCreated * 100) div TotalBatches,
+          Format('Writing volume %d/%d', [TotalCreated + 1, TotalBatches]));
 
-    if UseList then
-    begin
-      if ListIdx > High(Options.ChaptersList) then
-        Break;
-      BatchSize := Options.ChaptersList[ListIdx];
-      if BatchSize > Remaining then
-        BatchSize := Remaining;
-      Inc(ListIdx);
-    end
-    else
-    begin
-      BatchSize := CPV;
-      if BatchSize > Remaining then
+      if UseList then
       begin
-        if Options.Force then
-          BatchSize := Remaining   // absorb remainder into last volume
-        else
-          Break;                   // skip incomplete final volume
+        if ListIdx > High(Options.ChaptersList) then
+          Break;
+        BatchSize := Options.ChaptersList[ListIdx];
+        Inc(ListIdx);
+        { A batch that does not fully fit the remaining chapters is skipped
+          entirely (Python reference: "if plan.ch_index + count > num_chapters:
+          break") — its chapters stay unmerged, which is exactly what the
+          dialog preview shows for the overflow rows ('-').  The BatchSize <= 0
+          guard also prevents an infinite loop from a malformed list. }
+        if (BatchSize <= 0) or (BatchSize > Remaining) then
+          Break;
       end
-      else if Options.Force and (TotalBatches > 0) and
-        (TotalCreated + 1 >= TotalBatches) then
+      else
       begin
-        { Last full batch with Force: absorb any trailing leftovers now }
-        BatchSize := Remaining;
-      end;
-    end;
-
-    Batch := nil;
-    SetLength(Batch, BatchSize);
-    for n := 0 to BatchSize - 1 do
-      Batch[n] := ChBatch[ChIdx + n];
-
-    VolName := Format('%s V%.3d.cbz', [SeriesName, VolNum]);
-    FullPath := CBZFullPath(ADir, VolName);
-
-    VolEntries := MergeIntoVolume(Batch, ADir, AOnProgress);
-    try
-      if Length(VolEntries) > 0 then
-      begin
-        if Options.GenerateComicInfo then
+        BatchSize := CPV;
+        if BatchSize > Remaining then
         begin
-          CI := DefaultComicInfo;
-          CI.Series := SeriesName;
-          CI.Volume := VolNum;
-          ChFirst := ExtractChapterNum(Batch[0]);
-          ChLast := ExtractChapterNum(Batch[High(Batch)]);
-          if (ChFirst > 0) and (ChLast > 0) then
-            CI.Number := Format('%d-%d', [ChFirst, ChLast])
+          if Options.Force then
+            BatchSize := Remaining   // absorb remainder into last volume
           else
-            CI.Number := IntToStr(VolNum);
-          CI.Title := Format('%s Vol.%d', [SeriesName, VolNum]);
-          CI.PageCount := Length(VolEntries);
-          CI.Manga := 'Unknown';
-          XML := GenerateComicInfoXML(CI);
-          k := Length(VolEntries);
-          SetLength(VolEntries, k + 1);
-          VolEntries[k].Name := COMICINFO_XML;
-          VolEntries[k].Data := TMemoryStream.Create;
-          if Length(XML) > 0 then
-            VolEntries[k].Data.Write(XML[1], Length(XML));
-          VolEntries[k].Data.Position := 0;
-        end;
-        WriteZipFromEntriesDeflated(FullPath, VolEntries);
-        Inc(TotalCreated);
-        { Only chapters merged into a volume that was actually written are
-          eligible for cleanup — an empty/ComicInfo-only batch produces no
-          volume and its sources must be left alone. }
-        for n := 0 to BatchSize - 1 do
+            Break;                   // skip incomplete final volume
+        end
+        else if Options.Force and (TotalBatches > 0) and
+          (TotalCreated + 1 >= TotalBatches) then
         begin
-          SetLength(ToClean, Length(ToClean) + 1);
-          ToClean[High(ToClean)] := Batch[n];
+          { Last full batch with Force: absorb any trailing leftovers now }
+          BatchSize := Remaining;
         end;
-        { Advance the volume number only for volumes actually written, so a
-          skipped batch does not leave a numbering gap. }
-        Inc(VolNum);
       end;
-    finally
-      FreeZipEntries(VolEntries);
-    end;
 
-    Inc(ChIdx, BatchSize);
+      Batch := nil;
+      SetLength(Batch, BatchSize);
+      for n := 0 to BatchSize - 1 do
+        Batch[n] := ChBatch[ChIdx + n];
+
+      VolName := Format('%s V%.3d.cbz', [SeriesName, VolNum]);
+      FullPath := CBZFullPath(ADir, VolName);
+
+      VolEntries := MergeIntoVolume(Batch, ADir, AOnProgress);
+      try
+        if Length(VolEntries) > 0 then
+        begin
+          if Options.GenerateComicInfo then
+          begin
+            CI := DefaultComicInfo;
+            CI.Series := SeriesName;
+            CI.Volume := VolNum;
+            ChFirst := ExtractChapterNum(Batch[0]);
+            ChLast := ExtractChapterNum(Batch[High(Batch)]);
+            if (ChFirst > 0) and (ChLast > 0) then
+              CI.Number := Format('%d-%d', [ChFirst, ChLast])
+            else
+              CI.Number := IntToStr(VolNum);
+            CI.Title := Format('%s Vol.%d', [SeriesName, VolNum]);
+            CI.PageCount := Length(VolEntries);
+            CI.Manga := 'Unknown';
+            XML := GenerateComicInfoXML(CI);
+            k := Length(VolEntries);
+            SetLength(VolEntries, k + 1);
+            VolEntries[k].Name := COMICINFO_XML;
+            VolEntries[k].Data := TMemoryStream.Create;
+            if Length(XML) > 0 then
+              VolEntries[k].Data.Write(XML[1], Length(XML));
+            VolEntries[k].Data.Position := 0;
+          end;
+          { Track the path before writing so a partially written volume
+            from a failed WriteZipFromEntriesDeflated is rolled back too. }
+          SetLength(CreatedPaths, Length(CreatedPaths) + 1);
+          CreatedPaths[High(CreatedPaths)] := FullPath;
+          WriteZipFromEntriesDeflated(FullPath, VolEntries);
+          Inc(TotalCreated);
+          { Only chapters merged into a volume that was actually written are
+            eligible for cleanup — an empty/ComicInfo-only batch produces no
+            volume and its sources must be left alone. }
+          for n := 0 to BatchSize - 1 do
+          begin
+            SetLength(ToClean, Length(ToClean) + 1);
+            ToClean[High(ToClean)] := Batch[n];
+          end;
+          { Advance the volume number only for volumes actually written, so a
+            skipped batch does not leave a numbering gap. }
+          Inc(VolNum);
+        end;
+      finally
+        FreeZipEntries(VolEntries);
+      end;
+
+      Inc(ChIdx, BatchSize);
+    end;
+  except
+    on E: Exception do
+    begin
+      { Roll back every volume created in this run, mirroring the Python
+        reference (created_paths.unlink()), so a re-run cannot duplicate
+        the content of already-merged chapters. }
+      for n := 0 to High(CreatedPaths) do
+        DeleteFile(CreatedPaths[n]);
+      Result.Success := False;
+      Result.VolumesCreated := 0;
+      Result.ErrorMsg := Format(
+        'Error during merge — created volumes have been removed (%s)',
+        [E.Message]);
+      Exit;
+    end;
   end;
 
   Result.Success := TotalCreated > 0;
   Result.VolumesCreated := TotalCreated;
 
+  { Below-threshold case (fewer chapters than CPV, no Force): report why
+    nothing was created instead of failing with an empty error message.
+    CPVF is shown with one decimal like the Python reference's ":.1f"
+    format. }
+  if (TotalCreated = 0) and (Result.ErrorMsg = '') then
+    Result.ErrorMsg := Format(
+      'Not enough chapters for a full volume (%d chapter(s), %.1f per volume)',
+      [Length(ChBatch), CPVF]);
+
   { ---- Phase 3: Cleanup — remove or back up original chapter files ---- }
   for n := 0 to High(ToClean) do
   begin
+    { Defense in depth: only chapter files of the merged series may be
+      cleaned up.  Volume files, _OLD backups, and files of other series
+      must never be renamed or deleted by a merge, even if they somehow
+      reached ToClean. }
+    if not IsChapterFile(ToClean[n], CleanSeries, CleanNum, CleanSpecial) or
+       (CleanSeries <> SeriesName) then
+      Continue;
     FullPath := CBZFullPath(ADir, ToClean[n]);
     if Options.Delete then
       DeleteFile(FullPath)

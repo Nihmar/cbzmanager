@@ -1,0 +1,234 @@
+.\" Man page for cbzmanager — CBZ comic archive manager (GUI + headless CLI).
+.\"
+.\" Keep in sync with src/uclimode.pas (the CLI surface), README.md and
+.\" the output of `cbzmanager --help`.
+.TH CBZMANAGER 1 "August 2026" "cbzmanager 0.1.0" "User Commands"
+.SH NAME
+cbzmanager \- CBZ comic archive manager (desktop application and headless CLI)
+.SH SYNOPSIS
+.B cbzmanager
+.RI [ command
+.RI [ options ]]
+.br
+.B cbzmanager
+.B validate
+.I dir
+.RB [ \-\-delete ]
+.br
+.B cbzmanager
+.B convert\-webp
+.I dir
+.RB [ \-\-delete ]
+.br
+.B cbzmanager
+.B merge
+.I dir
+.RB [ \-\-delete ]
+.RB [ \-\-force ]
+.RB [ \-\-chapters
+.IR N1 , N2 , ...
+.RB ]
+.RB [ \-\-chapters\-per\-volume
+.I N
+.RB ]
+.br
+.B cbzmanager
+.B \-\-help
+.br
+.B cbzmanager
+.B \-\-version
+.SH DESCRIPTION
+.B cbzmanager
+is a Free Pascal / Lazarus desktop application for managing CBZ (Comic Book
+ZIP) archives: validating archives, converting pages to WebP, merging
+chapter files into volumes, editing pages in place, and handling
+ComicInfo.xml metadata.
+.PP
+Launched without arguments, the desktop application starts (it requires a
+graphical session).
+.PP
+When the first argument is a known command
+.RB ( validate ,
+.BR convert\-webp ,
+.BR merge ,
+.BR \-\-help ,
+.BR \-\-version ),
+the program runs
+.I headless
+as a command-line tool: no display server is needed, results are printed to
+standard output, and the process exits with one of the exit statuses
+described below.  Unknown or missing arguments fall through to the desktop
+application.
+.PP
+Flags may appear before or after the directory argument.  The commands and
+their semantics mirror the Python reference CLI
+.RB ( cbz\-manager ,
+in the
+.I porting/cbz_manager
+directory of the source tree); the operations
+.BR delete\-pages ,
+.BR find\-similar ,
+and
+.BR delete\-pages\-by\-id
+are not ported.
+.SH COMMANDS
+.TP
+.B validate
+.I dir
+Verifies every
+.I .cbz
+file in
+.I dir
+with a deep check: the archive must be a valid ZIP and every image entry
+must decode.  Prints one
+.B OK
+or
+.B FAIL
+line per file plus a summary.  Exits 0 when all files are valid, 1 when at
+least one file fails.  The
+.B \-\-delete
+flag is accepted for compatibility with the reference CLI but has no
+effect.
+.TP
+.B convert\-webp
+.I dir
+.RB [ \-\-delete ]
+Converts the images of every
+.I .cbz
+file in
+.I dir
+to WebP at quality 75, keeping the WebP version only when it is smaller
+than the original.  Existing WebP pages are left untouched,
+ComicInfo.xml is stripped, and pages are renamed sequentially as
+.IR page_NNNN.* .
+The original file is renamed to
+.I *_OLD.cbz
+unless
+.B \-\-delete
+is given, in which case it is replaced in place.  Per-file failures are
+reported and skipped; the exit status is always 0.
+.TP
+.B merge
+.I dir
+.RB [ options ]
+Merges chapter files named
+.RI "Series \- NNNN.cbz"
+(or
+.RI "Series \- SP01.cbz"
+for specials) into volume files named
+.RI "Series VNNN.cbz".
+Every series found in
+.I dir
+is processed in turn.  Chapters-per-volume is auto-calculated from the
+existing volumes as
+.RI ( lowest_chapter \- 1) / num_volumes
+(real division), falling back to 7 when no volumes exist or the value
+would be below 1; see
+.B \-\-chapters\-per\-volume
+to override.  Only full volumes are created: chapters that do not fill a
+complete volume are reported and skipped unless
+.B \-\-force
+is given.  Volume numbering continues after the highest existing volume.
+Exits 0 on success or on a benign no-op ("not enough chapters", "no
+chapter files"), 1 on error.
+.SH OPTIONS
+.TP
+.B \-\-delete
+Delete the original files after processing instead of renaming them to
+.I *_OLD.cbz.
+Valid for
+.BR convert\-webp
+and
+.BR merge ;
+accepted but unused for
+.BR validate .
+.TP
+.B \-\-force
+.B merge
+only: append the remaining chapters to the last volume instead of
+skipping them.  When there are fewer chapters than one full volume, a
+single volume containing everything is produced.
+.TP
+.BI \-\-chapters " N1,N2,..."
+.B merge
+only: exact chapter counts per volume, comma-separated (for example
+.BR "5,6,3" ).
+A batch that does not fully fit the remaining chapters is skipped and its
+chapters are left untouched.
+Mutually exclusive with
+.BR \-\-chapters\-per\-volume ;
+using both is an error (exit status 1).
+.TP
+.BI \-\-chapters\-per\-volume " N"
+.B merge
+only: fixed number of chapters per volume.
+Mutually exclusive with
+.BR \-\-chapters .
+.TP
+.BR \-\-help ", " \-h ", " help
+Print usage information and exit 0.
+.TP
+.B \-\-version
+Print the program version and exit 0.
+.SH EXIT STATUS
+.TP
+.B 0
+Success, or a benign no-op (no chapter files found, not enough chapters,
+no conversion savings).
+.TP
+.B 1
+Runtime error: invalid directory, a failed operation, or
+.B \-\-chapters
+combined with
+.BR \-\-chapters\-per\-volume .
+.TP
+.B 2
+Usage error: missing directory, unknown option, or a malformed option
+value.
+.SH FILES
+.TP
+.I cbzmanager.log
+Startup log written next to the executable.  Records, among other things,
+which libwebp library was loaded (WebP support is optional and loaded
+dynamically at runtime).
+.SH EXAMPLES
+Merge every series in a folder into volumes:
+.PP
+.nf
+.RS
+cbzmanager merge ~/manga/one-piece
+.RE
+.fi
+.PP
+Merge with a fixed 5 chapters per volume, absorbing leftovers into the
+last volume:
+.PP
+.nf
+.RS
+cbzmanager merge --force --chapters-per-volume 5 ~/manga/one-piece
+.RE
+.fi
+.PP
+Convert a folder to WebP, deleting the originals:
+.PP
+.nf
+.RS
+cbzmanager convert-webp --delete ~/manga/archive
+.RE
+.fi
+.PP
+Deep-validate a folder of downloaded archives:
+.PP
+.nf
+.RS
+cbzmanager validate ~/manga/downloads
+.RE
+.fi
+.SH SEE ALSO
+The Python reference CLI
+.B cbz\-manager
+in the
+.I porting/cbz_manager
+directory of the source tree, and the project
+.B README.md
+(which documents the merge divergences from the reference implementation).

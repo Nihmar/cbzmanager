@@ -33,6 +33,8 @@ Open `cbzmanager.lpi` and build. Two build modes are available:
 ```bash
 make build          # compile with fpc (Qt6 widgetset)
 make test           # compile and run FPCUnit test suite
+make man            # lint the man page (requires groff)
+make install-man    # install man page to $(DESTDIR)$(PREFIX)/share/man/man1 (PREFIX default: /usr/local)
 make clean          # remove test build artifacts
 ```
 
@@ -57,6 +59,9 @@ cbzmanager --version
 - The commands mirror the Python reference CLI
   (`porting/cbz_manager`); `delete-pages`, `find-similar` and
   `delete-pages-by-id` are not ported.
+- A man page is provided: `man/cbzmanager.1` — render it from the repo with
+  `man -l man/cbzmanager.1`, or install it system-wide with
+  `make install-man` and read `man cbzmanager`.
 
 ## Dependencies
 
@@ -135,6 +140,8 @@ tests/
   test_uservicemerge.pas         Merge service tests
   test_uservicecomicinfo.pas     ComicInfo service tests
   test_ucomicinfo.pas            ComicInfo XML parsing tests
+man/
+  cbzmanager.1                   Man page (section 1)
 ```
 
 ## License

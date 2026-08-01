@@ -1,4 +1,7 @@
-.PHONY: all build test clean
+.PHONY: all build test clean man install-man
+
+PREFIX ?= /usr/local
+DESTDIR ?=
 
 all: build
 
@@ -35,6 +38,17 @@ test-compile:
 
 test: test-compile
 	./bin/tests/testrunner --all
+
+man:
+	@if command -v groff >/dev/null 2>&1; then \
+	  groff -man -z man/cbzmanager.1 && \
+	  echo "man page OK: man/cbzmanager.1"; \
+	else \
+	  echo "groff not found - skipping man page check"; \
+	fi
+
+install-man:
+	install -Dm644 man/cbzmanager.1 $(DESTDIR)$(PREFIX)/share/man/man1/cbzmanager.1
 
 clean:
 	rm -rf bin/tests obj/tests

@@ -441,7 +441,7 @@ begin
   SetFolderOpsEnabled(False);
   SetStatus(RSReady);
 
-  Log('=== Avvio, log in %s ===', [LogFileName]);
+  Log('=== Startup, logging to %s ===', [LogFileName]);
   Log('exe dir: %s', [ExtractFilePath(ParamStr(0))]);
   if ParamCount > 0 then
     LoadDirectory(ParamStr(1));
@@ -1082,8 +1082,8 @@ begin
 
   if Button = mbRight then
   begin
-    { il tasto destro non sposta la selezione da solo: il menu deve pero'
-      agire sulla voce effettivamente cliccata }
+    { Right-click does not move the selection by itself, but the menu must
+      act on the item actually clicked }
     if (It <> nil) and not It.Selected then
       ALV.Selected := It;
     Exit;

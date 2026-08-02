@@ -1,36 +1,35 @@
 unit uloaderthread;
 
 {
-  Decodifica in background con pubblicazione a lotti sul thread principale.
+  Background decoding with batched publication on the main thread.
 
-  TThumbThread e' la base comune: i discendenti implementano Produce e per
-  ogni immagine pronta chiamano Emit; la base accumula, pubblica tramite Queue
-  e riempie ListView + ImageList. Tutte le immagini vengono ridotte a CacheW x
-  CacheH prima di essere conservate, cosi' lo zoom non deve rileggere gli
-  archivi e l'occupazione di memoria resta limitata anche con centinaia di
-  pagine.
+  TThumbThread is the common base: descendants implement Produce and call
+  Emit for every ready image; the base accumulates, publishes via Queue
+  and fills ListView + ImageList. All images are reduced to CacheW x
+  CacheH before being stored, so the zoom never re-reads the archives and
+  memory usage stays bounded even with hundreds of pages.
 
-  Pubblicazione lotti
-  -------------------
-  A differenza di Synchronize, Queue non blocca il thread secondario:
-  il worker produce al massimo della velocita' mentre il main thread consuma
-  i lotti quando ha tempo.  La proprieta' delle immagini viene trasferita
-  dal worker al main thread tramite il campo FPendingBatch: il worker scrive
-  FPendingBatch + FPendingCount e subito dopo chiama Queue(@SyncAddThumbs);
-  SyncAddThumbs (eseguito sul main thread) consuma il lotto e azzera i campi.
-  Il worker non libera mai FPendingBatch nel finally di Execute perche'
-  SyncAddThumbs viene sempre processato prima di OnTerminate (stessa coda
-  FIFO gestita da CheckSynchronize).
+  Batch publication
+  -----------------
+  Unlike Synchronize, Queue does not block the worker thread: the worker
+  produces at full speed while the main thread consumes the batches when
+  it has time. Image ownership is transferred from the worker to the main
+  thread through the FPendingBatch field: the worker writes
+  FPendingBatch + FPendingCount and immediately calls Queue(@SyncAddThumbs);
+  SyncAddThumbs (run on the main thread) consumes the batch and clears the
+  fields. The worker never frees FPendingBatch in the finally of Execute,
+  because SyncAddThumbs is always processed before OnTerminate (same FIFO
+  queue managed by CheckSynchronize).
 
-  Se il thread viene terminato mentre un lotto e' ancora in coda,
-  SyncAddThumbs controlla Terminated e chiama FreePendingBatch per
-  evitare memory leak.
+  If the thread is terminated while a batch is still queued,
+  SyncAddThumbs checks Terminated and calls FreePendingBatch to avoid a
+  memory leak.
 
-  Se per qualche motivo il worker producesse piu' velocemente di quanto
-  il main thread riesca a consumare, Flush attende brevemente con Sleep(1)
-  prima di sovrascrivere FPendingBatch.  In pratica questo non accade mai
-  perche' la decodifica delle immagini (I/O disco + decompressione) e'
-  lenta rispetto all'aggiunta di poche voci alla ListView.
+  If for any reason the worker produced faster than the main thread can
+  consume, Flush briefly waits with Sleep(1) before overwriting
+  FPendingBatch. In practice this never happens, because image decoding
+  (disk I/O + decompression) is slow compared to adding a few entries to
+  the ListView.
 }
 
 {$mode ObjFPC}{$H+}
@@ -101,12 +100,12 @@ type
       Runs on the main thread via TThread.Queue. }
     procedure SyncAddThumbs;
   protected
-    { Eseguita nel thread secondario: produce le immagini chiamando Emit e
-      deve rientrare non appena Terminated diventa True. }
+    { Runs on the worker thread: produces the images by calling Emit and
+      must return as soon as Terminated becomes True. }
     procedure Produce; virtual; abstract;
-    { Accoda un'immagine (anche nil) al lotto corrente; ne cede la proprieta'.
-      AIndex is the item's sorted position in the destination list
-      (-1 = append at the end, for sequential producers). }
+    { Queues an image (possibly nil) to the current batch; ownership is
+      transferred. AIndex is the item's sorted position in the destination
+      list (-1 = append at the end, for sequential producers). }
     procedure Emit(const AName: string; AImage: TLazIntfImage;
       AHasComicInfo: boolean = False; AIndex: integer = -1);
     { Flushes the accumulated batch to the main thread immediately.
@@ -125,12 +124,12 @@ type
     property OnBatchAdded: TNotifyEvent read FOnBatchAdded write FOnBatchAdded;
   end;
 
-  { TLoadThread: coordinatore che carica le prime pagine di tutti i .cbz di
-    una cartella usando N worker concorrenti (N = min(4, CPU)).  I worker
-    pubblicano le thumbnail direttamente (batches via Queue); il coordinatore
-    resta in vita finche' l'ultimo worker non ha finito, poi OnTerminate
-    informa la UI. La terminazione del coordinatore viene propagata ai
-    worker. }
+  { TLoadThread: coordinator that loads the first pages of every .cbz in
+    a folder using N concurrent workers (N = min(4, CPU)). The workers
+    publish the thumbnails directly (batches via Queue); the coordinator
+    stays alive until the last worker has finished, then OnTerminate
+    notifies the UI. The coordinator's termination is propagated to the
+    workers. }
 
   TLoadThread = class;  { forward — referenced by TLoadWorker }
 
@@ -174,7 +173,7 @@ type
     property TotalFiles: integer read FTotal;
   end;
 
-  { TPagesThread: tutte le pagine di un singolo .cbz }
+  { TPagesThread: all pages of a single .cbz }
 
   TPagesThread = class(TThumbThread)
   private
@@ -232,17 +231,17 @@ begin
       Produce;
       if not Terminated then
         Flush;
-      Log('Thread: terminato regolarmente');
+      Log('Thread: terminated normally');
     except
       on E: Exception do
-        Log('Thread: ECCEZIONE NON GESTITA %s: %s', [E.ClassName, E.Message]);
+        Log('Thread: UNHANDLED EXCEPTION %s: %s', [E.ClassName, E.Message]);
     end;
   finally
-    { Lotto corrente mai pubblicato (interruzione o eccezione): evita il leak.
-      FPendingBatch NON va liberato qui: e' di proprieta' del main thread e
-      SyncAddThumbs lo processera' prima che il thread venga distrutto. }
-    FreeBatch;
-  end;
+    { Current batch never published (interruption or exception): avoid the
+      leak. FPendingBatch must NOT be freed here: it belongs to the main
+      thread and SyncAddThumbs will process it before the thread is
+      destroyed. }
+    FreeBatch;  end;
 end;
 
 procedure TThumbThread.Emit(const AName: string; AImage: TLazIntfImage;
@@ -261,11 +260,11 @@ end;
 procedure TThumbThread.Flush;
 begin
   if FBatchCount = 0 then Exit;
-  { Attende che il main thread abbia consumato il lotto precedente
-    (in pratica non serve mai perche' la decodifica e' lenta). }
+  { Waits until the main thread has consumed the previous batch
+    (in practice never needed because decoding is slow). }
   while FPendingCount > 0 do
     Sleep(1);
-  { Trasferisce la proprieta' al main thread. }
+  { Transfers ownership to the main thread. }
   FPendingBatch := FBatch;
   FPendingCount := FBatchCount;
   FBatch := nil;
@@ -303,7 +302,7 @@ var
 begin
   if Terminated then
   begin
-    { nessuno prendera' in carico le immagini del lotto }
+    { nobody will take over the images of the batch }
     FreePendingBatch;
     Exit;
   end;
@@ -439,7 +438,7 @@ begin
     except
       on E: Exception do
       begin
-        Log('Thread: eccezione su %s: %s: %s',
+        Log('Thread: exception on %s: %s: %s',
           [FPool.FNames[i], E.ClassName, E.Message]);
         Img := nil;
       end;
@@ -484,7 +483,7 @@ begin
       FNames.Add(FileList[i]);
     FNames.Sort;
     FTotal := FNames.Count;
-    Log('Thread: %d file .cbz trovati in %s', [FTotal, Dir]);
+    Log('Thread: %d .cbz files found in %s', [FTotal, Dir]);
     if FTotal = 0 then Exit;
 
     FJobCursor := 0;
@@ -546,7 +545,7 @@ end;
   at CacheW×CacheH (JPEG DCT scaling) so large archives load quickly. }
 procedure TPagesThread.Produce;
 begin
-  Log('Pages: apertura %s', [ExtractFileName(FFile)]);
+  Log('Pages: opening %s', [ExtractFileName(FFile)]);
   ForEachImage(FFile, @HandlePage, CacheW, CacheH);
 end;
 

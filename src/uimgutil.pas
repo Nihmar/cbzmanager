@@ -1,18 +1,18 @@
 unit uImgUtil;
 
 {
-  uImgUtil — Decodifica, ridimensionamento e conversione di immagini.
+  uImgUtil — Image decoding, resizing and conversion.
   ---------------------------------------------------------------------------
-  Fornisce primitive di caricamento e manipolazione che lavorano
-  interamente in memoria (TLazIntfImage), senza alcuna chiamata GDI/
-  widgetset. Sono quindi utilizzabili anche da thread secondari,
-  a differenza di TBitmap che richiede il thread principale.
+  Provides load/manipulation primitives that work entirely in memory
+  (TLazIntfImage), without any GDI/widgetset call. They can therefore be
+  used from worker threads too, unlike TBitmap which requires the main
+  thread.
 
-  L'unica eccezione è IntfToBitmap (e di conseguenza MakeThumb), che
-  tocca il widgetset LCL e va invocata esclusivamente dal main thread.
+  The only exception is IntfToBitmap (and by extension MakeThumb), which
+  touches the LCL widgetset and must only be invoked from the main thread.
 
-  Formati supportati in lettura: JPEG, PNG, BMP, GIF (via unità FPRead*).
-  Il WebP è gestito separatamente dall'unità uWebP.
+  Formats supported for reading: JPEG, PNG, BMP, GIF (via the FPRead*
+  units). WebP is handled separately by the uWebP unit.
 }
 
 {$mode ObjFPC}{$H+}
@@ -57,44 +57,45 @@ const
   of AList. }
 function ExtInList(const Ext: string; const AList: array of string): boolean;
 
-{ Restituisce la classe di reader adatta all'estensione, nil se non gestita.
-  Il WebP non e' incluso: se ne occupa uWebP. }
+{ Returns the reader class matching the extension, nil if unhandled.
+  WebP is not included: uWebP takes care of it. }
 function ReaderClassForExt(const Ext: string): TFPCustomImageReaderClass;
 
-{ Decodifica lo stream (dall'inizio) nel formato indicato. nil se fallisce. }
+{ Decodes the stream (from the start) in the given format. nil on failure. }
 function StreamToIntfImage(Stream: TStream;
   ReaderClass: TFPCustomImageReaderClass): TLazIntfImage;
 
-{ Come sopra, ma chiede al reader di decodificare a risoluzione ridotta
-  quando il formato lo supporta (es. JPEG DCT scaling via MinWidth/MinHeight):
-  il risultato ha dimensioni minime pari circa a MaxW x MaxH. 0 = piena
-  risoluzione (comportamento predefinito). Per i formati senza downscale
-  dedicato il risultato e' a piena risoluzione. }
+{
+  As above, but asks the reader to decode at reduced resolution when the
+  format supports it (e.g. JPEG DCT scaling via MinWidth/MinHeight): the
+  result is at least about MaxW x MaxH. 0 = full resolution (the default
+  behaviour). Formats without dedicated downscaling yield full resolution. }
 function StreamToIntfImage(Stream: TStream;
   ReaderClass: TFPCustomImageReaderClass; MaxW, MaxH: integer): TLazIntfImage;
 
-{ Come sopra, leggendo da file. }
+{ As above, reading from a file. }
 function FileToIntfImage(const FileName: string;
   ReaderClass: TFPCustomImageReaderClass): TLazIntfImage;
 
-{ Riduce l'immagine perche' entri in MaxW x MaxH mantenendo le proporzioni.
-  Non ingrandisce mai. Sola memoria (nessuna GDI): invocabile da thread
-  secondari. nil se Src e' nil o vuota; il chiamante e' proprietario del
-  risultato. }
+{
+  Shrinks the image to fit MaxW x MaxH while keeping the aspect ratio.
+  Never enlarges. Memory only (no GDI): callable from worker threads.
+  nil if Src is nil or empty; the caller owns the result. }
 function ScaleIntfImage(Src: TLazIntfImage; MaxW, MaxH: integer): TLazIntfImage;
 
-{ SOLO MAIN THREAD: crea un TBitmap a partire da una TLazIntfImage. }
+{ MAIN THREAD ONLY: creates a TBitmap from a TLazIntfImage. }
 function IntfToBitmap(Src: TLazIntfImage): TBitmap;
 
-{ SOLO MAIN THREAD: IntfToBitmap e Canvas toccano il widgetset. }
+{ MAIN THREAD ONLY: IntfToBitmap and Canvas touch the widgetset. }
 function MakeThumb(Src: TLazIntfImage; W, H: integer): TBitmap;
 
-{ Altezza thumbnail per una data larghezza, secondo PAGE_ASPECT_RATIO. }
+{ Thumbnail height for a given width, per PAGE_ASPECT_RATIO. }
 function ThumbHeight(AWidth: integer): integer;
 
-{ SOLO MAIN THREAD: costruisce una thumbnail di AImg dimensionata a
-  AIL.Width × AIL.Height, la aggiunge alla image list, libera il bitmap
-  intermedio e restituisce l'indice della nuova immagine. }
+{
+  MAIN THREAD ONLY: builds a thumbnail of AImg sized to
+  AIL.Width × AIL.Height, adds it to the image list, frees the
+  intermediate bitmap and returns the index of the new image. }
 function AppendThumb(AIL: TImageList; AImg: TLazIntfImage): integer;
 
 function IsImageExt(const Ext: string): boolean;
@@ -178,10 +179,11 @@ begin
   end;
 end;
 
-{ Crea una thumbnail di dimensione W×H a partire da una TLazIntfImage.
-  L'immagine viene ridotta proporzionalmente per riempire il rettangolo
-  e centrata su sfondo color finestra. Usa anti-aliasing via Canvas.
-  SOLO MAIN THREAD: IntfToBitmap e Canvas toccano il widgetset. }
+{
+  Creates a W×H thumbnail from a TLazIntfImage. The image is scaled
+  proportionally to fill the rectangle and centered on a window-coloured
+  background. Uses anti-aliasing via Canvas.
+  MAIN THREAD ONLY: IntfToBitmap and Canvas touch the widgetset. }
 function MakeThumb(Src: TLazIntfImage; W, H: integer): TBitmap;
 var
   F: double;
@@ -191,7 +193,7 @@ begin
   Result := TBitmap.Create;
   Result.PixelFormat := pf24bit;
   Result.SetSize(W, H);
-  { Sfondo uniforme per le aree non coperte dall'immagine scalata. }
+  { Uniform background for the areas not covered by the scaled image. }
   Result.Canvas.Brush.Color := clWindow;
   Result.Canvas.FillRect(0, 0, W, H);
   if (Src = nil) or (Src.Width <= 0) or (Src.Height <= 0) then Exit;
@@ -200,13 +202,13 @@ begin
   Full := IntfToBitmap(Src);
   if Full = nil then Exit;
   try
-    { Fattore di scala: il minore dei due rapporti, così l'immagine
-      sta tutta dentro il rettangolo W×H senza deformarsi. }
+    { Scale factor: the smaller of the two ratios, so the image fits
+      entirely inside the W×H rectangle without distortion. }
     F := Min(W / Full.Width, H / Full.Height);
     DW := Max(1, Round(Full.Width * F));
     DH := Max(1, Round(Full.Height * F));
     Result.Canvas.AntialiasingMode := amOn;
-    { Centra l'immagine scalata nel rettangolo di destinazione. }
+    { Centers the scaled image in the destination rectangle. }
     Result.Canvas.StretchDraw(
       Rect((W - DW) div 2, (H - DH) div 2, (W - DW) div 2 + DW,
       (H - DH) div 2 + DH), Full);
@@ -232,26 +234,27 @@ begin
   end;
 end;
 
-{ Riduce Src in modo che entri nel rettangolo MaxW×MaxH mantenendo le
-  proporzioni. Non ingrandisce mai (il fattore di scala è capped a 1.0).
-  Parametri:
-    Src  — immagine sorgente (TLazIntfImage, qualsiasi formato di pixel)
-    MaxW — larghezza massima consentita
-    MaxH — altezza massima consentita
-  Restituisce una nuova TLazIntfImage in formato BGRA 32-bit, oppure nil
-  se Src è nil/vuota o le dimensioni massime sono ≤ 0.
-  Lavora interamente in memoria: invocabile da thread secondari.
-  Il chiamante è proprietario del risultato. }
+{
+  Shrinks Src to fit the MaxW×MaxH rectangle while keeping the aspect
+  ratio. Never enlarges (the scale factor is capped at 1.0).
+  Parameters:
+    Src  — source image (TLazIntfImage, any pixel format)
+    MaxW — maximum allowed width
+    MaxH — maximum allowed height
+  Returns a new 32-bit BGRA TLazIntfImage, or nil if Src is nil/empty or
+  the maximum dimensions are ≤ 0.
+  Works entirely in memory: callable from worker threads.
+  The caller owns the result. }
 function ScaleIntfImage(Src: TLazIntfImage; MaxW, MaxH: integer): TLazIntfImage;
 const
-  { Campioni per lato: tiene il costo entro 16 letture per pixel di
-    destinazione, indipendentemente da quanto e' grande l'originale. }
+  { Samples per side: keeps the cost within 16 reads per destination
+    pixel, regardless of how large the original is. }
   MaxSamples = 4;
 
-  { True se Img e' 32-bit BGRA a 8 bit per canale, little-endian
-    (B a byte 0, G a byte 1, R a byte 2, A a byte 3): il layout prodotto
-    da tutti i reader usati dall'app e da WebPToIntfImage. Su questi dati
-    il ridimensionamento puo' lavorare sui byte grezzi. }
+  { True if Img is 32-bit BGRA with 8 bits per channel, little-endian
+    (B at byte 0, G at byte 1, R at byte 2, A at byte 3): the layout
+    produced by all readers used by the app and by WebPToIntfImage. On
+    such data the scaler can work on raw bytes. }
   function IsBGRA32(const Img: TLazIntfImage): boolean;
   var
     D: TRawImageDescription;
@@ -263,9 +266,9 @@ const
       (D.AlphaShift = 24);
   end;
 
-  { Box filter su byte grezzi: identico algoritmo del percorso generico,
-    ma legge/scrive le scanline direttamente via GetDataLineStart invece
-    di passare dalla property Colors (virtuale, costo per-pixel alto). }
+  { Box filter on raw bytes: same algorithm as the generic path, but it
+    reads/writes scanlines directly via GetDataLineStart instead of going
+    through the Colors property (virtual, high per-pixel cost). }
   procedure ScaleBGRA32(Src, Dst: TLazIntfImage; DW, DH: integer);
   var
     x, y, ix, iy: integer;
@@ -298,8 +301,8 @@ const
           ix := sx0;
           while ix < sx1 do
           begin
-            { Gli indici restano entro i bordi per costruzione: sx1 <= W e
-              sy1 <= H (vedi commento nel percorso generico). }
+            { The indices stay within the bounds by construction: sx1 <= W
+              and sy1 <= H (see the comment in the generic path). }
             P := SrcLine + PtrUInt(ix) * 4;
             Inc(B, P[0]);
             Inc(G, P[1]);
@@ -320,8 +323,8 @@ const
     end;
   end;
 
-  { Percorso generico: property Colors, adatto a qualsiasi formato di
-    pixel (JPEG in scala di grigi, PNG palettizzati, ecc.). }
+  { Generic path: the Colors property, suitable for any pixel format
+    (grayscale JPEG, palettized PNG, etc.). }
   procedure ScaleGeneric(Src, Dst: TLazIntfImage; DW, DH: integer);
   var
     x, y, ix, iy: integer;
@@ -385,12 +388,12 @@ begin
   if (Src = nil) or (Src.Width <= 0) or (Src.Height <= 0) then Exit;
   if (MaxW <= 0) or (MaxH <= 0) then Exit;
 
-  { Fattore di scala: il più piccolo tra i due rapporti, ma mai > 1. }
+  { Scale factor: the smaller of the two ratios, but never > 1. }
   F := Min(Min(MaxW / Src.Width, MaxH / Src.Height), 1.0);
   DW := Max(1, Round(Src.Width * F));
   DH := Max(1, Round(Src.Height * F));
 
-  { L'immagine scalata è sempre BGRA 32-bit, top-to-bottom. }
+  { The scaled image is always 32-bit BGRA, top-to-bottom. }
   Desc.Init_BPP32_B8G8R8A8_BIO_TTB(DW, DH);
   Result := TLazIntfImage.Create(0, 0);
   try
@@ -404,10 +407,11 @@ begin
   end;
 end;
 
-{ Restituisce la classe reader FCL appropriata per l'estensione data
-  (es. '.png' → TFPReaderPNG). Case-insensitive.
-  Restituisce nil per estensioni non gestite (incluso WebP, gestito
-  separatamente da uWebP). }
+{
+  Returns the appropriate FCL reader class for the given extension
+  (e.g. '.png' → TFPReaderPNG). Case-insensitive.
+  Returns nil for unhandled extensions (including WebP, handled
+  separately by uWebP). }
 function ReaderClassForExt(const Ext: string): TFPCustomImageReaderClass;
 begin
   if SameText(Ext, EXT_JPG) or SameText(Ext, EXT_JPEG) then
@@ -424,25 +428,27 @@ begin
     Result := nil;
 end;
 
-{ Decodifica uno stream (letto dall'inizio) nel formato indicato da
-  ReaderClass. L'immagine risultante è sempre BGRA 32-bit.
-  Parametri:
-    Stream      — stream posizionato all'inizio dei dati immagine
-    ReaderClass — classe reader FCL (es. TFPReaderJPEG)
-  Restituisce una TLazIntfImage, oppure nil se lo stream è illeggibile.
-  Il chiamante è proprietario del risultato.
-  Solo memoria: invocabile da thread secondari. }
+{
+  Decodes a stream (read from the start) in the format indicated by
+  ReaderClass. The resulting image is always 32-bit BGRA.
+  Parameters:
+    Stream      — stream positioned at the start of the image data
+    ReaderClass — FCL reader class (e.g. TFPReaderJPEG)
+  Returns a TLazIntfImage, or nil if the stream is unreadable.
+  The caller owns the result.
+  Memory only: callable from worker threads. }
 function StreamToIntfImage(Stream: TStream;
   ReaderClass: TFPCustomImageReaderClass): TLazIntfImage;
 begin
   Result := StreamToIntfImage(Stream, ReaderClass, 0, 0);
 end;
 
-{ Come StreamToIntfImage, ma con downscale dedicato quando disponibile.
-  TFPReaderJPEG espone MinWidth/MinHeight: impostandoli prima del Load, il
-  decoder JPEG applica il DCT scaling (half/quarter/eighth) e produce
-  direttamente un'immagine ridotta — molto piu' veloce di una decodifica a
-  piena risoluzione seguita da ScaleIntfImage. }
+{
+  Like StreamToIntfImage, but with dedicated downscaling when available.
+  TFPReaderJPEG exposes MinWidth/MinHeight: setting them before Load makes
+  the JPEG decoder apply DCT scaling (half/quarter/eighth) and produce a
+  reduced image directly — much faster than a full-resolution decode
+  followed by ScaleIntfImage. }
 function StreamToIntfImage(Stream: TStream;
   ReaderClass: TFPCustomImageReaderClass; MaxW, MaxH: integer): TLazIntfImage;
 var
@@ -459,9 +465,9 @@ begin
       TFPReaderJPEG(Reader).MinWidth := MaxW;
       TFPReaderJPEG(Reader).MinHeight := MaxH;
     end;
-    { Idioma canonico LCL: si crea una TLazIntfImage vuota e le si assegna
-      la DataDescription; LoadFromStream alloca e popola il buffer raw.
-      Init_BPP32_B8G8R8A8_BIO_TTB forza l'output a 32-bit BGRA bottom-up. }
+    { Canonical LCL idiom: an empty TLazIntfImage is created and given a
+      DataDescription; LoadFromStream allocates and fills the raw buffer.
+      Init_BPP32_B8G8R8A8_BIO_TTB forces 32-bit BGRA output. }
     Desc.Init_BPP32_B8G8R8A8_BIO_TTB(0, 0);
     Result := TLazIntfImage.Create(0, 0);
     try
@@ -469,17 +475,18 @@ begin
       Stream.Position := 0;
       Result.LoadFromStream(Stream, Reader);
     except
-      FreeAndNil(Result);  { stream corrotto o formato non corrispondente }
+      FreeAndNil(Result);  { corrupt stream or mismatched format }
     end;
   finally
     Reader.Free;
   end;
 end;
 
-{ Apre FileName e ne decodifica il contenuto con ReaderClass.
-  Comodo wrapper attorno a StreamToIntfImage.
-  Restituisce nil se il file non esiste, non è leggibile, o il formato
-  non corrisponde al ReaderClass indicato. }
+{
+  Opens FileName and decodes its content with ReaderClass.
+  A convenient wrapper around StreamToIntfImage.
+  Returns nil if the file does not exist, is unreadable, or the format
+  does not match the given ReaderClass. }
 function FileToIntfImage(const FileName: string;
   ReaderClass: TFPCustomImageReaderClass): TLazIntfImage;
 var
@@ -495,14 +502,15 @@ begin
       FS.Free;
     end;
   except
-    FreeAndNil(Result);  { errore I/O o file corrotto }
+    FreeAndNil(Result);  { I/O error or corrupt file }
   end;
 end;
 
-{ Converte una TLazIntfImage in TBitmap nativo della LCL.
-  Questa è l'unica funzione del modulo che tocca il widgetset:
-  DEVE essere chiamata dal thread principale.
-  Restituisce nil se Src è nil o vuota, oppure se CreateBitmaps fallisce. }
+{
+  Converts a TLazIntfImage into a native LCL TBitmap.
+  This is the only function of the module that touches the widgetset:
+  it MUST be called from the main thread.
+  Returns nil if Src is nil or empty, or if CreateBitmaps fails. }
 function IntfToBitmap(Src: TLazIntfImage): TBitmap;
 var
   BmpHandle, MaskHandle: HBitmap;
@@ -511,8 +519,8 @@ begin
   if (Src = nil) or (Src.Width <= 0) or (Src.Height <= 0) then Exit;
   Result := TBitmap.Create;
   try
-    { CreateBitmaps chiede al widgetset di allocare handle OS nativi
-      per il bitmap e la maschera a partire dai dati raw. }
+    { CreateBitmaps asks the widgetset to allocate native OS handles for
+      the bitmap and the mask from the raw data. }
     Src.CreateBitmaps(BmpHandle, MaskHandle, False);
     Result.Handle := BmpHandle;
     Result.MaskHandle := MaskHandle;

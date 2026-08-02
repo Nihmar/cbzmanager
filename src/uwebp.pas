@@ -1,21 +1,21 @@
 unit uWebP;
 
 {
-  uWebP — Decodifica e codifica WebP via libwebp caricata dinamicamente.
+  uWebP — WebP decoding and encoding via dynamically loaded libwebp.
   ---------------------------------------------------------------------------
-  Cross-platform: Windows / Linux / macOS (usa DynLibs invece di dl).
+  Cross-platform: Windows / Linux / macOS (uses DynLibs instead of dl).
 
-  La libreria non è richiesta a compile-time: se manca a runtime, le
-  funzioni restituiscono nil e WebPAvailable ritorna False.
-  L'applicazione può quindi funzionare comunque, semplicemente senza
-  anteprima per i CBZ in formato WebP.
+  The library is not required at compile time: if it is missing at runtime,
+  the functions return nil and WebPAvailable returns False.
+  The application can therefore still work, simply without previews for
+  WebP-format CBZs.
 
-  Su Windows libwebp.dll (con la sua libsharpyuv.dll) va posata accanto
-  all'eseguibile: la cartella dell'exe è la prima in cui Windows cerca
-  sia la libreria sia le sue dipendenze.
+  On Windows libwebp.dll (with its libsharpyuv.dll) must be placed next to
+  the executable: the exe folder is the first place Windows looks for both
+  the library and its dependencies.
 
-  Tutte le operazioni lavorano in memoria e non toccano il widgetset LCL:
-  sono quindi invocabili anche da thread secondari.
+  All operations work in memory and never touch the LCL widgetset:
+  they can therefore be called from worker threads too.
 }
 
 {$mode ObjFPC}{$H+}
@@ -31,20 +31,23 @@ const
   WEBP_QUALITY_MAX     = 100;
   DEFAULT_WEBP_QUALITY = 75;
 
-{ True se libwebp e' stata trovata e caricata correttamente. }
+{ True if libwebp was found and loaded successfully. }
 function WebPAvailable: boolean;
 
-{ Nome del file di libreria effettivamente caricato (stringa vuota se nessuno). }
+{ Name of the library file actually loaded (empty string if none). }
 function WebPLibraryName: string;
 
-{ Decodifica un buffer WebP in memoria. Restituisce nil in caso di errore.
-  Non tocca il widgetset: invocabile anche da thread secondari.
-  Il chiamante e' proprietario della TLazIntfImage restituita. }
+{
+  Decodes a WebP buffer in memory. Returns nil on error.
+  Does not touch the widgetset: callable from worker threads too.
+  The caller owns the returned TLazIntfImage. }
 function WebPToIntfImage(const Data: Pointer; DataSize: SizeInt): TLazIntfImage;
 
-{ Codifica una TLazIntfImage in formato WebP. Restituisce i bytes codificati
-  in un TMemoryStream (proprieta' del chiamante). nil se la codifica fallisce.
-  Quality: 0..100 (default DEFAULT_WEBP_QUALITY). Richiede libwebp con encode support. }
+{
+  Encodes a TLazIntfImage as WebP. Returns the encoded bytes in a
+  TMemoryStream (owned by the caller). nil if encoding fails.
+  Quality: 0..100 (default DEFAULT_WEBP_QUALITY). Requires libwebp with
+  encode support. }
 function IntfImageToWebP(const Img: TLazIntfImage;
   Quality: integer = DEFAULT_WEBP_QUALITY): TMemoryStream;
 
@@ -80,42 +83,43 @@ const
   {$ENDIF}
 
 type
-  { Firma di WebPGetInfo: legge larghezza e altezza da un buffer WebP.
-    Restituisce 0 se l'intestazione non è valida. }
+  { Signature of WebPGetInfo: reads width and height from a WebP buffer.
+    Returns 0 if the header is invalid. }
   TWebPGetInfo = function(Data: pbyte; data_size: PtrUInt;
     Width, Height: PInteger): integer; cdecl;
-  { Firma di WebPDecodeBGRA: decodifica in buffer BGRA (8 bit per canale).
-    Il chiamante deve liberare il puntatore restituito con WebPFree. }
+  { Signature of WebPDecodeBGRA: decodes into a BGRA buffer (8 bits per
+    channel). The caller must free the returned pointer with WebPFree. }
   TWebPDecodeBGRA = function(Data: pbyte; data_size: PtrUInt;
     Width, Height: PInteger): pbyte; cdecl;
-  { Firma di WebPFree: libera un puntatore allocato da libwebp.
-    Assente prima di libwebp 0.5 — in tal caso usiamo FreeMemory. }
+  { Signature of WebPFree: frees a pointer allocated by libwebp.
+    Absent before libwebp 0.5 — in that case we use FreeMemory. }
   TWebPFree = procedure(ptr: Pointer); cdecl;
-  { Firma di WebPEncodeBGRA: codifica pixel BGRA in formato WebP.
-    Restituisce la dimensione in byte del buffer allocato in output.
-    Disponibile solo nella libwebp completa, non nel decoder-only. }
+  { Signature of WebPEncodeBGRA: encodes BGRA pixels as WebP.
+    Returns the size in bytes of the allocated output buffer.
+    Only available in the full libwebp, not in the decoder-only build. }
   TWebPEncodeBGRA = function(bgra: pbyte; Width, Height, stride: integer;
     quality: single; var output: pbyte): PtrUInt; cdecl;
 
 var
-  { Serializza l'inizializzazione lazy della libreria. }
+  { Serializes the lazy initialization of the library. }
   LibLock: TRTLCriticalSection;
-  { Handle della libreria dinamica; NilHandle se non caricata. }
+  { Handle of the dynamic library; NilHandle if not loaded. }
   hLib: TLibHandle = NilHandle;
-  { True dopo il primo tentativo di caricamento (evita retry ripetuti). }
+  { True after the first load attempt (avoids repeated retries). }
   LibTried: boolean = False;
-  { Nome del file di libreria effettivamente caricato. }
+  { Name of the library file actually loaded. }
   LibName: string = '';
-  { Puntatori alle funzioni esportate da libwebp, risolti dinamicamente. }
+  { Pointers to the functions exported by libwebp, resolved dynamically. }
   _WebPGetInfo: TWebPGetInfo = nil;
   _WebPDecodeBGRA: TWebPDecodeBGRA = nil;
-  _WebPFree: TWebPFree = nil;   { assente prima di libwebp 0.5: opzionale }
-  _WebPEncodeBGRA: TWebPEncodeBGRA = nil; { encode può essere assente }
+  _WebPFree: TWebPFree = nil;   { absent before libwebp 0.5: optional }
+  _WebPEncodeBGRA: TWebPEncodeBGRA = nil; { encode may be absent }
 
-{ Inizializzazione lazy e thread-safe: cerca libwebp tra i nomi noti,
-  carica la prima trovata e risolve i simboli necessari.
-  Se la libreria esiste ma mancano le funzioni di decodifica, la scarta.
-  Logga il risultato (successo o fallimento) via uLog. }
+{
+  Lazy, thread-safe initialization: searches libwebp among the known
+  names, loads the first one found and resolves the needed symbols.
+  If the library exists but lacks the decode functions, it is discarded.
+  Logs the outcome (success or failure) via uLog. }
 procedure InitLib;
 var
   i: integer;
@@ -136,8 +140,8 @@ begin
     end;
     if hLib = NilHandle then
     begin
-      Log('InitLib: libwebp NON trovata: i CBZ in formato WebP non ' +
-        'avranno anteprima');
+      Log('InitLib: libwebp NOT found: WebP-format CBZs will not ' +
+        'have previews');
       Exit;
     end;
 
@@ -148,7 +152,7 @@ begin
 
     if not (Assigned(_WebPGetInfo) and Assigned(_WebPDecodeBGRA)) then
     begin
-      Log('InitLib: %s caricata ma priva delle funzioni di decodifica', [LibName]);
+      Log('InitLib: %s loaded but missing the decode functions', [LibName]);
       UnloadLibrary(hLib);
       hLib := NilHandle;
       LibName := '';
@@ -158,36 +162,39 @@ begin
       Exit;
     end;
 
-    Log('InitLib: caricata %s (WebPFree %s)',
-      [LibName, BoolToStr(Assigned(_WebPFree), 'presente', 'assente')]);
+    Log('InitLib: loaded %s (WebPFree %s)',
+      [LibName, BoolToStr(Assigned(_WebPFree), 'present', 'absent')]);
   finally
     LeaveCriticalSection(LibLock);
   end;
 end;
 
-{ Restituisce True se libwebp è stata trovata e caricata con successo.
-  Il primo utilizzo innesca la ricerca (lazy init). }
+{
+  Returns True if libwebp was found and loaded successfully.
+  The first use triggers the search (lazy init). }
 function WebPAvailable: boolean;
 begin
   InitLib;
   Result := hLib <> NilHandle;
 end;
 
-{ Restituisce il nome del file di libreria effettivamente caricato,
-  oppure stringa vuota se nessuna libreria è disponibile. }
+{
+  Returns the name of the library file actually loaded,
+  or an empty string if no library is available. }
 function WebPLibraryName: string;
 begin
   InitLib;
   Result := LibName;
 end;
 
-{ Decodifica un buffer WebP in memoria e restituisce una TLazIntfImage
-  in formato BGRA a 32 bit. Non tocca il widgetset: invocabile da thread.
-  Parametri:
-    Data     — puntatore al buffer contenente l'immagine WebP
-    DataSize — dimensione del buffer in byte
-  Restituisce nil in caso di errore (libreria assente, intestazione non
-  valida, decodifica fallita). Il chiamante è proprietario del risultato. }
+{
+  Decodes a WebP buffer in memory and returns a 32-bit BGRA TLazIntfImage.
+  Does not touch the widgetset: callable from threads.
+  Parameters:
+    Data     — pointer to the buffer containing the WebP image
+    DataSize — size of the buffer in bytes
+  Returns nil on error (library missing, invalid header, decode failure).
+  The caller owns the result. }
 function WebPToIntfImage(const Data: Pointer; DataSize: SizeInt): TLazIntfImage;
 var
   W, H, y: integer;
@@ -199,42 +206,42 @@ begin
   if (Data = nil) or (DataSize <= 0) then Exit;
   if not WebPAvailable then Exit;
 
-  { Interroga l'intestazione WebP per ottenere le dimensioni reali. }
+  { Queries the WebP header for the real dimensions. }
   W := 0;
   H := 0;
   if _WebPGetInfo(pbyte(Data), PtrUInt(DataSize), @W, @H) = 0 then
   begin
-    Log('WebP: intestazione non valida');
+    Log('WebP: invalid header');
     Exit;
   end;
   if (W <= 0) or (H <= 0) then Exit;
 
-  { BGRA = stesso ordine dei byte usato dalla LCL: nessuna conversione per pixel }
+  { BGRA = same byte order used by the LCL: no per-pixel conversion }
   Buf := _WebPDecodeBGRA(pbyte(Data), PtrUInt(DataSize), @W, @H);
   if Buf = nil then
   begin
-    Log('WebP: decodifica fallita (%dx%d)', [W, H]);
+    Log('WebP: decode failed (%dx%d)', [W, H]);
     Exit;
   end;
 
   try
-    { Costruisce un TRawImage con lo stesso layout di memoria BGRA.
+    { Builds a TRawImage with the same BGRA memory layout.
       Init_BPP32_B8G8R8A8_BIO_TTB = 32 bpp, Blue-Green-Red-Alpha, byte order
-      LSB-first, righe top-to-bottom (LineOrder = riloTopToBottom). }
+      LSB-first, rows top-to-bottom (LineOrder = riloTopToBottom). }
     RawImg.Init;
     RawImg.Description.Init_BPP32_B8G8R8A8_BIO_TTB(W, H);
     RawImg.CreateData(False);
 
     SrcStride := PtrUInt(W) * 4;
-    { Copia le righe dalla sorgente al buffer raw. Entrambi usano lo
-      stesso layout BGRA e lo stesso ordine di riga (top-to-bottom),
-      quindi è un Move() diretto. }
+    { Copies the rows from the source to the raw buffer. Both use the same
+      BGRA layout and the same row order (top-to-bottom),
+      so it is a direct Move(). }
     for y := 0 to H - 1 do
       Move((Buf + PtrUInt(y) * SrcStride)^,
         (RawImg.Data + PtrUInt(y) * RawImg.Description.BytesPerLine)^,
         SrcStride);
 
-    { True: TLazIntfImage diventa proprietaria di RawImg.Data }
+    { True: TLazIntfImage becomes the owner of RawImg.Data }
     Result := TLazIntfImage.Create(RawImg, True);
   finally
     if Assigned(_WebPFree) then
@@ -242,14 +249,15 @@ begin
   end;
 end;
 
-{ Codifica una TLazIntfImage in formato WebP lossy.
-  Parametri:
-    Img     — immagine sorgente in formato TLazIntfImage (qualsiasi layout)
-    Quality — qualità 0..100 (default 75); 0 = massima compressione
-  Restituisce un TMemoryStream contenente i bytes codificati, oppure nil
-  se la codifica fallisce o libwebp encode non è disponibile.
-  Il chiamante è proprietario del TMemoryStream restituito.
-  Richiede libwebp con supporto encode (non il decoder-only). }
+{
+  Encodes a TLazIntfImage as lossy WebP.
+  Parameters:
+    Img     — source image as TLazIntfImage (any layout)
+    Quality — quality 0..100 (default 75); 0 = maximum compression
+  Returns a TMemoryStream with the encoded bytes, or nil if encoding fails
+  or libwebp encode is unavailable.
+  The caller owns the returned TMemoryStream.
+  Requires libwebp with encode support (not the decoder-only build). }
 function IntfImageToWebP(const Img: TLazIntfImage; Quality: integer): TMemoryStream;
 var
   W, H, Stride, y, SrcBytesPerLine: integer;
@@ -265,12 +273,12 @@ begin
     triggered if no WebP image was decoded before this point). }
   if not WebPAvailable then
   begin
-    Log('WebP: libwebp non disponibile');
+    Log('WebP: libwebp unavailable');
     Exit;
   end;
   if not Assigned(_WebPEncodeBGRA) then
   begin
-    Log('WebP: encode non disponibile');
+    Log('WebP: encode unavailable');
     Exit;
   end;
 
@@ -283,17 +291,17 @@ begin
   if (Img.DataDescription.BitsPerPixel <> 32) or
      (SrcBytesPerLine < W * 4) then
   begin
-    Log('WebP: formato pixel non supportato (BPP=%d, BytesPerLine=%d)',
+    Log('WebP: unsupported pixel format (BPP=%d, BytesPerLine=%d)',
       [Img.DataDescription.BitsPerPixel, SrcBytesPerLine]);
     Exit;
   end;
 
   Stride := W * 4; // BGRA = 4 bytes per pixel
 
-  { Le TLazIntfImage dell'app sono top-to-bottom (Init_..._TTB imposta
-    LineOrder = riloTopToBottom): la riga 0 è già quella in alto, come
-    richiede WebPEncodeBGRA. Copiamo quindi in ordine naturale — invertire
-    le righe produrrebbe un WebP capovolto. }
+  { The app's TLazIntfImages are top-to-bottom (Init_..._TTB sets
+    LineOrder = riloTopToBottom): row 0 is already the top row, as
+    WebPEncodeBGRA requires. We therefore copy in natural order —
+    inverting the rows would produce an upside-down WebP. }
   Buf := GetMem(PtrUInt(Stride) * PtrUInt(H));
   if Buf = nil then Exit;
   try
@@ -310,12 +318,12 @@ begin
     begin
       Result := TMemoryStream.Create;
       Result.Write(OutPtr^, OutSize);
-      { Libera il buffer allocato da libwebp. }
+      { Frees the buffer allocated by libwebp. }
       if Assigned(_WebPFree) then
         _WebPFree(OutPtr);
     end
     else
-      Log('WebP: codifica fallita (%dx%d, q=%d)', [W, H, Quality]);
+      Log('WebP: encode failed (%dx%d, q=%d)', [W, H, Quality]);
   finally
     FreeMem(Buf);
   end;

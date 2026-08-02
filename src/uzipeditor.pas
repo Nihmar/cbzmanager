@@ -1,10 +1,10 @@
 unit uZipEditor;
 
 {
-  Estrazione dei CBZ interamente in RAM: TUnZipper viene dirottato con
-  OnCreateStream / OnDoneStream in modo che ogni entry venga espansa in un
-  TMemoryStream, decodificata e subito liberata. Nessun file temporaneo,
-  nessuna scrittura su disco.
+  CBZ extraction entirely in RAM: TUnZipper is diverted with
+  OnCreateStream / OnDoneStream so that every entry is expanded into a
+  TMemoryStream, decoded and immediately freed. No temporary files,
+  no disk writes.
 }
 
 {$mode ObjFPC}{$H+}
@@ -26,26 +26,29 @@ type
   TImageEntryProc = procedure(const AName: string; AImage: TLazIntfImage;
     AIndex: integer; var ACancel: boolean) of object;
 
-{ Prima pagina del CBZ come TLazIntfImage (sola memoria, nessuna GDI):
-  invocabile da thread secondari. nil se il file non contiene immagini
-  leggibili. Il chiamante e' proprietario dell'oggetto restituito. }
+{
+  First page of the CBZ as a TLazIntfImage (memory only, no GDI):
+  callable from worker threads. nil if the file contains no readable
+  images. The caller owns the returned object. }
 function GetFirstImageAsIntfImage(const FileName: string): TLazIntfImage;
 
-{ Come GetFirstImageAsIntfImage, ma in un'unica passata sul file: restituisce
-  anche se il CBZ contiene ComicInfo.xml (per il badge delle thumbnail) e
-  decodifica a risoluzione ridotta quando AMaxW/AMaxH > 0 (JPEG DCT scaling).
-  La pagina scelta e' la prima in ordine alfabetico di nome (come la pagina
-  0 del visualizzatore), non la prima voce dell'archivio. True se
-  l'immagine e' stata decodificata. }
+{
+  Like GetFirstImageAsIntfImage, but in a single pass over the file: it
+  also reports whether the CBZ contains ComicInfo.xml (for the thumbnail
+  badge) and decodes at reduced resolution when AMaxW/AMaxH > 0 (JPEG DCT
+  scaling). The chosen page is the first by alphabetical name order (like
+  page 0 of the viewer), not the first archive entry. True if the image
+  was decoded. }
 function GetFirstImageInfo(const FileName: string; out AImage: TLazIntfImage;
   out AHasComicInfo: boolean; AMaxW, AMaxH: integer): boolean;
 
-{ Scandisce l'archivio decodificando una pagina alla volta e passandola ad
-  ACallback: in memoria resta al piu' una pagina per volta. Invocabile da
-  thread secondari. Quando AMaxW/AMaxH > 0 le pagine JPEG vengono decodificate
-  a risoluzione ridotta (vedi StreamToIntfImage).  Le pagine vengono passate
-  in ordine di archivio, ma ACallback riceve in AIndex la posizione che la
-  pagina occupa nell'ordinamento alfabetico dei nomi. }
+{
+  Scans the archive decoding one page at a time and passing it to
+  ACallback: at most one page stays in memory at a time. Callable from
+  worker threads. When AMaxW/AMaxH > 0, JPEG pages are decoded at reduced
+  resolution (see StreamToIntfImage). Pages are passed in archive order,
+  but ACallback receives in AIndex the position the page occupies in the
+  alphabetical ordering of the names. }
 procedure ForEachImage(const FileName: string; ACallback: TImageEntryProc;
   AMaxW: integer = 0; AMaxH: integer = 0);
 
@@ -83,19 +86,21 @@ type
 function ValidateCBZImages(const FileName: string;
   out ImageResults: TImageChecks): integer;
 
-{ Merge di piu' file CBZ in un unico CBZ con pagine rinumerate.
-  Filtra ComicInfo.xml. Tutto in RAM. Restituisce le entry del volume.
-  AOnProgress (optional) riceve (percent, message) per ogni capitolo processato. }
+{
+  Merges multiple CBZ files into a single CBZ with renumbered pages.
+  Filters out ComicInfo.xml. Everything in RAM. Returns the volume entries.
+  AOnProgress (optional) receives (percent, message) per processed chapter. }
 function MergeIntoVolume(const SourceFiles: TStringArray; const ADir: string;
   AOnProgress: TServiceProgressEvent = nil): TZipEntries;
 
-{ Converte le immagini di un CBZ in WebP direttamente in RAM.
-  Restituisce True se il file e' stato modificato.
-  I parametri controllano la qualita' e le opzioni di conversione.
-  SkipExistingWebP: se True le pagine gia' in formato .webp vengono lasciate
-  intatte; se False vengono decodificate e ri-codificate alla qualita' scelta.
-  AOnProgress (reserved): non piu' chiamato internamente; il progresso viene
-  riportato dal chiamante (TConvertService.Convert) a livello di file. }
+{
+  Converts the images of a CBZ to WebP directly in RAM.
+  Returns True if the file was modified.
+  The parameters control the quality and the conversion options.
+  SkipExistingWebP: if True, pages already in .webp format are left
+  intact; if False they are decoded and re-encoded at the chosen quality.
+  AOnProgress (reserved): no longer called internally; progress is
+  reported by the caller (TConvertService.Convert) at file level. }
 function ConvertCBZToWebP(const FileName: string; Quality: integer;
   ReplaceOnlyIfSmaller, SkipExistingWebP, RemoveComicInfo, RenumberPages: boolean;
   out NewEntryCount: integer; out AConvertedCount: integer;
@@ -214,7 +219,7 @@ end;
 procedure TZipImageWalker.DoCreateStream(Sender: TObject; var AStream: TStream;
   AItem: TFullZipFileEntry);
 begin
-  { Fornendo noi lo stream, TUnZipper non crea alcun file di destinazione. }
+  { By providing the stream ourselves, TUnZipper creates no destination file. }
   AStream := TMemoryStream.Create;
 end;
 
@@ -252,7 +257,7 @@ var
   Ext: string;
   Idx: integer;
 begin
-  { Con OnCreateStream assegnato, liberare lo stream spetta a noi. }
+  { With OnCreateStream assigned, freeing the stream is up to us. }
   try
     if FCancel or AItem.IsDirectory then Exit;
     Ext := ExtractFileExt(AItem.ArchiveFileName);
@@ -261,7 +266,7 @@ begin
     AStream.Position := 0;
     Img := DecodeImage(TMemoryStream(AStream), Ext, FMaxW, FMaxH);
     if Img = nil then
-      Log('Zip: decodifica nulla per %s', [AItem.ArchiveFileName]);
+      Log('Zip: null decode for %s', [AItem.ArchiveFileName]);
     FCallback(AItem.ArchiveFileName, Img, SortedRank(FSortedNames,
       AItem.ArchiveFileName), FCancel);
     if FCancel then
@@ -430,7 +435,7 @@ var
 begin
   GetFirstImageInfo(FileName, Result, HasComicInfo, 0, 0);
   if Result = nil then
-    Log('GetFirstImage: nessuna immagine in %s', [ExtractFileName(FileName)])
+    Log('GetFirstImage: no image in %s', [ExtractFileName(FileName)])
   else
     Log('GetFirstImage: %s -> %dx%d',
       [ExtractFileName(FileName), Result.Width, Result.Height]);

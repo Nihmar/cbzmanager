@@ -1,22 +1,22 @@
 unit uLog;
 
 {
-  uLog — Logger minimale thread-safe su file.
+  uLog — Minimal thread-safe file logger.
   ---------------------------------------------------------------------------
-  Scrive messaggi con timestamp e thread-id nel file "cbzmanager.log",
-  creato accanto all'eseguibile (o nella directory temporanea di sistema
-  se quella dell'exe non è scrivibile).
+  Writes timestamped, thread-id annotated messages to the "cbzmanager.log"
+  file, created next to the executable (or in the system temp directory if
+  the executable's folder is not writable).
 
-  Il file viene troncato ad ogni avvio dell'applicazione.
-  Lo stream resta aperto per tutta la sessione: una riga scritta è una riga
-  che l'applicazione ha davvero raggiunto. Le scritture non sono bufferizzate
-  in spazio utente, quindi il log sopravvive anche a un crash del processo.
+  The file is truncated at every application start.
+  The stream stays open for the whole session: a written line is a line the
+  application really reached. Writes are not buffered in user space, so the
+  log survives even a process crash.
 
-  Tutte le scritture sono serializzate da una critical section: il logging
-  è safe da qualsiasi thread senza rischio di deadlock.
+  All writes are serialized by a critical section: logging is safe from any
+  thread with no deadlock risk.
 
-  Il modulo non genera mai eccezioni verso il chiamante: se la scrittura
-  fallisce l'errore viene silenziosamente ignorato.
+  The module never raises exceptions towards the caller: if a write fails
+  the error is silently ignored.
 }
 
 {$mode ObjFPC}{$H+}
@@ -28,15 +28,16 @@ type
     thread inside the critical section — keep it fast (e.g. TThread.Queue). }
   TLogObserver = procedure(const AMsg: string) of object;
 
-{ Percorso del file di log effettivamente usato. }
+{ Path of the log file actually in use. }
 function LogFileName: string;
 
-{ Registra / rimuovi un observer che riceve ogni messaggio di log.
-  Solo un observer alla volta — registrazioni successive sovrascrivono. }
+{
+  Registers / removes an observer that receives every log message.
+  Only one observer at a time — later registrations overwrite. }
 procedure RegisterLogObserver(AObserver: TLogObserver);
 procedure UnregisterLogObserver;
 
-{ Scrive una riga con timestamp e id del thread chiamante. }
+{ Writes a line with the timestamp and the calling thread id. }
 procedure Log(const Msg: string);
 procedure Log(const Fmt: string; const Args: array of const);
 
@@ -46,20 +47,21 @@ uses
   Classes, SysUtils;
 
 var
-  { Mutex condiviso: serializza InitLog e tutte le scritture. }
+  { Shared mutex: serializes InitLog and all writes. }
   LogLock: TRTLCriticalSection;
-  { Stream aperto per tutta la sessione; nil se non inizializzato o fallito. }
+  { Stream kept open for the whole session; nil if not initialized or failed. }
   LogStream: TFileStream = nil;
-  { Percorso effettivo del file di log (può essere nella temp). }
+  { Actual log file path (may be in the temp dir). }
   LogPath: string = '';
-  { Diventa True dopo il primo tentativo di apertura, anche se fallito. }
+  { Becomes True after the first open attempt, even if it failed. }
   LogReady: boolean = False;
-  { Observer registrato (nil = nessuno).  Chiamato dentro LogLock. }
+  { Registered observer (nil = none).  Called inside LogLock. }
   LogObserver: TLogObserver = nil;
 
-{ Tenta di creare/azzerare il file di log in APath.
-  Restituisce True e imposta LogStream + LogPath in caso di successo;
-  False (con LogStream = nil) altrimenti. Non solleva eccezioni. }
+{
+  Attempts to create/truncate the log file at APath.
+  Returns True and sets LogStream + LogPath on success;
+  False (with LogStream = nil) otherwise. Never raises. }
 function TryOpen(const APath: string): boolean;
 begin
   Result := False;
@@ -72,20 +74,22 @@ begin
   end;
 end;
 
-{ Inizializzazione lazy e thread-safe del logger.
-  Chiamata internamente da ogni funzione pubblica; idempotente.
-  PRE: il chiamante deve aver già acquisito LogLock. }
+{
+  Lazy, thread-safe initialization of the logger.
+  Called internally by every public function; idempotent.
+  PRE: the caller must already hold LogLock. }
 procedure InitLog;
 begin
   if LogReady then Exit;
   LogReady := True;
   if TryOpen(ExtractFilePath(ParamStr(0)) + 'cbzmanager.log') then Exit;
-  { cartella dell'exe non scrivibile: ripiega sulla temp }
+  { executable folder not writable: fall back to the temp dir }
   TryOpen(GetTempDir + 'cbzmanager.log');
 end;
 
-{ Restituisce il percorso del file di log effettivamente in uso,
-  oppure stringa vuota se l'apertura non è riuscita. }
+{
+  Returns the path of the log file actually in use,
+  or an empty string if it could not be opened. }
 function LogFileName: string;
 begin
   EnterCriticalSection(LogLock);
@@ -97,8 +101,9 @@ begin
   end;
 end;
 
-{ Registra un observer che riceverà ogni messaggio di log (incluso timestamp).
-  La callback è invocata dentro LogLock — deve essere veloce. }
+{
+  Registers an observer that will receive every log message (timestamp
+  included). The callback is invoked inside LogLock — it must be fast. }
 procedure RegisterLogObserver(AObserver: TLogObserver);
 begin
   EnterCriticalSection(LogLock);
@@ -109,7 +114,7 @@ begin
   end;
 end;
 
-{ Rimuove l'observer registrato.  Thread-safe e idempotente. }
+{ Removes the registered observer.  Thread-safe and idempotent. }
 procedure UnregisterLogObserver;
 begin
   EnterCriticalSection(LogLock);
@@ -120,8 +125,9 @@ begin
   end;
 end;
 
-{ Scrive Msg nel log preceduto da timestamp e thread-id.
-  Thread-safe; se il log non è disponibile ritorna silenziosamente. }
+{
+  Writes Msg to the log preceded by timestamp and thread-id.
+  Thread-safe; returns silently if the log is unavailable. }
 procedure Log(const Msg: string);
 var
   Line: rawbytestring;
@@ -145,7 +151,7 @@ begin
     try
       LogStream.WriteBuffer(Line[1], Length(Line));
     except
-      { il logging non deve mai far fallire il chiamante }
+      { logging must never make the caller fail }
     end;
     if Assigned(Obs) then
       Obs(string(Line));
@@ -154,8 +160,9 @@ begin
   end;
 end;
 
-{ Formatta Fmt con Args tramite Format() e scrive il risultato nel log.
-  Se la formattazione fallisce (es. placeholder errati), scrive Fmt tal quale. }
+{
+  Formats Fmt with Args via Format() and writes the result to the log.
+  If formatting fails (e.g. wrong placeholders), writes Fmt as-is. }
 procedure Log(const Fmt: string; const Args: array of const);
 begin
   try

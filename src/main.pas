@@ -309,6 +309,9 @@ type
     FRenumber: boolean;
     FPageFile: string;  // currently open CBZ file path
     FJobMonitor: TfrmJobMonitor;  // non-modal job progress window
+    { Shift+click anchors for Explorer-style multi-select (item index, -1 = none). }
+    FAnchorFiles: integer;
+    FAnchorPages: integer;
     procedure ThreadTerminated(Sender: TObject);
     procedure PagesThreadTerminated(Sender: TObject);
     procedure ClearThumbnails;
@@ -341,6 +344,12 @@ type
     procedure ClearPreview;
     procedure HidePreview;
     procedure RenderPages;
+    { Store the shift+click anchor for the given list (-1 = none). }
+    procedure SetAnchor(ALV: TListView; AIndex: integer);
+    { Explorer/Dolphin shift+click: select the item range between the anchor
+      and AIt (inclusive, additive).  A stale anchor is replaced by AIt. }
+    procedure ApplyShiftSelection(ALV: TListView; var AAnchor: integer;
+      AIt: TListItem);
     procedure SetupLVFiles;
     procedure SetupILFilesFirstPages;
     procedure SetupILPages;
@@ -421,6 +430,8 @@ begin
   Caption := 'CBZ Manager';
   FFirstPages := TLazIntfImageList.Create(True);
   FPagePreviews := TLazIntfImageList.Create(True);
+  FAnchorFiles := -1;
+  FAnchorPages := -1;
   SetupILFilesFirstPages;
   SetupILPages;
   SetupLVFiles;
@@ -651,6 +662,7 @@ begin
   LVPages.BeginUpdate;
   try
     LVPages.Items.Clear;
+    FAnchorPages := -1;
     LVPages.LargeImages := nil;
     ILPages.Clear;
     Sz := Max(THUMB_RENDER_FLOOR, ZoomScroll.Position);
@@ -849,6 +861,7 @@ procedure TfrmMain.ClearThumbnails;
 begin
   FreeLoadThread;
   LVFiles.Clear;
+  FAnchorFiles := -1;
   ILFilesFirstPages.Clear;
   FFirstPages.Clear;
 end;
@@ -912,6 +925,7 @@ begin
   FPageFile := '';
   PanelStageBar.Visible := False;
   LVPages.Clear;
+  FAnchorPages := -1;
   ILPages.Clear;
   FPagePreviews.Clear;
   LblPreviewFile.Caption := ' ';
@@ -1001,33 +1015,107 @@ begin
 end;
 
 {
+  SetAnchor / ApplyShiftSelection
+  --------------------------------
+  Helpers for LVFilesMouseDown.  SetAnchor stores the shift+click anchor
+  (item index, -1 = none) for the given list.  ApplyShiftSelection implements
+  Explorer/Dolphin shift+click: the items between the anchor and the clicked
+  item (inclusive) are selected additively, keeping any selection outside the
+  range untouched.  A stale anchor (list reloaded/rebuild, item gone) falls
+  back to the clicked item.
+
+  Rationale: the LCL Qt6 widgetset computes the shift+click range from visual
+  rows (QListWidget_row), which is wrong for icon views where several items
+  share a row, so we compute the range ourselves in OnMouseDown.  The
+  widgetset then sees the clicked item already selected and leaves it alone.
+}
+procedure TfrmMain.SetAnchor(ALV: TListView; AIndex: integer);
+begin
+  if ALV = LVFiles then
+    FAnchorFiles := AIndex
+  else
+    FAnchorPages := AIndex;
+end;
+
+procedure TfrmMain.ApplyShiftSelection(ALV: TListView; var AAnchor: integer;
+  AIt: TListItem);
+var
+  i: integer;
+begin
+  if (AAnchor < 0) or (AAnchor >= ALV.Items.Count) then
+    AAnchor := AIt.Index;
+  for i := Min(AAnchor, AIt.Index) to Max(AAnchor, AIt.Index) do
+    ALV.Items[i].Selected := True;
+end;
+
+{
   LVFilesMouseDown
   ----------------
-  Ensures the right-clicked item is selected before the popup menu appears.
-  With ReadOnly=True the first left click may only focus the control without
-  selecting an item, so we force selection on left-click as well (unless
-  Ctrl/Shift are held for multi-select).
+  Implements Explorer/Dolphin selection semantics for both thumbnail lists
+  (shared handler wired to LVFiles and LVPages):
+
+  - Left click       : replace selection with the clicked item.
+  - Ctrl+left click  : toggle the clicked item (native widgetset handling),
+                       which also becomes the new shift+click anchor.
+  - Shift+left click : select the anchor..clicked range additively (see
+                       ApplyShiftSelection).
+  - Left click on empty space : clear the anchor; the widgetset clears the
+                       selection itself.
+  - Right click      : select the clicked item only if it is not selected yet
+                       (the popup menu then acts on the right-clicked item).
+
+  On Qt6, the native selection logic runs after this handler and re-checks the
+  clicked item's selected state, so pre-selecting the range for shift+click
+  makes it a no-op; plain clicks still rely on the forced selection below
+  because the first click on a freshly loaded, unfocused list may only give
+  focus without selecting.
 }
 procedure TfrmMain.LVFilesMouseDown(Sender: TObject; Button: TMouseButton;
   Shift: TShiftState; X, Y: integer);
 var
+  ALV: TListView;
   It: TListItem;
 begin
-  It := LVFiles.GetItemAt(X, Y);
-  if It = nil then Exit;
+  ALV := TListView(Sender);
+  It := ALV.GetItemAt(X, Y);
 
   if Button = mbRight then
   begin
     { il tasto destro non sposta la selezione da solo: il menu deve pero'
       agire sulla voce effettivamente cliccata }
-    if not It.Selected then
-      LVFiles.Selected := It;
+    if (It <> nil) and not It.Selected then
+      ALV.Selected := It;
+    Exit;
+  end;
+
+  if Button <> mbLeft then Exit;
+
+  if It = nil then
+  begin
+    { Click on empty space: drop the anchor; the widgetset clears the
+      selection itself. }
+    SetAnchor(ALV, -1);
+    Exit;
+  end;
+
+  if ssShift in Shift then
+  begin
+    if ALV = LVFiles then
+      ApplyShiftSelection(ALV, FAnchorFiles, It)
+    else
+      ApplyShiftSelection(ALV, FAnchorPages, It);
   end
-  else if (Button = mbLeft) and not (ssCtrl in Shift) and not (ssShift in Shift) then
+  else if ssCtrl in Shift then
+  begin
+    { The widgetset toggles the clicked item; only move the anchor. }
+    SetAnchor(ALV, It.Index);
+  end
+  else
   begin
     { With ReadOnly=True the first click may only give focus without selecting;
       force selection so DblClick sees LVFiles.Selected. }
-    LVFiles.Selected := It;
+    ALV.Selected := It;
+    SetAnchor(ALV, It.Index);
   end;
 end;
 

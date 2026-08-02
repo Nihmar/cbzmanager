@@ -314,6 +314,7 @@ type
     FAnchorPages: integer;
     procedure ThreadTerminated(Sender: TObject);
     procedure PagesThreadTerminated(Sender: TObject);
+    procedure LoadBatchAdded(Sender: TObject);
     procedure ClearThumbnails;
     procedure FreeLoadThread;
     procedure FreePagesThread;
@@ -2306,12 +2307,31 @@ begin
   SetFolderOpsEnabled(False);
   FLoadThread := TLoadThread.Create(ADir);
   FLoadThread.OnTerminate := @ThreadTerminated;
+  FLoadThread.OnBatchAdded := @LoadBatchAdded;
   FLoadThread.ListView := LVFiles;
   FLoadThread.Images := ILFilesFirstPages;
   FLoadThread.Pages := FFirstPages;
   FLoadThread.FreeOnTerminate := True;
   FLoadThread.Start;
   SetStatus(Format('Loading: %s', [ADir]));
+end;
+
+{
+  LoadBatchAdded
+  --------------
+  Fired on the main thread after each thumbnail batch is appended to
+  LVFiles: shows a live "Loading thumbnails x/y" progress in the status bar
+  so long directory loads feel responsive.  The final summary is printed by
+  ThreadTerminated.
+}
+procedure TfrmMain.LoadBatchAdded(Sender: TObject);
+var
+  Total: integer;
+begin
+  Total := 0;
+  if FLoadThread <> nil then
+    Total := FLoadThread.TotalFiles;
+  SetStatus(Format('Loading thumbnails %d/%d', [LVFiles.Items.Count, Total]));
 end;
 
 {

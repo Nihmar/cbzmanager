@@ -65,6 +65,14 @@ function ReaderClassForExt(const Ext: string): TFPCustomImageReaderClass;
 function StreamToIntfImage(Stream: TStream;
   ReaderClass: TFPCustomImageReaderClass): TLazIntfImage;
 
+{ Come sopra, ma chiede al reader di decodificare a risoluzione ridotta
+  quando il formato lo supporta (es. JPEG DCT scaling via MinWidth/MinHeight):
+  il risultato ha dimensioni minime pari circa a MaxW x MaxH. 0 = piena
+  risoluzione (comportamento predefinito). Per i formati senza downscale
+  dedicato il risultato e' a piena risoluzione. }
+function StreamToIntfImage(Stream: TStream;
+  ReaderClass: TFPCustomImageReaderClass; MaxW, MaxH: integer): TLazIntfImage;
+
 { Come sopra, leggendo da file. }
 function FileToIntfImage(const FileName: string;
   ReaderClass: TFPCustomImageReaderClass): TLazIntfImage;
@@ -239,50 +247,100 @@ const
   { Campioni per lato: tiene il costo entro 16 letture per pixel di
     destinazione, indipendentemente da quanto e' grande l'originale. }
   MaxSamples = 4;
-var
-  Desc: TRawImageDescription;
-  F: double;
-  DW, DH, x, y, ix, iy: integer;
-  sx0, sx1, sy0, sy1, StepX, StepY, N: integer;
-  R, G, B, A: cardinal;
-  C: TFPColor;
-begin
-  Result := nil;
-  if (Src = nil) or (Src.Width <= 0) or (Src.Height <= 0) then Exit;
-  if (MaxW <= 0) or (MaxH <= 0) then Exit;
 
-  { Fattore di scala: il più piccolo tra i due rapporti, ma mai > 1. }
-  F := Min(Min(MaxW / Src.Width, MaxH / Src.Height), 1.0);
-  DW := Max(1, Round(Src.Width * F));
-  DH := Max(1, Round(Src.Height * F));
+  { True se Img e' 32-bit BGRA a 8 bit per canale, little-endian
+    (B a byte 0, G a byte 1, R a byte 2, A a byte 3): il layout prodotto
+    da tutti i reader usati dall'app e da WebPToIntfImage. Su questi dati
+    il ridimensionamento puo' lavorare sui byte grezzi. }
+  function IsBGRA32(const Img: TLazIntfImage): boolean;
+  var
+    D: TRawImageDescription;
+  begin
+    D := Img.DataDescription;
+    Result := (D.BitsPerPixel = 32) and (D.RedPrec = 8) and (D.GreenPrec = 8) and
+      (D.BluePrec = 8) and (D.AlphaPrec = 8) and
+      (D.RedShift = 16) and (D.GreenShift = 8) and (D.BlueShift = 0) and
+      (D.AlphaShift = 24);
+  end;
 
-  { L'immagine scalata è sempre BGRA 32-bit, bottom-up. }
-  Desc.Init_BPP32_B8G8R8A8_BIO_TTB(DW, DH);
-  Result := TLazIntfImage.Create(0, 0);
-  try
-    Result.DataDescription := Desc;
-
-    { Per ogni pixel di destinazione, calcoliamo il rettangolo di pixel
-      sorgente che vi contribuiscono e ne facciamo la media.
-      Per evitare costi proibitivi su riduzioni estreme (es. 4000→100),
-      campioniamo al massimo MaxSamples pixel per asse. }
+  { Box filter su byte grezzi: identico algoritmo del percorso generico,
+    ma legge/scrive le scanline direttamente via GetDataLineStart invece
+    di passare dalla property Colors (virtuale, costo per-pixel alto). }
+  procedure ScaleBGRA32(Src, Dst: TLazIntfImage; DW, DH: integer);
+  var
+    x, y, ix, iy: integer;
+    sx0, sx1, sy0, sy1, StepX, StepY, N: integer;
+    SrcLine, DstLine, P: pbyte;
+    R, G, B, A: cardinal;
+  begin
     for y := 0 to DH - 1 do
     begin
-      { Intervallo [sy0, sy1) delle righe sorgente che mappano sulla riga y. }
       sy0 := (y * Src.Height) div DH;
       sy1 := ((y + 1) * Src.Height) div DH;
-      if sy1 <= sy0 then sy1 := sy0 + 1;  { almeno 1 riga }
+      if sy1 <= sy0 then sy1 := sy0 + 1;
       StepY := Max(1, (sy1 - sy0 + MaxSamples - 1) div MaxSamples);
-
+      DstLine := Dst.GetDataLineStart(y);
       for x := 0 to DW - 1 do
       begin
-        { Intervallo [sx0, sx1) delle colonne sorgente che mappano sul pixel x. }
         sx0 := (x * Src.Width) div DW;
         sx1 := ((x + 1) * Src.Width) div DW;
-        if sx1 <= sx0 then sx1 := sx0 + 1;  { almeno 1 colonna }
+        if sx1 <= sx0 then sx1 := sx0 + 1;
         StepX := Max(1, (sx1 - sx0 + MaxSamples - 1) div MaxSamples);
+        R := 0;
+        G := 0;
+        B := 0;
+        A := 0;
+        N := 0;
+        iy := sy0;
+        while iy < sy1 do
+        begin
+          SrcLine := Src.GetDataLineStart(iy);
+          ix := sx0;
+          while ix < sx1 do
+          begin
+            { Gli indici restano entro i bordi per costruzione: sx1 <= W e
+              sy1 <= H (vedi commento nel percorso generico). }
+            P := SrcLine + PtrUInt(ix) * 4;
+            Inc(B, P[0]);
+            Inc(G, P[1]);
+            Inc(R, P[2]);
+            Inc(A, P[3]);
+            Inc(N);
+            Inc(ix, StepX);
+          end;
+          Inc(iy, StepY);
+        end;
+        if N = 0 then Continue;
+        P := DstLine + PtrUInt(x) * 4;
+        P[0] := B div N;
+        P[1] := G div N;
+        P[2] := R div N;
+        P[3] := A div N;
+      end;
+    end;
+  end;
 
-        { Somma i canali dei pixel campionati. }
+  { Percorso generico: property Colors, adatto a qualsiasi formato di
+    pixel (JPEG in scala di grigi, PNG palettizzati, ecc.). }
+  procedure ScaleGeneric(Src, Dst: TLazIntfImage; DW, DH: integer);
+  var
+    x, y, ix, iy: integer;
+    sx0, sx1, sy0, sy1, StepX, StepY, N: integer;
+    R, G, B, A: cardinal;
+    C: TFPColor;
+  begin
+    for y := 0 to DH - 1 do
+    begin
+      sy0 := (y * Src.Height) div DH;
+      sy1 := ((y + 1) * Src.Height) div DH;
+      if sy1 <= sy0 then sy1 := sy0 + 1;
+      StepY := Max(1, (sy1 - sy0 + MaxSamples - 1) div MaxSamples);
+      for x := 0 to DW - 1 do
+      begin
+        sx0 := (x * Src.Width) div DW;
+        sx1 := ((x + 1) * Src.Width) div DW;
+        if sx1 <= sx0 then sx1 := sx0 + 1;
+        StepX := Max(1, (sx1 - sx0 + MaxSamples - 1) div MaxSamples);
         R := 0;
         G := 0;
         B := 0;
@@ -304,20 +362,43 @@ begin
             Inc(B, C.Blue);
             Inc(A, C.Alpha);
             Inc(N);
-            Inc(ix, StepX);  { salta pixel intermedi per restare nel budget }
+            Inc(ix, StepX);
           end;
           Inc(iy, StepY);
         end;
         if N = 0 then Continue;
-
-        { Media aritmetica dei campioni raccolti. }
         C.Red := R div N;
         C.Green := G div N;
         C.Blue := B div N;
         C.Alpha := A div N;
-        Result.Colors[Min(x, DW - 1), Min(y, DH - 1)] := C;
+        Dst.Colors[Min(x, DW - 1), Min(y, DH - 1)] := C;
       end;
     end;
+  end;
+
+var
+  Desc: TRawImageDescription;
+  F: double;
+  DW, DH: integer;
+begin
+  Result := nil;
+  if (Src = nil) or (Src.Width <= 0) or (Src.Height <= 0) then Exit;
+  if (MaxW <= 0) or (MaxH <= 0) then Exit;
+
+  { Fattore di scala: il più piccolo tra i due rapporti, ma mai > 1. }
+  F := Min(Min(MaxW / Src.Width, MaxH / Src.Height), 1.0);
+  DW := Max(1, Round(Src.Width * F));
+  DH := Max(1, Round(Src.Height * F));
+
+  { L'immagine scalata è sempre BGRA 32-bit, top-to-bottom. }
+  Desc.Init_BPP32_B8G8R8A8_BIO_TTB(DW, DH);
+  Result := TLazIntfImage.Create(0, 0);
+  try
+    Result.DataDescription := Desc;
+    if IsBGRA32(Src) then
+      ScaleBGRA32(Src, Result, DW, DH)
+    else
+      ScaleGeneric(Src, Result, DW, DH);
   except
     FreeAndNil(Result);
   end;
@@ -353,6 +434,17 @@ end;
   Solo memoria: invocabile da thread secondari. }
 function StreamToIntfImage(Stream: TStream;
   ReaderClass: TFPCustomImageReaderClass): TLazIntfImage;
+begin
+  Result := StreamToIntfImage(Stream, ReaderClass, 0, 0);
+end;
+
+{ Come StreamToIntfImage, ma con downscale dedicato quando disponibile.
+  TFPReaderJPEG espone MinWidth/MinHeight: impostandoli prima del Load, il
+  decoder JPEG applica il DCT scaling (half/quarter/eighth) e produce
+  direttamente un'immagine ridotta — molto piu' veloce di una decodifica a
+  piena risoluzione seguita da ScaleIntfImage. }
+function StreamToIntfImage(Stream: TStream;
+  ReaderClass: TFPCustomImageReaderClass; MaxW, MaxH: integer): TLazIntfImage;
 var
   Reader: TFPCustomImageReader;
   Desc: TRawImageDescription;
@@ -362,6 +454,11 @@ begin
 
   Reader := ReaderClass.Create;
   try
+    if (MaxW > 0) and (MaxH > 0) and (Reader is TFPReaderJPEG) then
+    begin
+      TFPReaderJPEG(Reader).MinWidth := MaxW;
+      TFPReaderJPEG(Reader).MinHeight := MaxH;
+    end;
     { Idioma canonico LCL: si crea una TLazIntfImage vuota e le si assegna
       la DataDescription; LoadFromStream alloca e popola il buffer raw.
       Init_BPP32_B8G8R8A8_BIO_TTB forza l'output a 32-bit BGRA bottom-up. }

@@ -19,18 +19,35 @@ uses
   uservicebase;
 
 type
+  { Callback invoked for every image entry of a CBZ.
+    AIndex is the entry's rank when all image entries are sorted by name
+    (CompareStr, matching the Python reference's sorted(namelist())); -1
+    when the order is unknown. }
   TImageEntryProc = procedure(const AName: string; AImage: TLazIntfImage;
-    var ACancel: boolean) of object;
+    AIndex: integer; var ACancel: boolean) of object;
 
 { Prima pagina del CBZ come TLazIntfImage (sola memoria, nessuna GDI):
   invocabile da thread secondari. nil se il file non contiene immagini
   leggibili. Il chiamante e' proprietario dell'oggetto restituito. }
 function GetFirstImageAsIntfImage(const FileName: string): TLazIntfImage;
 
+{ Come GetFirstImageAsIntfImage, ma in un'unica passata sul file: restituisce
+  anche se il CBZ contiene ComicInfo.xml (per il badge delle thumbnail) e
+  decodifica a risoluzione ridotta quando AMaxW/AMaxH > 0 (JPEG DCT scaling).
+  La pagina scelta e' la prima in ordine alfabetico di nome (come la pagina
+  0 del visualizzatore), non la prima voce dell'archivio. True se
+  l'immagine e' stata decodificata. }
+function GetFirstImageInfo(const FileName: string; out AImage: TLazIntfImage;
+  out AHasComicInfo: boolean; AMaxW, AMaxH: integer): boolean;
+
 { Scandisce l'archivio decodificando una pagina alla volta e passandola ad
   ACallback: in memoria resta al piu' una pagina per volta. Invocabile da
-  thread secondari. }
-procedure ForEachImage(const FileName: string; ACallback: TImageEntryProc);
+  thread secondari. Quando AMaxW/AMaxH > 0 le pagine JPEG vengono decodificate
+  a risoluzione ridotta (vedi StreamToIntfImage).  Le pagine vengono passate
+  in ordine di archivio, ma ACallback riceve in AIndex la posizione che la
+  pagina occupa nell'ordinamento alfabetico dei nomi. }
+procedure ForEachImage(const FileName: string; ACallback: TImageEntryProc;
+  AMaxW: integer = 0; AMaxH: integer = 0);
 
 { Returns the number of image entries found in a CBZ archive.
   Directories and non-image files (e.g. ComicInfo.xml) are not counted.
@@ -105,13 +122,19 @@ type
   { TZipImageWalker – streams a CBZ entry by entry through a callback.
   OnCreateStream / OnDoneStream redirect TUnZipper output into memory
   streams.  Each image entry is decoded and handed to FCallback; the
-  stream is freed immediately afterwards.  No temporary files are used. }
+  stream is freed immediately afterwards.  No temporary files are used.
+  The archive is scanned once (central directory) so each image entry's
+  alphabetical rank can be passed to the callback. }
 
   TZipImageWalker = class
   private
     FCallback: TImageEntryProc;
     FZip: TUnZipper;
     FCancel: boolean;
+    FMaxW: integer;
+    FMaxH: integer;
+    { Image entry names sorted with CompareStr; FSortedNames[i] has rank i. }
+    FSortedNames: TStringList;
     { Allocates a TMemoryStream to receive the decompressed entry data. }
     procedure DoCreateStream(Sender: TObject; var AStream: TStream;
       AItem: TFullZipFileEntry);
@@ -123,19 +146,30 @@ type
   public
     { Runs the full extraction/decoding loop for FileName, calling
       ACallback for every image entry found. }
-    procedure Run(const FileName: string; ACallback: TImageEntryProc);
+    procedure Run(const FileName: string; ACallback: TImageEntryProc;
+      AMaxW: integer = 0; AMaxH: integer = 0);
   end;
 
-  { TFirstImageGrabber – keeps only the first successfully decoded image
-    and immediately cancels further scanning.  Any subsequent images
-    passed to Grab are freed on the spot. }
+  { TFirstImageGrabber – keeps only the first successfully decoded image,
+    frees any others, and flags ComicInfo presence.  Used with a single-entry
+    extraction pass so only the first image entry is decompressed. }
 
   TFirstImageGrabber = class
   private
     FImage: TLazIntfImage;
+    FMaxW: integer;
+    FMaxH: integer;
     { Saves the first non-nil image and signals cancellation. }
     procedure Grab(const AName: string; AImage: TLazIntfImage;
-      var ACancel: boolean);
+      AIndex: integer; var ACancel: boolean);
+    { Allocates a TMemoryStream to receive the decompressed entry data. }
+    procedure DoCreateStream(Sender: TObject; var AStream: TStream;
+      AItem: TFullZipFileEntry);
+    { Decodes the just-decompressed entry into Grab.  Frees the stream. }
+    procedure DoDoneStream(Sender: TObject; var AStream: TStream;
+      AItem: TFullZipFileEntry);
+  public
+    constructor Create(AMaxW, AMaxH: integer);
   end;
 
 { Decodes raw image bytes held in a TMemoryStream into a TLazIntfImage.
@@ -143,9 +177,12 @@ type
     Stream – the uncompressed image data positioned at offset 0.
     Ext    – lowercased extension (e.g. '.webp', '.jpg') used to select
              the correct decoder class.
+    MaxW/MaxH – when both > 0, JPEG entries are decoded at reduced
+             resolution (DCT scaling, see StreamToIntfImage). 0 = full size.
   Returns a new TLazIntfImage (caller owns it) or nil on failure.
   Exceptions during decoding are caught and logged; nil is returned. }
-function DecodeImage(Stream: TMemoryStream; const Ext: string): TLazIntfImage;
+function DecodeImage(Stream: TMemoryStream; const Ext: string;
+  MaxW: integer = 0; MaxH: integer = 0): TLazIntfImage;
 var
   FmtExt: string;
 begin
@@ -161,7 +198,7 @@ begin
     if SameText(FmtExt, EXT_WEBP) then
       Result := WebPToIntfImage(Stream.Memory, Stream.Size)
     else
-      Result := StreamToIntfImage(Stream, ReaderClassForExt(FmtExt));
+      Result := StreamToIntfImage(Stream, ReaderClassForExt(FmtExt), MaxW, MaxH);
   except
     on E: Exception do
     begin
@@ -181,11 +218,39 @@ begin
   AStream := TMemoryStream.Create;
 end;
 
+{ Binary search for S in a CompareStr-sorted list.  Returns the rank or -1. }
+function SortedRank(List: TStringList; const S: string): integer;
+var
+  L, R, M, C: integer;
+begin
+  L := 0;
+  R := List.Count - 1;
+  while L <= R do
+  begin
+    M := (L + R) div 2;
+    C := CompareStr(S, List[M]);
+    if C = 0 then Exit(M);
+    if C > 0 then
+      L := M + 1
+    else
+      R := M - 1;
+  end;
+  Result := -1;
+end;
+
+{ Compare two list entries byte-wise (Python sorted() order), independent of
+  the locale collation used by TStringList.Sort. }
+function CompareNames(List: TStringList; Index1, Index2: integer): integer;
+begin
+  Result := CompareStr(List[Index1], List[Index2]);
+end;
+
 procedure TZipImageWalker.DoDoneStream(Sender: TObject; var AStream: TStream;
   AItem: TFullZipFileEntry);
 var
   Img: TLazIntfImage;
   Ext: string;
+  Idx: integer;
 begin
   { Con OnCreateStream assegnato, liberare lo stream spetta a noi. }
   try
@@ -194,10 +259,11 @@ begin
     if not IsImageExt(Ext) then Exit;
 
     AStream.Position := 0;
-    Img := DecodeImage(TMemoryStream(AStream), Ext);
+    Img := DecodeImage(TMemoryStream(AStream), Ext, FMaxW, FMaxH);
     if Img = nil then
       Log('Zip: decodifica nulla per %s', [AItem.ArchiveFileName]);
-    FCallback(AItem.ArchiveFileName, Img, FCancel);
+    FCallback(AItem.ArchiveFileName, Img, SortedRank(FSortedNames,
+      AItem.ArchiveFileName), FCancel);
     if FCancel then
       FZip.Terminate;
   finally
@@ -206,24 +272,75 @@ begin
   end;
 end;
 
-procedure TZipImageWalker.Run(const FileName: string; ACallback: TImageEntryProc);
+procedure TZipImageWalker.Run(const FileName: string; ACallback: TImageEntryProc;
+  AMaxW: integer; AMaxH: integer);
+var
+  i: integer;
 begin
   FCallback := ACallback;
   FCancel := False;
+  FMaxW := AMaxW;
+  FMaxH := AMaxH;
   FZip := TUnZipper.Create;
+  FSortedNames := TStringList.Create;
   try
     FZip.OnCreateStream := @DoCreateStream;
     FZip.OnDoneStream := @DoDoneStream;
-    FZip.UnZipAllFiles(FileName);
+    FZip.FileName := FileName;
+    { Read the central directory once and collect the image entry names so
+      every page can be tagged with its alphabetical rank.  Extraction then
+      stays a single decompression pass in archive order; consumers use the
+      rank to display pages in sorted order (Python reference semantics). }
+    FZip.Examine;
+    for i := 0 to FZip.Entries.Count - 1 do
+      if not FZip.Entries[i].IsDirectory and
+        IsImageExt(ExtractFileExt(FZip.Entries[i].ArchiveFileName)) then
+        FSortedNames.Add(FZip.Entries[i].ArchiveFileName);
+    FSortedNames.CustomSort(@CompareNames);
+    FZip.UnZipAllFiles;
   finally
+    FSortedNames.Free;
     FreeAndNil(FZip);
   end;
 end;
 
 { TFirstImageGrabber }
 
+constructor TFirstImageGrabber.Create(AMaxW, AMaxH: integer);
+begin
+  FMaxW := AMaxW;
+  FMaxH := AMaxH;
+end;
+
+procedure TFirstImageGrabber.DoCreateStream(Sender: TObject; var AStream: TStream;
+  AItem: TFullZipFileEntry);
+begin
+  AStream := TMemoryStream.Create;
+end;
+
+procedure TFirstImageGrabber.DoDoneStream(Sender: TObject; var AStream: TStream;
+  AItem: TFullZipFileEntry);
+var
+  Img: TLazIntfImage;
+  Ext: string;
+  Cancel: boolean;
+begin
+  try
+    if AItem.IsDirectory then Exit;
+    Ext := ExtractFileExt(AItem.ArchiveFileName);
+    if not IsImageExt(Ext) then Exit;
+    AStream.Position := 0;
+    Img := DecodeImage(TMemoryStream(AStream), Ext, FMaxW, FMaxH);
+    Cancel := False;
+    Grab(AItem.ArchiveFileName, Img, -1, Cancel);
+  finally
+    AStream.Free;
+    AStream := nil;
+  end;
+end;
+
 procedure TFirstImageGrabber.Grab(const AName: string; AImage: TLazIntfImage;
-  var ACancel: boolean);
+  AIndex: integer; var ACancel: boolean);
 begin
   if FImage = nil then
     FImage := AImage
@@ -232,29 +349,86 @@ begin
   ACancel := True;
 end;
 
-procedure ForEachImage(const FileName: string; ACallback: TImageEntryProc);
+procedure ForEachImage(const FileName: string; ACallback: TImageEntryProc;
+  AMaxW: integer; AMaxH: integer);
 var
   Walker: TZipImageWalker;
 begin
   Walker := TZipImageWalker.Create;
   try
-    Walker.Run(FileName, ACallback);
+    Walker.Run(FileName, ACallback, AMaxW, AMaxH);
   finally
     Walker.Free;
   end;
 end;
 
-function GetFirstImageAsIntfImage(const FileName: string): TLazIntfImage;
+{ Single ZIP pass: reads the central directory once, scans it for
+  ComicInfo.xml and the first image entry by alphabetical name order, then
+  decompresses only that one entry.  Saves a second file open +
+  central-directory parse per thumbnail compared to
+  GetFirstImageAsIntfImage + HasComicInfoFast. }
+function GetFirstImageInfo(const FileName: string; out AImage: TLazIntfImage;
+  out AHasComicInfo: boolean; AMaxW, AMaxH: integer): boolean;
 var
+  UnZipper: TUnZipper;
   Grabber: TFirstImageGrabber;
+  Files: TStringList;
+  i, FirstIdx: integer;
+  FirstName: string;
 begin
-  Grabber := TFirstImageGrabber.Create;
+  AImage := nil;
+  AHasComicInfo := False;
+  Result := False;
+  Grabber := TFirstImageGrabber.Create(AMaxW, AMaxH);
+  UnZipper := TUnZipper.Create;
+  Files := TStringList.Create;
   try
-    ForEachImage(FileName, @Grabber.Grab);
-    Result := Grabber.FImage;
+    UnZipper.OnCreateStream := @Grabber.DoCreateStream;
+    UnZipper.OnDoneStream := @Grabber.DoDoneStream;
+    UnZipper.FileName := FileName;
+    UnZipper.Examine;
+    { The thumbnail must match page 0 of the preview (sorted entry names):
+      some archives store pages in a scrambled order. }
+    FirstIdx := -1;
+    FirstName := '';
+    for i := 0 to UnZipper.Entries.Count - 1 do
+    begin
+      if UnZipper.Entries[i].IsDirectory then Continue;
+      if SameText(UnZipper.Entries[i].ArchiveFileName, COMICINFO_XML) then
+      begin
+        AHasComicInfo := True;
+        Continue;
+      end;
+      if IsImageExt(ExtractFileExt(UnZipper.Entries[i].ArchiveFileName)) and
+        ((FirstIdx < 0) or
+        (CompareStr(UnZipper.Entries[i].ArchiveFileName, FirstName) < 0)) then
+      begin
+        FirstIdx := i;
+        FirstName := UnZipper.Entries[i].ArchiveFileName;
+      end;
+    end;
+    if FirstIdx >= 0 then
+    begin
+      { UnZipFiles extracts only the entries whose ArchiveFileName is in
+        the list — one entry, one decompression pass. }
+      Files.Add(UnZipper.Entries[FirstIdx].ArchiveFileName);
+      UnZipper.UnZipFiles(Files);
+      AImage := Grabber.FImage;
+      Grabber.FImage := nil;
+      Result := AImage <> nil;
+    end;
   finally
+    Files.Free;
+    UnZipper.Free;
     Grabber.Free;
   end;
+end;
+
+function GetFirstImageAsIntfImage(const FileName: string): TLazIntfImage;
+var
+  HasComicInfo: boolean;
+begin
+  GetFirstImageInfo(FileName, Result, HasComicInfo, 0, 0);
   if Result = nil then
     Log('GetFirstImage: nessuna immagine in %s', [ExtractFileName(FileName)])
   else
@@ -352,11 +526,11 @@ type
     { Appends a TImageCheck for AName to FResults, incrementing
       FValidCount when AImage is valid (non-nil). }
     procedure CheckImage(const AName: string; AImage: TLazIntfImage;
-      var ACancel: boolean);
+      AIndex: integer; var ACancel: boolean);
   end;
 
 procedure TImageValidator.CheckImage(const AName: string; AImage: TLazIntfImage;
-  var ACancel: boolean);
+  AIndex: integer; var ACancel: boolean);
 var
   n: integer;
 begin

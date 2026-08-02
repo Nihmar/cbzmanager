@@ -66,6 +66,11 @@ type
     Name: string;
     Image: TLazIntfImage;
     HasComicInfo: boolean;
+    { Sort position of this item in the destination list.  With multiple
+      concurrent workers items arrive out of order; SyncAddThumbs inserts
+      each item at this sorted position so the grid stays in order.
+      -1 = append at the end (sequential producers). }
+    Index: integer;
   end;
   TLoadedItems = array of TLoadedItem;
 
@@ -83,6 +88,7 @@ type
     FImages: TImageList;
     FListView: TListView;
     FPages: TLazIntfImageList;
+    FOnBatchAdded: TNotifyEvent;
     { Frees every image remaining in FBatch (the current accumulation
       buffer that hasn't been handed off yet).  Called from the
       finally block of Execute on abnormal termination. }
@@ -98,9 +104,11 @@ type
     { Eseguita nel thread secondario: produce le immagini chiamando Emit e
       deve rientrare non appena Terminated diventa True. }
     procedure Produce; virtual; abstract;
-    { Accoda un'immagine (anche nil) al lotto corrente; ne cede la proprieta'. }
+    { Accoda un'immagine (anche nil) al lotto corrente; ne cede la proprieta'.
+      AIndex is the item's sorted position in the destination list
+      (-1 = append at the end, for sequential producers). }
     procedure Emit(const AName: string; AImage: TLazIntfImage;
-      AHasComicInfo: boolean = False);
+      AHasComicInfo: boolean = False; AIndex: integer = -1);
     { Flushes the accumulated batch to the main thread immediately.
       Normally called automatically once BatchSize images have been
       emitted; also called at the end of Produce to flush any
@@ -112,19 +120,58 @@ type
     property ListView: TListView read FListView write FListView;
     property Pages: TLazIntfImageList read FPages write FPages;
     property Images: TImageList read FImages write FImages;
+    { Fired on the main thread after each batch has been appended to the
+      ListView.  Used for load-progress status updates. }
+    property OnBatchAdded: TNotifyEvent read FOnBatchAdded write FOnBatchAdded;
   end;
 
-  { TLoadThread: prime pagine di tutti i .cbz di una cartella }
+  { TLoadThread: coordinatore che carica le prime pagine di tutti i .cbz di
+    una cartella usando N worker concorrenti (N = min(4, CPU)).  I worker
+    pubblicano le thumbnail direttamente (batches via Queue); il coordinatore
+    resta in vita finche' l'ultimo worker non ha finito, poi OnTerminate
+    informa la UI. La terminazione del coordinatore viene propagata ai
+    worker. }
+
+  TLoadThread = class;  { forward — referenced by TLoadWorker }
+
+  { TLoadWorker: single worker of the TLoadThread pool.  Pulls file names
+    from the shared job cursor until the pool is exhausted or the pool is
+    terminated.  Each worker keeps its own batch machinery, so multiple
+    workers can queue batches to the main thread concurrently. }
+
+  TLoadWorker = class(TThumbThread)
+  private
+    FPool: TLoadThread;
+  protected
+    procedure Produce; override;
+    procedure Execute; override;
+  public
+    constructor Create(APool: TLoadThread);
+    { No-op drained on the main thread to flush the worker's queued batches
+      before it frees itself (see Execute). }
+    procedure Drained;
+  end;
 
   TLoadThread = class(TThumbThread)
   private
     FDir: string;
+    FNames: TStringList;
+    FTotal: integer;
+    FJobCursor: integer;
+    FFinished: integer;
+    FWorkers: array of TLoadWorker;
+    procedure WorkerTerminated(Sender: TObject);
+    { Next file index to process, or -1 when the job list is exhausted.
+      Thread-safe: workers compete on an atomic cursor. }
+    function NextJob: integer;
   protected
     procedure Produce; override;
   public
     { Constructs the thread in a suspended state; the caller must set
       ListView, Pages, and Images before calling Start. }
     constructor Create(const ADir: string);
+    { Number of .cbz files found (valid after Start). }
+    property TotalFiles: integer read FTotal;
   end;
 
   { TPagesThread: tutte le pagine di un singolo .cbz }
@@ -133,7 +180,7 @@ type
   private
     FFile: string;
     procedure HandlePage(const AName: string; AImage: TLazIntfImage;
-      var ACancel: boolean);
+      AIndex: integer; var ACancel: boolean);
   protected
     procedure Produce; override;
   public
@@ -147,10 +194,11 @@ uses
   uimgutil,
   uzipeditor,
   uservicebase,
-  uservicemerge;
+  uservicemerge,
+  Math;
 
 const
-  BatchSize = 4;
+  BatchSize = 12;
 
   { ComicInfo badge painted in the top-right corner of a thumbnail:
     a filled circle BADGE_SIZE pixels across, inset BADGE_MARGIN from
@@ -158,7 +206,15 @@ const
   BADGE_SIZE   = 12;
   BADGE_MARGIN = 2;
 
-  { TThumbThread }
+{ Number of concurrent thumbnail workers for the directory load: at most
+  four, regardless of core count — decode + ZIP I/O parallelise well, but
+  the main thread must keep up with the batch publication. }
+function WorkerCount: integer;
+begin
+  Result := Min(4, Max(1, TThread.ProcessorCount));
+end;
+
+{ TThumbThread }
 
 constructor TThumbThread.Create;
 begin
@@ -190,13 +246,14 @@ begin
 end;
 
 procedure TThumbThread.Emit(const AName: string; AImage: TLazIntfImage;
-  AHasComicInfo: boolean);
+  AHasComicInfo: boolean; AIndex: integer);
 begin
   Inc(FBatchCount);
   SetLength(FBatch, FBatchCount);
   FBatch[FBatchCount - 1].Name := AName;
   FBatch[FBatchCount - 1].Image := AImage;
   FBatch[FBatchCount - 1].HasComicInfo := AHasComicInfo;
+  FBatch[FBatchCount - 1].Index := AIndex;
   if FBatchCount >= BatchSize then
     Flush;
 end;
@@ -239,9 +296,10 @@ end;
 
 procedure TThumbThread.SyncAddThumbs;
 var
-  i, ILIdx: integer;
+  i, j, k, ILIdx, pos: integer;
   Thumb: TBitmap;
   It: TListItem;
+  Key: TLoadedItem;
 begin
   if Terminated then
   begin
@@ -250,11 +308,41 @@ begin
     Exit;
   end;
 
+  { Sort the batch by sort position so out-of-order arrivals from parallel
+    workers insert cleanly; entries with Index = -1 (append) are left in
+    place.  A batch is small (BatchSize), so insertion sort is fine. }
+  for j := 1 to FPendingCount - 1 do
+  begin
+    Key := FPendingBatch[j];
+    if Key.Index < 0 then Continue;
+    k := j - 1;
+    while (k >= 0) and (FPendingBatch[k].Index >= 0) and
+      (FPendingBatch[k].Index > Key.Index) do
+    begin
+      FPendingBatch[k + 1] := FPendingBatch[k];
+      Dec(k);
+    end;
+    FPendingBatch[k + 1] := Key;
+  end;
+
   FListView.BeginUpdate;
   try
     for i := 0 to FPendingCount - 1 do
     begin
-      FPages.Add(FPendingBatch[i].Image);
+      if FPendingBatch[i].Index < 0 then
+        pos := FListView.Items.Count
+      else
+      begin
+        { Sorted insertion: pos = count of already-inserted items whose sort
+          key (stored in Data) is smaller.  Items then always appear in the
+          same order as the jobs, regardless of arrival order. }
+        pos := 0;
+        while (pos < FListView.Items.Count) and
+          (PtrInt(FListView.Items[pos].Data) < FPendingBatch[i].Index) do
+          Inc(pos);
+      end;
+
+      FPages.Insert(pos, FPendingBatch[i].Image);
       Thumb := MakeThumb(FPendingBatch[i].Image, FImages.Width, FImages.Height);
       { Bake ComicInfo badge into the thumbnail bitmap }
       if FPendingBatch[i].HasComicInfo then
@@ -269,7 +357,8 @@ begin
       finally
         Thumb.Free;
       end;
-      It := FListView.Items.Add;
+      It := FListView.Items.Insert(pos);
+      It.Data := Pointer(PtrInt(FPendingBatch[i].Index));
       It.Caption := ExtractChapterNumStr(FPendingBatch[i].Name);
       if It.Caption = '' then
         It.Caption := FPendingBatch[i].Name;
@@ -283,7 +372,8 @@ begin
     freeing them. }
   FPendingCount := 0;
   SetLength(FPendingBatch, 0);
-  Log('Sync: %d voci, ImageList=%d', [FListView.Items.Count, FImages.Count]);
+  if Assigned(FOnBatchAdded) then
+    FOnBatchAdded(Self);
 end;
 
 { TLoadThread }
@@ -296,49 +386,141 @@ begin
   FDir := ADir;
 end;
 
-{ Iterates over every .cbz file in FDir in sorted order, extracts the
-  first image of each via GetFirstImageAsIntfImage, scales it to
-  CacheW×CacheH, and emits the thumbnail.  Respects Terminated. }
+{ TLoadWorker }
+
+constructor TLoadWorker.Create(APool: TLoadThread);
+begin
+  inherited Create;
+  FPool := APool;
+end;
+
+{ No-op method used by Execute to flush the main thread's queue before the
+  worker frees itself. }
+procedure TLoadWorker.Drained;
+begin
+end;
+
+{ Runs the shared thumbnail logic, then — on a normal exit — synchronously
+  drains the main thread's queue.  CheckSynchronize processes queued
+  methods FIFO, so by the time Drained runs on the main thread every
+  previously queued SyncAddThumbs for this worker has been consumed: the
+  subsequent FreeOnTerminate self-free can no longer discard a pending
+  batch (which would leak its images) nor leave a queued method pointing
+  at a freed object. }
+procedure TLoadWorker.Execute;
+begin
+  inherited Execute;
+  if not Terminated then
+    Synchronize(@Drained);
+end;
+
+{ Pulls file names from the pool's job list, decoding the first page of
+  each (at CacheW×CacheH via JPEG DCT scaling when possible) and emitting
+  the scaled thumbnail.  Stops when the list is exhausted or the pool is
+  terminated. }
+procedure TLoadWorker.Produce;
+var
+  i: integer;
+  FilePath: string;
+  Img, Small: TLazIntfImage;
+  HasComicInfo: boolean;
+begin
+  while not Terminated do
+  begin
+    i := FPool.NextJob;
+    if i < 0 then Exit;
+    FilePath := IncludeTrailingPathDelimiter(FPool.FDir) + FPool.FNames[i];
+    Img := nil;
+    HasComicInfo := False;
+    try
+      { Single ZIP pass: first image + ComicInfo presence, decoded at
+        thumbnail size. }
+      GetFirstImageInfo(FilePath, Img, HasComicInfo, CacheW, CacheH);
+    except
+      on E: Exception do
+      begin
+        Log('Thread: eccezione su %s: %s: %s',
+          [FPool.FNames[i], E.ClassName, E.Message]);
+        Img := nil;
+      end;
+    end;
+
+    Small := ScaleIntfImage(Img, CacheW, CacheH);
+    Img.Free;
+    Emit(FPool.FNames[i], Small, HasComicInfo, i);
+  end;
+end;
+
+function TLoadThread.NextJob: integer;
+begin
+  Result := InterlockedIncrement(FJobCursor) - 1;
+  if Result >= FTotal then
+    Result := -1;
+end;
+
+{ Runs on the worker thread at its end; counts it as finished.  The worker
+  has already drained the main thread's queue by this point (see
+  TLoadWorker.Execute), so the coordinator can finish as soon as every
+  worker is counted. }
+procedure TLoadThread.WorkerTerminated(Sender: TObject);
+begin
+  InterlockedIncrement(FFinished);
+end;
+
+{ Iterates over every .cbz file in FDir in sorted order, distributing the
+  work across WorkerCount concurrent TLoadWorkers, and waits until all of
+  them finish (or this pool is terminated). }
 procedure TLoadThread.Produce;
 var
-  Dir, FilePath: string;
+  Dir: string;
   FileList: TStringArray;
-  Names: TStringList;
   i: integer;
-  Img, Small: TLazIntfImage;
 begin
   Dir := IncludeTrailingPathDelimiter(FDir);
   FileList := CollectCBZFiles(FDir);
-  Names := TStringList.Create;
+  FNames := TStringList.Create;
   try
     for i := 0 to High(FileList) do
-      Names.Add(FileList[i]);
-    Names.Sort;
-    Log('Thread: %d file .cbz trovati in %s', [Names.Count, Dir]);
+      FNames.Add(FileList[i]);
+    FNames.Sort;
+    FTotal := FNames.Count;
+    Log('Thread: %d file .cbz trovati in %s', [FTotal, Dir]);
+    if FTotal = 0 then Exit;
 
-    for i := 0 to Names.Count - 1 do
+    FJobCursor := 0;
+    FFinished := 0;
+    SetLength(FWorkers, WorkerCount);
+    for i := 0 to High(FWorkers) do
     begin
-      if Terminated then Exit;
+      FWorkers[i] := TLoadWorker.Create(Self);
+      FWorkers[i].OnTerminate := @WorkerTerminated;
+      FWorkers[i].ListView := FListView;
+      FWorkers[i].Pages := FPages;
+      FWorkers[i].Images := FImages;
+      FWorkers[i].OnBatchAdded := FOnBatchAdded;
+      FWorkers[i].FreeOnTerminate := True;
+    end;
+    for i := 0 to High(FWorkers) do
+      FWorkers[i].Start;
 
-      FilePath := Dir + Names[i];
-      Img := nil;
-      try
-        Img := GetFirstImageAsIntfImage(FilePath);
-      except
-        on E: Exception do
-        begin
-          Log('Thread: eccezione su %s: %s: %s',
-            [Names[i], E.ClassName, E.Message]);
-          Img := nil;
-        end;
+    { Wait for every worker; on cancellation terminate them so their
+      pending batches are discarded and they exit promptly.  The workers
+      free themselves after their termination hook (which drains the main
+      thread's queue), so we must not touch them afterwards. }
+    while FFinished < Length(FWorkers) do
+    begin
+      if Terminated then
+      begin
+        for i := 0 to High(FWorkers) do
+          FWorkers[i].Terminate;
+        Break;
       end;
-
-      Small := ScaleIntfImage(Img, CacheW, CacheH);
-      Img.Free;
-      Emit(Names[i], Small, HasComicInfoFast(FilePath));
+      Sleep(5);
     end;
   finally
-    Names.Free;
+    FNames.Free;
+    FNames := nil;
+    FWorkers := nil;
   end;
 end;
 
@@ -352,24 +534,28 @@ begin
 end;
 
 { Opens the single CBZ file and iterates over every page via
-  ForEachImage.  HandlePage receives each decoded page. }
+  ForEachImage.  HandlePage receives each decoded page.  Pages are decoded
+  at CacheW×CacheH (JPEG DCT scaling) so large archives load quickly. }
 procedure TPagesThread.Produce;
 begin
   Log('Pages: apertura %s', [ExtractFileName(FFile)]);
-  ForEachImage(FFile, @HandlePage);
+  ForEachImage(FFile, @HandlePage, CacheW, CacheH);
 end;
 
 { ForEachImage callback: scales the decoded full-size image to the
   thumbnail cache dimensions (CacheW×CacheH), emits the result, and
-  respects Terminated to abort early. }
+  respects Terminated to abort early.  AIndex is the page's position in
+  alphabetical name order (0 = first page), so the sorted insertion in
+  SyncAddThumbs displays pages in reading order even when the archive
+  stores them scrambled. }
 procedure TPagesThread.HandlePage(const AName: string; AImage: TLazIntfImage;
-  var ACancel: boolean);
+  AIndex: integer; var ACancel: boolean);
 var
   Small: TLazIntfImage;
 begin
   Small := ScaleIntfImage(AImage, CacheW, CacheH);
   AImage.Free;
-  Emit(AName, Small);
+  Emit(AName, Small, False, AIndex);
   ACancel := Terminated;
 end;
 

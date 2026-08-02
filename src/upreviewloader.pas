@@ -15,8 +15,11 @@ type
   private
     FFile: string;
     FPages: TLazIntfImageList;
+    { Pages collected by alphabetical rank (0 = first page); flushed into
+      FPages in order once the archive has been fully decoded. }
+    FByRank: array of TLazIntfImage;
     procedure HandlePage(const AName: string; AImage: TLazIntfImage;
-      var ACancel: boolean);
+      AIndex: integer; var ACancel: boolean);
   protected
     procedure Execute; override;
   public
@@ -42,7 +45,12 @@ begin
 end;
 
 destructor TPreviewLoader.Destroy;
+var
+  i: integer;
 begin
+  { Free any images that were never flushed into FPages (aborted run). }
+  for i := 0 to High(FByRank) do
+    FByRank[i].Free;
   FPages.Free;
   inherited;
 end;
@@ -54,12 +62,19 @@ begin
 end;
 
 procedure TPreviewLoader.Execute;
+var
+  i: integer;
 begin
-  ForEachImage(FFile, @HandlePage);
+  ForEachImage(FFile, @HandlePage, CacheW, CacheH);
+  { Flush in reading order (alphabetical rank), skipping undecodable pages. }
+  for i := 0 to High(FByRank) do
+    if FByRank[i] <> nil then
+      FPages.Add(FByRank[i]);
+  FByRank := nil;
 end;
 
 procedure TPreviewLoader.HandlePage(const AName: string; AImage: TLazIntfImage;
-  var ACancel: boolean);
+  AIndex: integer; var ACancel: boolean);
 var
   Small: TLazIntfImage;
 begin
@@ -67,8 +82,15 @@ begin
   AImage.Free;
   { Skip undecodable pages (Small = nil) instead of adding a phantom blank
     slot that would inflate the page count and show a stale frame. }
-  if Small <> nil then
-    FPages.Add(Small);
+  if Small = nil then Exit;
+  if AIndex < 0 then
+    FPages.Add(Small)
+  else
+  begin
+    if AIndex >= Length(FByRank) then
+      SetLength(FByRank, AIndex + 1);
+    FByRank[AIndex] := Small;
+  end;
   ACancel := Terminated;
 end;
 

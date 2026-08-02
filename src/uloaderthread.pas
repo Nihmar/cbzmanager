@@ -504,15 +504,23 @@ begin
       FWorkers[i].Start;
 
     { Wait for every worker; on cancellation terminate them so their
-      pending batches are discarded and they exit promptly.  The workers
-      free themselves after their termination hook (which drains the main
-      thread's queue), so we must not touch them afterwards. }
+      pending batches are discarded and they exit promptly.  Workers read
+      the shared job list (FPool.FNames) at the end of each iteration,
+      after the decode, so Produce must not return — and the coordinator
+      must not free FNames or free itself — until every worker has really
+      finished: otherwise a worker that was mid-iteration would read
+      freed memory (access violation). }
     while FFinished < Length(FWorkers) do
     begin
       if Terminated then
       begin
         for i := 0 to High(FWorkers) do
           FWorkers[i].Terminate;
+        { Join the workers before touching the shared state below.  Each
+          worker exits at its next loop check once its current decode
+          finishes, then increments FFinished. }
+        while FFinished < Length(FWorkers) do
+          Sleep(5);
         Break;
       end;
       Sleep(5);

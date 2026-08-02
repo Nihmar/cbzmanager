@@ -55,6 +55,7 @@ type
     procedure Merge_BelowThresholdNoVolume;
     procedure Merge_DeleteOriginals;
     procedure Merge_NoChapters;
+    procedure Merge_ChapterZeroIncluded;
     procedure Merge_ContinuesFromLastVolume;
     procedure Merge_ForceAbsorbsRemainder;
     procedure Merge_ForceOffLeavesRemainder;
@@ -580,6 +581,49 @@ begin
 
   AssertFalse('No chapters → failure', Res.Success);
   AssertTrue('Error message set', Res.ErrorMsg <> '');
+end;
+
+procedure TMergeServiceTest.Merge_ChapterZeroIncluded;
+var
+  Png: TMemoryStream;
+  Files: TStringArray;
+  Opts: TMergeOptions;
+  Res: TMergeResult;
+begin
+  { Regression: "Series - 0000.cbz" is a regular chapter (Python reference
+    _CHAPTER_RE matches it).  The default range starts at 0, so it must be
+    merged — it used to be dropped when ChapterStart defaulted to 1. }
+  Png := CreateMinimalPNGStream;
+  CreateCBZ(FTempDir + 'ZeroTest - 0000.cbz', [Png], ['z.png']);
+  Png.Free;
+
+  Png := CreateMinimalPNGStream;
+  CreateCBZ(FTempDir + 'ZeroTest - 0001.cbz', [Png], ['c.png']);
+  Png.Free;
+
+  SetLength(Files, 2);
+  Files[0] := 'ZeroTest - 0000.cbz';
+  Files[1] := 'ZeroTest - 0001.cbz';
+
+  Opts.SeriesName := 'ZeroTest';
+  Opts.ChapterStart := 0;  { the default — covers chapter 0 }
+  Opts.ChapterEnd := 99;
+  Opts.ChaptersPerVolume := 2;
+  Opts.Force := False;
+  Opts.Delete := False;
+
+  Res := TMergeService.Merge(Files, FTempDir, Opts);
+
+  AssertTrue('Merge succeeded', Res.Success);
+  AssertEquals('1 volume created', 1, Res.VolumesCreated);
+  AssertTrue('Volume exists', FileExists(FTempDir + 'ZeroTest V001.cbz'));
+  { Chapter 0 plus chapter 1 → both pages in the volume. }
+  AssertEquals('Volume contains both chapters', 2,
+    GetImageCount(FTempDir + 'ZeroTest V001.cbz'));
+  { Delete=False renames merged chapters to _OLD — chapter 0 must have
+    been part of the merge, not silently skipped. }
+  AssertTrue('Chapter 0 was merged (renamed to _OLD)',
+    FileExists(FTempDir + 'ZeroTest - 0000_OLD.cbz'));
 end;
 
 procedure TMergeServiceTest.Merge_ContinuesFromLastVolume;

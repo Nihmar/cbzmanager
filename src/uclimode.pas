@@ -354,7 +354,9 @@ begin
       for i := 0 to SeriesList.Count - 1 do
       begin
         Opts.SeriesName := SeriesList[i];
-        Opts.ChapterStart := 1;
+        { Chapter 0 files ("Series - 0000.cbz") are regular chapters of
+          the Python reference; the default range covers every chapter. }
+        Opts.ChapterStart := 0;
         Opts.ChapterEnd := MaxInt;
         Opts.ChaptersPerVolume := Flags.ChaptersPerVolume;
         Opts.ChaptersList := Flags.Chapters;

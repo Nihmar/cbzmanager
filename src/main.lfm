@@ -206,6 +206,7 @@ object frmMain: TfrmMain
       ViewStyle = vsIcon
       OnDblClick = LVFilesDblClick
       OnMouseDown = LVFilesMouseDown
+      OnMouseUp = LVFilesMouseUp
     end
     object PanelSingleFile: TPanel
       Left = 520

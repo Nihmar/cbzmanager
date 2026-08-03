@@ -250,6 +250,8 @@ type
     procedure LVFilesDblClick(Sender: TObject);
     procedure LVFilesMouseDown(Sender: TObject; Button: TMouseButton;
       Shift: TShiftState; X, Y: integer);
+    procedure LVFilesMouseUp(Sender: TObject; Button: TMouseButton;
+      Shift: TShiftState; X, Y: integer);
     procedure LVPagesDragDrop(Sender, Source: TObject; X, Y: integer);
     procedure LVPagesDragOver(Sender, Source: TObject; X, Y: integer;
       State: TDragState; var Accept: boolean);
@@ -312,6 +314,11 @@ type
     { Shift+click anchors for Explorer-style multi-select (item index, -1 = none). }
     FAnchorFiles: integer;
     FAnchorPages: integer;
+    { File name that must be re-selected on the mouse-up completing the
+      double-click that opened the preview.  Stored as a name (not a
+      TListItem pointer) so a list rebuild between the two events cannot
+      leave a dangling reference.  See LVFilesDblClick / LVFilesMouseUp. }
+    FPendingFile: string;
     procedure ThreadTerminated(Sender: TObject);
     procedure PagesThreadTerminated(Sender: TObject);
     procedure LoadBatchAdded(Sender: TObject);
@@ -945,6 +952,7 @@ begin
   ClearPreview;
   PanelSingleFile.Visible := False;
   SplitterPreview.Visible := False;
+  FPendingFile := '';
 end;
 
 {
@@ -1011,7 +1019,18 @@ begin
   if It = nil then
     It := LVFiles.Selected;
   if It <> nil then
+  begin
     LVFiles.Selected := It;
+    { The widgetset re-applies the selection natively after this handler
+      returns (and after the preview pane appears and the list shrinks, the
+      click position maps to a different item or to empty space, so the
+      completing mouse-up clears or moves the selection).  Remember the item
+      and re-assert it in LVFilesMouseUp, which arrives after the dust
+      settles. }
+    FPendingFile := ItemFileName(It);
+  end
+  else
+    FPendingFile := '';
   OpenPreview(It);
 end;
 
@@ -1080,6 +1099,12 @@ begin
   ALV := TListView(Sender);
   It := ALV.GetItemAt(X, Y);
 
+  { Any new mouse gesture (including a right-click) cancels a pending
+    double-click re-selection.  The second press of the double-click itself
+    carries ssDouble and must leave it alone. }
+  if not (ssDouble in Shift) then
+    FPendingFile := '';
+
   if Button = mbRight then
   begin
     { Right-click does not move the selection by itself, but the menu must
@@ -1118,6 +1143,42 @@ begin
     ALV.Selected := It;
     SetAnchor(ALV, It.Index);
   end;
+end;
+
+{
+  LVFilesMouseUp
+  --------------
+  Re-asserts the selection after a double-click that opened the preview.
+
+  On the Qt6 widgetset the double-click is delivered to the LCL *and* to
+  Qt's native item-view handling, which re-applies the selection once the
+  LCL handlers have returned.  Because OpenPreview makes the preview pane
+  appear (shrinking LVFiles) between the first press and the completing
+  release, the native code re-evaluates the click position against the new
+  layout and either moves the selection to whatever item now sits under the
+  cursor or clears it entirely.  The LCL's OnMouseUp for the completing
+  release arrives after that native pass, so re-selecting the double-clicked
+  item here is the last word and the selection survives.
+
+  Guards: the item is only re-selected while it still belongs to LVFiles
+  (it could have been rebuilt between the double-click and the mouse-up).
+}
+procedure TfrmMain.LVFilesMouseUp(Sender: TObject; Button: TMouseButton;
+  Shift: TShiftState; X, Y: integer);
+var
+  i: integer;
+begin
+  if (Button <> mbLeft) or (FPendingFile = '') then Exit;
+  { The file name is unique in the list; find the current row for it so a
+    rebuild between the double-click and this mouse-up is handled safely. }
+  for i := 0 to LVFiles.Items.Count - 1 do
+    if ItemFileName(LVFiles.Items[i]) = FPendingFile then
+    begin
+      LVFiles.Selected := LVFiles.Items[i];
+      FPendingFile := '';
+      Exit;
+    end;
+  FPendingFile := '';
 end;
 
 {

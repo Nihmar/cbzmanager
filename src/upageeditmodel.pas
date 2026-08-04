@@ -426,77 +426,114 @@ end;
   Progress reports: 0 % at start, 60 % after building OutEntries, 100 % on
   successful completion. }
 procedure TSaveChangesThread.Execute;
+type
+  TNameIdx = record Name: string; Idx: integer; end;
 var
   i, j, PageNum, SrcIdx: integer;
   AllEntries, OutEntries: TZipEntries;
   Consumed: array of boolean;
-  NewName, PageExt: string;
+  PageExt: string;
   Found: boolean;
+  SortedNames: array of TNameIdx;
+  Idx: integer;
+
+  function FindIdx(const AName: string): integer;
+  var Lo, Hi, Mid: integer; Lc: string;
+  begin
+    Result := -1;
+    Lc := LowerCase(AName);
+    Lo := 0;
+    Hi := High(SortedNames);
+    while Lo <= Hi do
+    begin
+      Mid := (Lo + Hi) div 2;
+      if SortedNames[Mid].Name < Lc then
+        Lo := Mid + 1
+      else if SortedNames[Mid].Name > Lc then
+        Hi := Mid - 1
+      else
+      begin
+        Result := SortedNames[Mid].Idx;
+        Exit;
+      end;
+    end;
+  end;
+
 begin
   try
     DoProgress(0, 'Reading all entries into RAM...');
     // Load every entry from the CBZ into memory.  This is the only disk read.
     AllEntries := CollectZipEntries(FPageFile);
     try
-      SetLength(OutEntries, 0);
+      { --- Build sorted lowercase name lookup for O(log n) search --- }
+      SetLength(SortedNames, Length(AllEntries));
+      for i := 0 to High(AllEntries) do
+      begin
+        SortedNames[i].Name := LowerCase(AllEntries[i].Name);
+        SortedNames[i].Idx := i;
+      end;
+      { Insertion sort by lowercase name (stable, fast for <1000 entries). }
+      for i := 1 to High(SortedNames) do
+      begin
+        j := i - 1;
+        while (j >= 0) and (SortedNames[j].Name > SortedNames[i].Name) do
+        begin
+          SortedNames[j + 1] := SortedNames[j];
+          Dec(j);
+        end;
+        SortedNames[j + 1] := SortedNames[i];
+      end;
+
+      // Upper bound: every page survives (no Gone), plus all metadata entries.
+      SetLength(OutEntries, High(FPages) + 1 + Length(AllEntries));
+      Idx := -1;
       // Tracks which source entries a page has accounted for, so leftover
       // (non-page) entries can be preserved rather than dropped.
       SetLength(Consumed, Length(AllEntries));
+
       try
         // Rebuild the page list from the (reordered / filtered) snapshot.
         for i := 0 to High(FPages) do
         begin
           if Terminated then Exit;          // cooperative cancellation
 
-          // Locate this page's source entry by OrigName and mark it accounted
-          // for — whether the page survives or was deleted — so it is not
-          // re-added by the metadata-preservation pass below.
+          // Locate this page's source entry by OrigName — O(log n) via binary search.
           Found := False;
           SrcIdx := -1;
-          for j := 0 to High(AllEntries) do
-            if (not Consumed[j]) and
-              SameText(AllEntries[j].Name, FPages[i].OrigName) then
-            begin
-              Consumed[j] := True;
-              SrcIdx := j;
-              Found := True;
-              Break;
-            end;
+          SrcIdx := FindIdx(FPages[i].OrigName);
+          if SrcIdx >= 0 then
+            Consumed[SrcIdx] := True;
 
           if FPages[i].Gone then Continue;  // deleted: accounted for, not written
           // Nothing to write if the page is neither in the archive nor backed
           // by inserted data (should not happen now OrigName is the real name).
           if not (Found or (FPages[i].Data <> nil)) then Continue;
 
-          SetLength(OutEntries, Length(OutEntries) + 1);
+          Inc(Idx);
+          OutEntries[Idx].Data := TMemoryStream.Create;
           // Choose the output filename.
           if FRenumber then
           begin
-            PageNum := Length(OutEntries);                // 1-based after append
+            PageNum := Idx + 1;                // 1-based after Inc
             PageExt := ExtractFileExt(FPages[i].Name);    // preserve extension
-            NewName := FormatPageName(PageNum, PAGE_PAD_DEFAULT, PageExt);
           end
           else
-            NewName := FPages[i].Name;      // keep the (possibly renamed) name
-          OutEntries[High(OutEntries)].Name := NewName;
-          OutEntries[High(OutEntries)].Data := TMemoryStream.Create;
+            OutEntries[Idx].Name := FPages[i].Name;   // keep the (possibly renamed) name
 
-          if Found then
+          if SrcIdx >= 0 then
           begin
             // Deep-copy the original archive entry data.
             AllEntries[SrcIdx].Data.Position := 0;
-            OutEntries[High(OutEntries)].Data.CopyFrom(AllEntries[SrcIdx].Data,
+            OutEntries[Idx].Data.CopyFrom(AllEntries[SrcIdx].Data,
               AllEntries[SrcIdx].Data.Size);
           end
           else if FPages[i].Data <> nil then
           begin
             // Inserted page (not from the original archive).
             FPages[i].Data.Position := 0;
-            OutEntries[High(OutEntries)].Data.CopyFrom(FPages[i].Data,
+            OutEntries[Idx].Data.CopyFrom(FPages[i].Data,
               FPages[i].Data.Size);
           end;
-          // else: no source and no inserted data — leaves an empty stream,
-          // matching the previous behaviour for such (unexpected) pages.
         end;
 
         // Preserve every source entry no page referenced — ComicInfo.xml and
@@ -504,13 +541,19 @@ begin
         for j := 0 to High(AllEntries) do
           if not Consumed[j] then
           begin
-            SetLength(OutEntries, Length(OutEntries) + 1);
-            OutEntries[High(OutEntries)].Name := AllEntries[j].Name;
-            OutEntries[High(OutEntries)].Data := TMemoryStream.Create;
+            Inc(Idx);
+            OutEntries[Idx].Name := AllEntries[j].Name;
+            OutEntries[Idx].Data := TMemoryStream.Create;
             AllEntries[j].Data.Position := 0;
-            OutEntries[High(OutEntries)].Data.CopyFrom(AllEntries[j].Data,
+            OutEntries[Idx].Data.CopyFrom(AllEntries[j].Data,
               AllEntries[j].Data.Size);
           end;
+
+        // Trim to actual count.
+        if Idx >= 0 then
+          SetLength(OutEntries, Idx + 1)
+        else
+          SetLength(OutEntries, 0);
 
         DoProgress(60, 'Writing new CBZ...');
         if FBackupOld then
@@ -541,5 +584,6 @@ begin
     end;
   end;
 end;
+
 
 end.

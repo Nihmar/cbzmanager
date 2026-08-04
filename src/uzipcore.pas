@@ -58,6 +58,7 @@ type
   TZipCollector = class
   private
     FEntries: TZipEntries;
+    FEntriesCapacity: integer;
     procedure DoCreateStream(Sender: TObject; var AStream: TStream;
       AItem: TFullZipFileEntry);
     procedure DoDoneStream(Sender: TObject; var AStream: TStream;
@@ -76,7 +77,14 @@ var
   n: integer;
 begin
   n := Length(FEntries);
-  SetLength(FEntries, n + 1);
+  if n = FEntriesCapacity then
+  begin
+    if FEntriesCapacity = 0 then
+      FEntriesCapacity := 64
+    else
+      FEntriesCapacity := FEntriesCapacity * 2;
+  end;
+  SetLength(FEntries, FEntriesCapacity);
   FEntries[n].Name := AItem.ArchiveFileName;
   FEntries[n].Data := TMemoryStream(AStream);
   AStream := nil;

@@ -45,6 +45,41 @@ absolute cost is small for typical 50–300 entry archives.
 counts"), it is stable and deterministic by design, and swapping it in adds churn and
 regression risk for zero measured gain.
 
+## Plan
+
+### P0 — Dictionary lookup (upageeditmodel.pas ~line 456)
+
+Replace the O(n×m) `SameText` scan with a `TDictionary<string, Integer>` keyed by
+entry name (case-insensitive). Build it once before the `for i := 0 to High(FPages)`
+loop. Inside the loop, replace the inner loop with `TryGetValue`. Keep the existing
+`Found` flag logic unchanged.
+
+- New import: `System.Generics.Collections`
+- Risk: low. Semantically identical to `SameText` scan.
+- Tests: no unit test coverage for TSaveChangesThread; manual verification recommended.
+
+### P2 — Exponential growth in DoDoneStream (uzipcore.pas ~line 79)
+
+Add a capacity variable (`FEntriesCapacity`) to `TZipCollector`. On first allocation
+start at 64, double on overflow. Sequential insert indices unchanged.
+
+- New import: none.
+- Risk: very low. Purely structural — array may be slightly larger than needed.
+- Tests: exercised implicitly by `test_uzipeditor.pas` for archives > 64 entries.
+
+### P1 — Pre-size OutEntries (upageeditmodel.pas ~lines 471, 507)
+
+Replace `SetLength(OutEntries, Length(OutEntries) + 1)` with a counter-based approach:
+pre-allocate upper bound (`High(FPages) + 1`), use `Inc(Idx)` to index, trim at the
+end with `SetLength(OutEntries, Idx + 1)`.
+
+- Risk: low. Straightforward structural change.
+- Tests: same as P0 — existing tests don't cover this path.
+
+### Execution order
+
+P0 → P2 → P1 (each is independent; P1 refactors the same loop but doesn't depend on P0).
+
 ## Summary
 
 Do: P0, P2, and the two `OutEntries` sites at `upageeditmodel.pas:471/507`.

@@ -59,6 +59,7 @@ type
   private
     FEntries: TZipEntries;
     FEntriesCapacity: integer;
+    FEntriesCount: integer;
     procedure DoCreateStream(Sender: TObject; var AStream: TStream;
       AItem: TFullZipFileEntry);
     procedure DoDoneStream(Sender: TObject; var AStream: TStream;
@@ -76,18 +77,22 @@ procedure TZipCollector.DoDoneStream(Sender: TObject; var AStream: TStream;
 var
   n: integer;
 begin
-  n := Length(FEntries);
-  if n = FEntriesCapacity then
+  { Keep the used count separate from the array length: SetLength above the
+    capacity makes Length(FEntries) == capacity, so it cannot be used as the
+    append index. }
+  n := FEntriesCount;
+  if n = Length(FEntries) then
   begin
     if FEntriesCapacity = 0 then
       FEntriesCapacity := 64
     else
       FEntriesCapacity := FEntriesCapacity * 2;
+    SetLength(FEntries, FEntriesCapacity);
   end;
-  SetLength(FEntries, FEntriesCapacity);
   FEntries[n].Name := AItem.ArchiveFileName;
   FEntries[n].Data := TMemoryStream(AStream);
   AStream := nil;
+  Inc(FEntriesCount);
 end;
 
 function CollectZipEntries(const FileName: string): TZipEntries;
@@ -107,6 +112,9 @@ begin
       UnZipper.Free;
     end;
     Result := Collector.FEntries;
+    { The collector grows the array in powers of two, so trim it to the real
+      entry count before handing it back — callers rely on Length() == count. }
+    SetLength(Result, Collector.FEntriesCount);
     Collector.FEntries := nil;
   finally
     Collector.Free;

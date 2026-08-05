@@ -47,25 +47,37 @@ regression risk for zero measured gain.
 
 ## Plan
 
-### P0 — Dictionary lookup (upageeditmodel.pas ~line 456)
+### P0 — Lookup table in TSaveChangesThread (upageeditmodel.pas)
 
-Replace the O(n×m) `SameText` scan with a `TDictionary<string, Integer>` keyed by
-entry name (case-insensitive). Build it once before the `for i := 0 to High(FPages)`
-loop. Inside the loop, replace the inner loop with `TryGetValue`. Keep the existing
-`Found` flag logic unchanged.
+Replace the O(n×m) `SameText` scan with a pre-built lookup. Implemented as a sorted
+lowercase-name array + binary search (`FindIdx`): build once (LowerCase + insertion
+sort, O(n log n)) before the hot loop, then O(log n) per page. `TDictionary` was
+considered first but FPC 3.2.2 rejects the generic in a variable declaration
+(`Generics without specialization`), so the sorted-array form was used instead. The
+`Consumed`/`Found` semantics of the original linear scan are preserved exactly:
+an entry is only claimed by the first page that references it, and Gone pages still
+mark their entry consumed.
 
-- New import: `System.Generics.Collections`
-- Risk: low. Semantically identical to `SameText` scan.
-- Tests: no unit test coverage for TSaveChangesThread; manual verification recommended.
+- New import: none.
+- Risk: low once the `Found`/`Consumed` pairing is preserved (a first version
+  dropped it and silently lost original pages — caught by the added save-path tests).
+- Tests: `TSaveChangesTest` in `tests/test_upageeditmodel.pas` covers the save path
+  (renumber, delete+Gone, backup).
 
 ### P2 — Exponential growth in DoDoneStream (uzipcore.pas ~line 79)
 
-Add a capacity variable (`FEntriesCapacity`) to `TZipCollector`. On first allocation
-start at 64, double on overflow. Sequential insert indices unchanged.
+Add a capacity field (`FEntriesCapacity`) to `TZipCollector`. On first allocation
+start at 64, double on overflow. **The used count must be tracked separately
+(`FEntriesCount`): after SetLength above the capacity, `Length(FEntries)` equals the
+capacity, not the count — using it as the append index scatters entries (0, 64, 128…)
+and leaves the array untrimmed.** The array is trimmed to the real count before
+`CollectZipEntries` returns so `Length()` stays equal to the entry count.
 
 - New import: none.
-- Risk: very low. Purely structural — array may be slightly larger than needed.
-- Tests: exercised implicitly by `test_uzipeditor.pas` for archives > 64 entries.
+- Risk: medium — the first version kept `n := Length(FEntries)` and broke every
+  `CollectZipEntries` caller (sparse entries, `Length` = capacity). Fixed by tracking
+  the count and trimming; covered by `TestCollectZipEntries` and the save-path tests.
+- Tests: `test_uzipeditor.pas` (entry count/names) + `TSaveChangesTest`.
 
 ### P1 — Pre-size OutEntries (upageeditmodel.pas ~lines 471, 507)
 

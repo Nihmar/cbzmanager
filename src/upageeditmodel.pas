@@ -499,10 +499,16 @@ begin
 
           // Locate this page's source entry by OrigName — O(log n) via binary search.
           Found := False;
-          SrcIdx := -1;
           SrcIdx := FindIdx(FPages[i].OrigName);
           if SrcIdx >= 0 then
-            Consumed[SrcIdx] := True;
+          begin
+            { Match the linear-scan semantics: an entry is only claimed by the
+              first page that references it.  Mark it consumed (even for Gone
+              pages) so the metadata pass does not re-add it below. }
+            Found := not Consumed[SrcIdx];
+            if Found then
+              Consumed[SrcIdx] := True;
+          end;
 
           if FPages[i].Gone then Continue;  // deleted: accounted for, not written
           // Nothing to write if the page is neither in the archive nor backed
@@ -516,6 +522,7 @@ begin
           begin
             PageNum := Idx + 1;                // 1-based after Inc
             PageExt := ExtractFileExt(FPages[i].Name);    // preserve extension
+            OutEntries[Idx].Name := FormatPageName(PageNum, PAGE_PAD_DEFAULT, PageExt);
           end
           else
             OutEntries[Idx].Name := FPages[i].Name;   // keep the (possibly renamed) name

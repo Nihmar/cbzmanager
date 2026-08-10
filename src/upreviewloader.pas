@@ -2,13 +2,15 @@ unit upreviewloader;
 
 {$mode ObjFPC}{$H+}
 
-{ Background loader that decodes all pages of an archive into thumbnail-sized
-  TLazIntfImages, used by the sequence builder preview pane. }
+{ Background loaders for preview panes: TPreviewLoader decodes all pages of
+  an archive into thumbnail-sized TLazIntfImages (sequence builder preview);
+  TSingleImageLoader decodes one named entry at full resolution (floating
+  page-view dialog). }
 
 interface
 
 uses
-  Classes, IntfGraphics, uloaderthread;
+  Classes, SysUtils, IntfGraphics, uloaderthread;
 
 type
   TPreviewLoader = class(TThread)
@@ -29,10 +31,27 @@ type
     property Pages: TLazIntfImageList read FPages;
   end;
 
+  { Decodes the single named entry of an archive at full resolution off the
+    main thread.  On success ExtractImage transfers ownership of the decoded
+    image (nil when the entry is missing or undecodable).  Failed runs leave
+    a message in TThread.FatalException, like the seqbuilder's loader. }
+  TSingleImageLoader = class(TThread)
+  private
+    FFile: string;
+    FEntryName: string;
+    FImage: TLazIntfImage;
+  protected
+    procedure Execute; override;
+  public
+    constructor Create(const AFile, AEntryName: string);
+    destructor Destroy; override;
+    function ExtractImage: TLazIntfImage;
+  end;
+
 implementation
 
 uses
-  uimgutil, uzipeditor;
+  uimgutil, uzipeditor, uservicebase;
 
 { TPreviewLoader }
 
@@ -92,6 +111,38 @@ begin
     FByRank[AIndex] := Small;
   end;
   ACancel := Terminated;
+end;
+
+{ TSingleImageLoader }
+
+constructor TSingleImageLoader.Create(const AFile, AEntryName: string);
+begin
+  inherited Create(True);
+  FreeOnTerminate := True;
+  FFile := AFile;
+  FEntryName := AEntryName;
+end;
+
+destructor TSingleImageLoader.Destroy;
+begin
+  { Frees the image when ExtractImage was never called (aborted run). }
+  FImage.Free;
+  inherited Destroy;
+end;
+
+function TSingleImageLoader.ExtractImage: TLazIntfImage;
+begin
+  Result := FImage;
+  FImage := nil;
+end;
+
+procedure TSingleImageLoader.Execute;
+begin
+  { CBR archives (RAR) are read through libarchive. }
+  if SameText(ExtractFileExt(FFile), CBR_EXT) then
+    FImage := GetCbrImageAsIntfImage(FFile, FEntryName)
+  else
+    FImage := GetImageAsIntfImage(FFile, FEntryName);
 end;
 
 end.

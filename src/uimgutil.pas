@@ -93,6 +93,16 @@ function MakeThumb(Src: TLazIntfImage; W, H: integer): TBitmap;
 function ThumbHeight(AWidth: integer): integer;
 
 {
+  Scroll position that keeps the content point ACenter (given in the
+  OLD zoom's content coordinates) under the viewport centre after zooming
+  from AOldZoom to ANewZoom.  AContent is the new content size, AArea the
+  viewport size; clamped to the valid scroll range [0, AContent - AArea].
+  Pure math, no widgetset: shared by the sequence builder preview and the
+  floating page-view dialog. }
+function CenterAnchorScrollPos(ACenter: integer; AOldZoom, ANewZoom: double;
+  AArea, AContent: integer): integer;
+
+{
   MAIN THREAD ONLY: builds a thumbnail of AImg sized to
   AIL.Width × AIL.Height, adds it to the image list, frees the
   intermediate bitmap and returns the index of the new image. }
@@ -220,6 +230,19 @@ end;
 function ThumbHeight(AWidth: integer): integer;
 begin
   Result := Round(AWidth * PAGE_ASPECT_RATIO);
+end;
+
+function CenterAnchorScrollPos(ACenter: integer; AOldZoom, ANewZoom: double;
+  AArea, AContent: integer): integer;
+var
+  MaxPos: integer;
+begin
+  Result := 0;
+  if (AContent <= AArea) or (AOldZoom <= 0) or (ANewZoom <= 0) then Exit;
+  MaxPos := AContent - AArea;
+  Result := Round(ACenter * ANewZoom / AOldZoom) - AArea div 2;
+  if Result < 0 then Result := 0;
+  if Result > MaxPos then Result := MaxPos;
 end;
 
 function AppendThumb(AIL: TImageList; AImg: TLazIntfImage): integer;

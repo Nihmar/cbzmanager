@@ -21,6 +21,7 @@ type
     procedure TestGetImageCount_ValidFile;
     procedure TestGetImageCount_EmptyFile;
     procedure TestGetImageFileNames_ValidFile;
+    procedure TestGetImageAsIntfImage;
     procedure TestCollectZipEntries;
     procedure TestCollectCBRFiles;
     procedure TestCollectCbrEntries;
@@ -46,6 +47,7 @@ type
   published
     procedure TestIsImageExt;
     procedure TestReaderClassForExt;
+    procedure TestCenterAnchorScrollPos;
     procedure TestGlobalFilePercent;
   end;
 
@@ -152,6 +154,36 @@ begin
   AssertEquals('page001.png', 'page001.png', Names[0]);
   AssertEquals('page002.png', 'page002.png', Names[1]);
   AssertEquals('page003.png', 'page003.png', Names[2]);
+end;
+
+procedure TZipEditorTest.TestGetImageAsIntfImage;
+var
+  Img: TLazIntfImage;
+begin
+  { Full-resolution single-entry extraction: the entry must decode exactly. }
+  Img := GetImageAsIntfImage(FValidCBZ, 'page001.png');
+  try
+    AssertNotNull('existing entry decodes', Img);
+    if Img <> nil then
+    begin
+      AssertEquals('1x1 png width', 1, Img.Width);
+      AssertEquals('1x1 png height', 1, Img.Height);
+    end;
+  finally
+    Img.Free;
+  end;
+
+  { A late entry in the archive must also resolve. }
+  Img := GetImageAsIntfImage(FValidCBZ, 'page003.png');
+  try
+    AssertNotNull('late entry decodes', Img);
+  finally
+    Img.Free;
+  end;
+
+  { Missing entry -> nil, no exception. }
+  Img := GetImageAsIntfImage(FValidCBZ, 'none.png');
+  AssertNull('missing entry returns nil', Img);
 end;
 
 procedure TZipEditorTest.TestCollectCBRFiles;
@@ -717,6 +749,29 @@ begin
   AssertEquals('negative total -> 0', 0, GlobalFilePercent(0, -3, 50));
   { Single file: within-file percent maps directly. }
   AssertEquals('single file', 50, GlobalFilePercent(0, 1, 50));
+end;
+
+procedure TImageUtilTest.TestCenterAnchorScrollPos;
+begin
+  { Zoom-anchoring math shared by the sequence builder preview and the
+    page-view dialog: the scroll position that keeps the content point
+    under the viewport centre stationary when zooming. }
+  AssertEquals('zoom in keeps centre', 600,
+    CenterAnchorScrollPos(400, 1.0, 2.0, 400, 1600));
+  AssertEquals('zoom in (odd centre) keeps centre', 202,
+    CenterAnchorScrollPos(201, 1.0, 2.0, 400, 1600));
+  { Identity zoom (page switch) preserves the scroll position. }
+  AssertEquals('identity preserves position', 250,
+    CenterAnchorScrollPos(450, 2.0, 2.0, 400, 1600));
+  { Zooming out pulls the centre to a negative scroll -> clamped to 0. }
+  AssertEquals('clamps at start', 0,
+    CenterAnchorScrollPos(100, 2.0, 1.0, 400, 800));
+  { Content point near the end -> clamped to the max position. }
+  AssertEquals('clamps at end', 400,
+    CenterAnchorScrollPos(1000, 2.0, 2.0, 400, 800));
+  { Content smaller than the viewport -> no scrolling possible. }
+  AssertEquals('fits viewport', 0,
+    CenterAnchorScrollPos(100, 1.0, 1.0, 400, 300));
 end;
 
 initialization

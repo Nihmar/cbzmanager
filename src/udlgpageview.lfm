@@ -1,0 +1,50 @@
+object dlgPageView: TdlgPageView
+  Left = 320
+  Height = 900
+  Top = 120
+  Width = 700
+  Caption = 'Page view'
+  ClientHeight = 900
+  ClientWidth = 700
+  Position = poOwnerFormCenter
+  LCLVersion = '4.8.0.0'
+  OnClose = FormClose
+  OnKeyDown = FormKeyDown
+  object LblTitle: TLabel
+    Left = 4
+    Height = 17
+    Top = 4
+    Width = 692
+    Align = alTop
+    Alignment = taCenter
+    BorderSpacing.Around = 4
+    Caption = 'Page view'
+    Layout = tlCenter
+  end
+  object ScrollBoxPreview: TScrollBox
+    Left = 4
+    Height = 871
+    Top = 25
+    Width = 692
+    HorzScrollBar.Page = 98
+    VertScrollBar.Page = 98
+    Align = alClient
+    BorderSpacing.Around = 4
+    BorderStyle = bsNone
+    ClientHeight = 871
+    ClientWidth = 692
+    TabOrder = 0
+    OnMouseWheel = PreviewMouseWheel
+    object ImgPreview: TImage
+      Left = 4
+      Height = 863
+      Top = 4
+      Width = 684
+      Align = alClient
+      BorderSpacing.Around = 4
+      Proportional = True
+      Stretch = True
+      OnMouseWheel = PreviewMouseWheel
+    end
+  end
+end

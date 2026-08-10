@@ -42,6 +42,26 @@ function GetFirstImageAsIntfImage(const FileName: string): TLazIntfImage;
 function GetFirstImageInfo(const FileName: string; out AImage: TLazIntfImage;
   out AHasComicInfo: boolean; AMaxW, AMaxH: integer): boolean;
 
+{
+  Decodes a single named image entry of a CBZ at full resolution.
+  The central directory is scanned for the exact entry name, then only
+  that one entry is decompressed (no temp files).  Returns nil when the
+  entry does not exist, is not an image, or fails to decode.  The caller
+  owns the returned object.  Callable from worker threads. }
+function GetImageAsIntfImage(const FileName, EntryName: string): TLazIntfImage;
+
+{ Decodes raw image bytes held in a TMemoryStream into a TLazIntfImage.
+  Parameters:
+    Stream – the uncompressed image data positioned at offset 0.
+    Ext    – lowercased extension (e.g. '.webp', '.jpg') used to select
+             the correct decoder class.
+    MaxW/MaxH – when both > 0, JPEG entries are decoded at reduced
+             resolution (DCT scaling, see StreamToIntfImage). 0 = full size.
+  Returns a new TLazIntfImage (caller owns it) or nil on failure.
+  Exceptions during decoding are caught and logged; nil is returned. }
+function DecodeImage(Stream: TMemoryStream; const Ext: string;
+  MaxW: integer = 0; MaxH: integer = 0): TLazIntfImage;
+
 { ---------------------------------------------------------------------------
   CBR (RAR) archives — read via libarchive (uarchive.pas), entirely in RAM.
 
@@ -226,15 +246,25 @@ type
     constructor Create(AMaxW, AMaxH: integer);
   end;
 
-{ Decodes raw image bytes held in a TMemoryStream into a TLazIntfImage.
-  Parameters:
-    Stream – the uncompressed image data positioned at offset 0.
-    Ext    – lowercased extension (e.g. '.webp', '.jpg') used to select
-             the correct decoder class.
-    MaxW/MaxH – when both > 0, JPEG entries are decoded at reduced
-             resolution (DCT scaling, see StreamToIntfImage). 0 = full size.
-  Returns a new TLazIntfImage (caller owns it) or nil on failure.
-  Exceptions during decoding are caught and logged; nil is returned. }
+  { TEntryImageGrabber – keeps only the image decoded from the entry whose
+    name exactly matches FEntryName, frees every other decoded image, and
+    signals cancellation once it was found.  Used with a selective
+    UnZipFiles pass so only the target entry is decompressed. }
+
+  TEntryImageGrabber = class
+  private
+    FEntryName: string;
+    FImage: TLazIntfImage;
+    procedure Grab(const AName: string; AImage: TLazIntfImage;
+      AIndex: integer; var ACancel: boolean);
+    procedure DoCreateStream(Sender: TObject; var AStream: TStream;
+      AItem: TFullZipFileEntry);
+    procedure DoDoneStream(Sender: TObject; var AStream: TStream;
+      AItem: TFullZipFileEntry);
+  public
+    constructor Create(const AEntryName: string);
+  end;
+
 function DecodeImage(Stream: TMemoryStream; const Ext: string;
   MaxW: integer = 0; MaxH: integer = 0): TLazIntfImage;
 var
@@ -403,6 +433,50 @@ begin
   ACancel := True;
 end;
 
+{ TEntryImageGrabber }
+
+constructor TEntryImageGrabber.Create(const AEntryName: string);
+begin
+  FEntryName := AEntryName;
+end;
+
+procedure TEntryImageGrabber.DoCreateStream(Sender: TObject; var AStream: TStream;
+  AItem: TFullZipFileEntry);
+begin
+  AStream := TMemoryStream.Create;
+end;
+
+procedure TEntryImageGrabber.DoDoneStream(Sender: TObject; var AStream: TStream;
+  AItem: TFullZipFileEntry);
+var
+  Img: TLazIntfImage;
+  Ext: string;
+  Cancel: boolean;
+begin
+  try
+    if AItem.IsDirectory then Exit;
+    Ext := ExtractFileExt(AItem.ArchiveFileName);
+    if not IsImageExt(Ext) then Exit;
+    AStream.Position := 0;
+    Img := DecodeImage(TMemoryStream(AStream), Ext);
+    Cancel := False;
+    Grab(AItem.ArchiveFileName, Img, -1, Cancel);
+  finally
+    AStream.Free;
+    AStream := nil;
+  end;
+end;
+
+procedure TEntryImageGrabber.Grab(const AName: string; AImage: TLazIntfImage;
+  AIndex: integer; var ACancel: boolean);
+begin
+  if (FImage = nil) and (CompareStr(AName, FEntryName) = 0) then
+    FImage := AImage
+  else
+    AImage.Free;
+  ACancel := FImage <> nil;
+end;
+
 procedure ForEachImage(const FileName: string; ACallback: TImageEntryProc;
   AMaxW: integer; AMaxH: integer);
 var
@@ -488,6 +562,48 @@ begin
   else
     Log('GetFirstImage: %s -> %dx%d',
       [ExtractFileName(FileName), Result.Width, Result.Height]);
+end;
+
+{ Targeted extraction: reads the central directory, looks up the exact
+  entry name, and decompresses only that one entry at full resolution. }
+function GetImageAsIntfImage(const FileName, EntryName: string): TLazIntfImage;
+var
+  UnZipper: TUnZipper;
+  Grabber: TEntryImageGrabber;
+  Files: TStringList;
+  i: integer;
+  Found: boolean;
+begin
+  Result := nil;
+  Grabber := TEntryImageGrabber.Create(EntryName);
+  UnZipper := TUnZipper.Create;
+  Files := TStringList.Create;
+  try
+    UnZipper.OnCreateStream := @Grabber.DoCreateStream;
+    UnZipper.OnDoneStream := @Grabber.DoDoneStream;
+    UnZipper.FileName := FileName;
+    UnZipper.Examine;
+    Found := False;
+    for i := 0 to UnZipper.Entries.Count - 1 do
+      if not UnZipper.Entries[i].IsDirectory and
+        (CompareStr(UnZipper.Entries[i].ArchiveFileName, EntryName) = 0) then
+      begin
+        Found := True;
+        Break;
+      end;
+    if Found then
+    begin
+      { UnZipFiles extracts only the listed entries — one decompression pass. }
+      Files.Add(EntryName);
+      UnZipper.UnZipFiles(Files);
+      Result := Grabber.FImage;
+      Grabber.FImage := nil;
+    end;
+  finally
+    Files.Free;
+    UnZipper.Free;
+    Grabber.Free;
+  end;
 end;
 
 function GetImageCount(const FileName: string): integer;

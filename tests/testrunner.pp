@@ -12,6 +12,7 @@ uses
   test_uservicemerge,
   test_uclimode,
   test_udlgseqbuilder,
+  test_udlgpageview,
   test_uservicevalidate,
   test_uservicecomicinfo,
   test_ucomicinfo,

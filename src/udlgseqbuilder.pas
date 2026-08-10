@@ -69,7 +69,7 @@ type
     FPreviewIndex: integer;
     FZoomLevel: double;
 
-    procedure ApplyZoom;
+    procedure ApplyZoom(const AOldZoom: double);
     procedure RebuildGrid;
     function ChapterRangeStr(AStart, ACount: integer): string;
     procedure RefreshStatus;
@@ -109,6 +109,8 @@ uses
 const
   LVM_SETICONSPACING = $1000 + 53;
   LVM_ARRANGE = $1000 + 22;
+  { Wheel-delta divisor for preview panning (~40 px per notch) }
+  PreviewScrollStep = 3;
 
 { TdlgSeqBuilder }
 
@@ -366,7 +368,7 @@ begin
     FPreviewPages.Count]);
   BtnPrevPage.Enabled := FPreviewIndex > 0;
   BtnNextPage.Enabled := FPreviewIndex < FPreviewPages.Count - 1;
-  ApplyZoom;
+  ApplyZoom(FZoomLevel);
 end;
 
 procedure TdlgSeqBuilder.BtnPrevPageClick(Sender: TObject);
@@ -374,6 +376,7 @@ begin
   if FPreviewIndex > 0 then
   begin
     Dec(FPreviewIndex);
+    FZoomLevel := 1.0;
     ShowPreviewPage;
   end;
 end;
@@ -383,6 +386,7 @@ begin
   if (FPreviewPages <> nil) and (FPreviewIndex < FPreviewPages.Count - 1) then
   begin
     Inc(FPreviewIndex);
+    FZoomLevel := 1.0;
     ShowPreviewPage;
   end;
 end;
@@ -427,22 +431,39 @@ end;
 
 procedure TdlgSeqBuilder.PreviewMouseWheel(Sender: TObject; Shift: TShiftState;
   WheelDelta: integer; MousePos: TPoint; var Handled: boolean);
+var
+  OldZoom: double;
 begin
-  if not (ssCtrl in Shift) then Exit;
+  if not (ssCtrl in Shift) then
+  begin
+    { Plain wheel pans the preview vertically (top to bottom);
+      shift+wheel pans horizontally (left/right). }
+    if (FPreviewPages = nil) or (FPreviewPages.Count = 0) then Exit;
+    Handled := True;
+    if ssShift in Shift then
+      ScrollBoxPreview.HorzScrollBar.Position :=
+        ScrollBoxPreview.HorzScrollBar.Position - WheelDelta div PreviewScrollStep
+    else
+      ScrollBoxPreview.VertScrollBar.Position :=
+        ScrollBoxPreview.VertScrollBar.Position - WheelDelta div PreviewScrollStep;
+    Exit;
+  end;
+
   if (FPreviewPages = nil) or (FPreviewPages.Count = 0) then Exit;
+  OldZoom := FZoomLevel;
   if WheelDelta > 0 then
     FZoomLevel := FZoomLevel + 0.15
   else
     FZoomLevel := FZoomLevel - 0.15;
   if FZoomLevel < 1.0 then FZoomLevel := 1.0;
   if FZoomLevel > 5.0 then FZoomLevel := 5.0;
-  ApplyZoom;
+  ApplyZoom(OldZoom);
   Handled := True;
 end;
 
-procedure TdlgSeqBuilder.ApplyZoom;
+procedure TdlgSeqBuilder.ApplyZoom(const AOldZoom: double);
 var
-  SrcW, SrcH, AreaW, AreaH: integer;
+  SrcW, SrcH, AreaW, AreaH, OldCX, OldCY: integer;
   Ratio: double;
 begin
   if (FPreviewPages = nil) or (FPreviewIndex < 0) or
@@ -453,6 +474,8 @@ begin
     ImgPreview.Stretch := True;
     ImgPreview.Proportional := True;
     ImgPreview.Center := True;
+    ScrollBoxPreview.HorzScrollBar.Position := 0;
+    ScrollBoxPreview.VertScrollBar.Position := 0;
   end
   else
   begin
@@ -464,6 +487,13 @@ begin
     Ratio := AreaW / SrcW;
     if AreaH / SrcH < Ratio then
       Ratio := AreaH / SrcH;
+
+    { Anchor the zoom at the viewport centre: capture the content point
+      under the centre, then keep it stationary while the image scales
+      from the top-left. }
+    OldCX := ScrollBoxPreview.HorzScrollBar.Position + AreaW div 2;
+    OldCY := ScrollBoxPreview.VertScrollBar.Position + AreaH div 2;
+
     ImgPreview.Align := alNone;
     ImgPreview.Stretch := True;
     ImgPreview.Proportional := False;
@@ -472,6 +502,11 @@ begin
     ImgPreview.Top := 0;
     ImgPreview.Width := Round(SrcW * Ratio * FZoomLevel);
     ImgPreview.Height := Round(SrcH * Ratio * FZoomLevel);
+
+    ScrollBoxPreview.HorzScrollBar.Position :=
+      CenterAnchorScrollPos(OldCX, AOldZoom, FZoomLevel, AreaW, ImgPreview.Width);
+    ScrollBoxPreview.VertScrollBar.Position :=
+      CenterAnchorScrollPos(OldCY, AOldZoom, FZoomLevel, AreaH, ImgPreview.Height);
   end;
 end;
 

@@ -100,6 +100,7 @@ uses
   uloaderthread,
   uPageEditModel,
   ufrmjobmonitor,
+  udlgpageview,
   uservicebase;
 
 type
@@ -315,6 +316,10 @@ type
     FRenumber: boolean;
     FPageFile: string;  // currently open CBZ file path
     FJobMonitor: TfrmJobMonitor;  // non-modal job progress window
+    { Reusable non-modal floating window showing the selected page enlarged
+      (opened with Space).  Owned by the form; hidden, not destroyed, on
+      close so a later Space is instant. }
+    FPageView: TdlgPageView;
     { Shift+click anchors for Explorer-style multi-select (item index, -1 = none). }
     FAnchorFiles: integer;
     FAnchorPages: integer;
@@ -355,6 +360,9 @@ type
     procedure OpenPreview(AItem: TListItem);
     procedure ClearPreview;
     procedure HidePreview;
+    { Opens (or re-focuses and reloads) the floating page-view window with
+      the currently selected preview page at full resolution. }
+    procedure ShowPageView;
     { True while the open preview is a .cbr (RAR) archive: the page model
       is read-only and the conversion path is the only way to edit it. }
     function IsReadOnlyPreview: boolean;
@@ -498,6 +506,7 @@ end;
     F8           — validate all .cbz files
     Ctrl+S       — save staged changes
     Ctrl+A       — select all in the currently-focused list view
+    Space        — show the selected page enlarged in a floating window
 }
 procedure TfrmMain.FormKeyDown(Sender: TObject; var Key: word; Shift: TShiftState);
 begin
@@ -539,6 +548,21 @@ begin
     else
       LVFiles.SelectAll;
     Key := 0;
+  end
+  else if (Key = VK_SPACE) and (Shift = []) and PanelSingleFile.Visible then
+  begin
+    { Space activates the focused control natively (typing in EditDir,
+      pressing a button/checkbox, moving the zoom slider…): open the page
+      view only when focus is somewhere Space has no meaning of its own. }
+    if not (ActiveControl is TCustomEdit) and
+       not (ActiveControl is TCustomButton) and
+       not (ActiveControl is TCheckBox) and
+       not (ActiveControl is TCustomComboBox) and
+       not (ActiveControl is TCustomTrackBar) then
+    begin
+      ShowPageView;
+      Key := 0;
+    end;
   end;
 end;
 
@@ -969,6 +993,38 @@ begin
   PanelSingleFile.Visible := False;
   SplitterPreview.Visible := False;
   FPendingFile := '';
+  { The floating page view shows a page of the closed preview; hide it too. }
+  if FPageView <> nil then
+    FPageView.Hide;
+end;
+
+{
+  ShowPageView
+  ------------
+  Opens (or re-focuses and reloads) the floating page-view window with the
+  currently selected page of the open preview, extracted at full resolution
+  from the CBZ on disk.  The extraction key is the page's ORIGINAL archive
+  name (OrigName) — pending renames/reorders in the model have not been
+  written to the file yet, so the on-disk entry still carries the original
+  name.
+}
+procedure TfrmMain.ShowPageView;
+var
+  Idx: integer;
+begin
+  if (LVPages.Selected = nil) or (FPagesThread <> nil) or (FPageFile = '') then
+    Exit;
+  Idx := PtrInt(LVPages.Selected.Data);
+  if (Idx < 0) or (Idx > High(FPages)) then Exit;
+  if FPages[Idx].OrigName = '' then Exit;
+
+  if FPageView = nil then
+    FPageView := TdlgPageView.Create(Self);
+  FPageView.LoadPage(FPageFile, FPages[Idx].OrigName,
+    ExtractFileName(FPageFile) + ' — ' + FPages[Idx].OrigName);
+  if not FPageView.Visible then
+    FPageView.Show;
+  FPageView.BringToFront;
 end;
 
 {

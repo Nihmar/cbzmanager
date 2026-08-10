@@ -432,9 +432,12 @@ begin
     Img := nil;
     HasComicInfo := False;
     try
-      { Single ZIP pass: first image + ComicInfo presence, decoded at
-        thumbnail size. }
-      GetFirstImageInfo(FilePath, Img, HasComicInfo, CacheW, CacheH);
+      { Single pass: first image + ComicInfo presence, decoded at
+        thumbnail size.  CBR archives (RAR) go through libarchive. }
+      if SameText(ExtractFileExt(FilePath), CBR_EXT) then
+        GetCbrFirstImageInfo(FilePath, Img, HasComicInfo, CacheW, CacheH)
+      else
+        GetFirstImageInfo(FilePath, Img, HasComicInfo, CacheW, CacheH);
     except
       on E: Exception do
       begin
@@ -466,24 +469,31 @@ begin
   InterlockedIncrement(FFinished);
 end;
 
-{ Iterates over every .cbz file in FDir in sorted order, distributing the
-  work across WorkerCount concurrent TLoadWorkers, and waits until all of
-  them finish (or this pool is terminated). }
+{ Iterates over every .cbz and .cbr file in FDir in sorted order,
+  distributing the work across WorkerCount concurrent TLoadWorkers, and
+  waits until all of them finish (or this pool is terminated).  CBR (RAR)
+  archives are collected alongside CBZ so they appear in the file list;
+  the per-file workers decode them via libarchive. }
 procedure TLoadThread.Produce;
 var
   Dir: string;
   FileList: TStringArray;
+  CbrList: TStringArray;
   i: integer;
 begin
   Dir := IncludeTrailingPathDelimiter(FDir);
   FileList := CollectCBZFiles(FDir);
+  CbrList := CollectCBRFiles(FDir);
   FNames := TStringList.Create;
   try
     for i := 0 to High(FileList) do
       FNames.Add(FileList[i]);
+    for i := 0 to High(CbrList) do
+      FNames.Add(CbrList[i]);
     FNames.Sort;
     FTotal := FNames.Count;
-    Log('Thread: %d .cbz files found in %s', [FTotal, Dir]);
+    Log('Thread: %d comic archives found in %s (%d .cbr)', [FTotal, Dir,
+      Length(CbrList)]);
     if FTotal = 0 then Exit;
 
     FJobCursor := 0;
@@ -540,13 +550,17 @@ begin
   FFile := AFile;
 end;
 
-{ Opens the single CBZ file and iterates over every page via
-  ForEachImage.  HandlePage receives each decoded page.  Pages are decoded
-  at CacheW×CacheH (JPEG DCT scaling) so large archives load quickly. }
+{ Opens the single archive and iterates over every page via ForEachImage
+  (or ForEachCbrImage for RAR/CBR archives).  HandlePage receives each
+  decoded page.  Pages are decoded at CacheW×CacheH (JPEG DCT scaling) so
+  large archives load quickly. }
 procedure TPagesThread.Produce;
 begin
   Log('Pages: opening %s', [ExtractFileName(FFile)]);
-  ForEachImage(FFile, @HandlePage, CacheW, CacheH);
+  if SameText(ExtractFileExt(FFile), CBR_EXT) then
+    ForEachCbrImage(FFile, @HandlePage, CacheW, CacheH)
+  else
+    ForEachImage(FFile, @HandlePage, CacheW, CacheH);
 end;
 
 { ForEachImage callback: scales the decoded full-size image to the

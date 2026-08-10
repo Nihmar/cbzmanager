@@ -22,6 +22,14 @@ type
     procedure TestGetImageCount_EmptyFile;
     procedure TestGetImageFileNames_ValidFile;
     procedure TestCollectZipEntries;
+    procedure TestCollectCBRFiles;
+    procedure TestCollectCbrEntries;
+    procedure TestForEachCbrImage;
+    procedure TestGetCbrFirstImageInfo;
+    procedure TestGetCbrImageAsIntfImage;
+    procedure TestConvertCbrToCbz;
+    procedure TestConvertCbrToCbz_SkipsNonImage;
+    procedure TestConvertCbrToCbz_RealRar;
     procedure TestValidateCBZImages;
     procedure TestMergeIntoVolume;
     procedure TestMergeIntoVolume_SkipsNonImage;
@@ -38,12 +46,42 @@ type
   published
     procedure TestIsImageExt;
     procedure TestReaderClassForExt;
+    procedure TestGlobalFilePercent;
   end;
 
 implementation
 
 uses
-  uImgUtil, test_helpers, FileUtil;
+  uImgUtil, uarchive, uservicebase, test_helpers, FileUtil, Process;
+
+{ Counting image callback for ForEachCbrImage. }
+type
+  TImageCounter = class
+    Count: integer;
+    FirstName: string;
+    RankSum: integer;
+    procedure CountImage(const AName: string; AImage: TLazIntfImage;
+      AIndex: integer; var ACancel: boolean);
+  end;
+
+procedure TImageCounter.CountImage(const AName: string; AImage: TLazIntfImage;
+  AIndex: integer; var ACancel: boolean);
+begin
+  Inc(Count);
+  if Count = 1 then
+    FirstName := AName;
+  Inc(RankSum, AIndex);
+  AImage.Free;   { the callback owns the decoded image }
+end;
+
+{ Build a ZIP-format .cbr: libarchive auto-detects the container, so the
+  whole CBR pipeline can be tested without a RAR compressor. }
+function MakeCbr(const ADir, AName: string; const Entries: array of TMemoryStream;
+  const Names: array of string): string;
+begin
+  Result := ADir + AName;
+  CreateCBZ(Result, Entries, Names);
+end;
 
 { TZipEditorTest }
 
@@ -114,6 +152,271 @@ begin
   AssertEquals('page001.png', 'page001.png', Names[0]);
   AssertEquals('page002.png', 'page002.png', Names[1]);
   AssertEquals('page003.png', 'page003.png', Names[2]);
+end;
+
+procedure TZipEditorTest.TestCollectCBRFiles;
+var
+  Files: TStringArray;
+  FS: TFileStream;
+  HasOne, HasTwo: boolean;
+  i: integer;
+begin
+  { The directory scan must pick up .cbr files (the file list merges
+    CollectCBZFiles + CollectCBRFiles), matching only .cbr — and be
+    case-insensitive like CollectCBZFiles.  The scan order is
+    filesystem-dependent; TLoadThread sorts the merged list. }
+  FS := TFileStream.Create(FTempDir + 'one.cbr', fmCreate);
+  FS.Free;
+  FS := TFileStream.Create(FTempDir + 'two.CBR', fmCreate);
+  FS.Free;
+  FS := TFileStream.Create(FTempDir + 'three.cbz', fmCreate);
+  FS.Free;
+
+  Files := CollectCBRFiles(FTempDir);
+  AssertEquals('2 .cbr files', 2, Length(Files));
+  HasOne := False;
+  HasTwo := False;
+  for i := 0 to High(Files) do
+  begin
+    if Files[i] = 'one.cbr' then HasOne := True;
+    if Files[i] = 'two.CBR' then HasTwo := True;
+  end;
+  AssertTrue('one.cbr found', HasOne);
+  AssertTrue('two.CBR found (case-insensitive)', HasTwo);
+end;
+
+procedure TZipEditorTest.TestCollectCbrEntries;
+var
+  Png1, Png2, Txt: TMemoryStream;
+  Path: string;
+  Entries: TZipEntries;
+begin
+  AssertTrue('libarchive present', CbrSupported);
+  Png1 := CreateMinimalPNGStream;
+  Png2 := CreateMinimalPNGStream;
+  Txt := TMemoryStream.Create;
+  Txt.WriteAnsiString('credits');
+  Txt.Position := 0;
+  Path := MakeCbr(FTempDir, 'book.cbr', [Png1, Txt, Png2],
+    ['page002.png', 'credits.txt', 'page001.png']);
+  Png1.Free;
+  Png2.Free;
+  Txt.Free;
+
+  Entries := CollectCbrEntries(Path);
+  try
+    { All entries (including non-images) are collected, in archive order. }
+    AssertEquals('3 entries', 3, Length(Entries));
+    AssertEquals('first entry', 'page002.png', Entries[0].Name);
+    AssertEquals('second entry', 'credits.txt', Entries[1].Name);
+    AssertEquals('third entry', 'page001.png', Entries[2].Name);
+    AssertTrue('data non-empty', Entries[0].Data.Size > 0);
+  finally
+    FreeZipEntries(Entries);
+  end;
+end;
+
+procedure TZipEditorTest.TestForEachCbrImage;
+var
+  Png1, Png2, Txt: TMemoryStream;
+  Path: string;
+  Counter: TImageCounter;
+begin
+  AssertTrue('libarchive present', CbrSupported);
+  { Scrambled storage order: page002 stored before page001. }
+  Png1 := CreateMinimalPNGStream;
+  Png2 := CreateMinimalPNGStream;
+  Txt := TMemoryStream.Create;
+  Txt.WriteAnsiString('credits');
+  Txt.Position := 0;
+  Path := MakeCbr(FTempDir, 'order.cbr', [Png1, Txt, Png2],
+    ['page002.png', 'credits.txt', 'page001.png']);
+  Png1.Free;
+  Png2.Free;
+  Txt.Free;
+
+  Counter := TImageCounter.Create;
+  try
+    ForEachCbrImage(Path, @Counter.CountImage);
+    AssertEquals('2 images decoded', 2, Counter.Count);
+    { The callback fires in archive order (like the ZIP walker); AIndex is
+      the alphabetical rank, so ranks 0+1 in whatever order they arrive. }
+    AssertEquals('first in archive order', 'page002.png', Counter.FirstName);
+    AssertEquals('ranks 0+1', 1, Counter.RankSum);
+  finally
+    Counter.Free;
+  end;
+end;
+
+procedure TZipEditorTest.TestGetCbrFirstImageInfo;
+var
+  Png1, Png2, Txt: TMemoryStream;
+  Path: string;
+  Img: TLazIntfImage;
+  HasComicInfo: boolean;
+begin
+  AssertTrue('libarchive present', CbrSupported);
+  Png1 := CreateMinimalPNGStream;
+  Png2 := CreateMinimalPNGStream;
+  Txt := TMemoryStream.Create;
+  Txt.WriteAnsiString('credits');
+  Txt.Position := 0;
+  Path := MakeCbr(FTempDir, 'first.cbr', [Png1, Png2],
+    ['page002.png', 'page001.png']);
+  Png1.Free;
+  Png2.Free;
+  Txt.Free;
+
+  Img := nil;
+  AssertTrue('first image decoded',
+    GetCbrFirstImageInfo(Path, Img, HasComicInfo, 0, 0));
+  try
+    AssertNotNull('image', Img);
+    if Img <> nil then
+    begin
+      AssertEquals('1x1 png width', 1, Img.Width);
+      AssertEquals('1x1 png height', 1, Img.Height);
+    end;
+  finally
+    Img.Free;
+  end;
+  AssertFalse('no ComicInfo', HasComicInfo);
+
+  { Missing entries -> false, no exception. }
+  AssertFalse('garbage file', GetCbrFirstImageInfo(FTempDir + 'nope.cbr',
+    Img, HasComicInfo, 0, 0));
+end;
+
+procedure TZipEditorTest.TestGetCbrImageAsIntfImage;
+var
+  Png: TMemoryStream;
+  Path: string;
+  Img: TLazIntfImage;
+begin
+  AssertTrue('libarchive present', CbrSupported);
+  Png := CreateMinimalPNGStream;
+  Path := MakeCbr(FTempDir, 'single.cbr', [Png], ['page_0001.png']);
+  Png.Free;
+
+  Img := GetCbrImageAsIntfImage(Path, 'page_0001.png');
+  try
+    AssertNotNull('existing entry decodes', Img);
+  finally
+    Img.Free;
+  end;
+  Img := GetCbrImageAsIntfImage(Path, 'missing.png');
+  AssertNull('missing entry returns nil', Img);
+end;
+
+procedure TZipEditorTest.TestConvertCbrToCbz;
+var
+  Png1, Png2, Txt: TMemoryStream;
+  Path, Target: string;
+  Entries: TZipEntries;
+  FS: TFileStream;
+  i: integer;
+begin
+  AssertTrue('libarchive present', CbrSupported);
+  { 2 images + credits.txt: the txt must not become a page. }
+  Png1 := CreateMinimalPNGStream;
+  Png2 := CreateMinimalPNGStream;
+  Txt := TMemoryStream.Create;
+  Txt.WriteAnsiString('credits');
+  Txt.Position := 0;
+  Path := MakeCbr(FTempDir, 'conv.cbr', [Png1, Txt, Png2],
+    ['page002.png', 'credits.txt', 'page001.png']);
+  Png1.Free;
+  Png2.Free;
+  Txt.Free;
+
+  Entries := ConvertCbrToCbz(Path);
+  AssertEquals('2 pages', 2, Length(Entries));
+  AssertEquals('page_001.png', 'page_001.png', Entries[0].Name);
+  AssertEquals('page_002.png', 'page_002.png', Entries[1].Name);
+  for i := 0 to High(Entries) do
+    AssertTrue('data non-empty', Entries[i].Data.Size > 0);
+
+  { Writing the entries produces a readable CBZ. }
+  Target := FTempDir + 'conv.cbz';
+  WriteZipFromEntriesDeflated(Target, Entries);
+  FreeZipEntries(Entries);
+
+  { The source .cbr is never modified. }
+  FS := TFileStream.Create(Path, fmOpenRead);
+  try
+    AssertTrue('source still present', FS.Size > 0);
+  finally
+    FS.Free;
+  end;
+  AssertTrue('target exists', FileExists(Target));
+  AssertEquals('target readable', 2, GetImageCount(Target));
+end;
+
+procedure TZipEditorTest.TestConvertCbrToCbz_SkipsNonImage;
+var
+  Png: TMemoryStream;
+  Path: string;
+  Entries: TZipEntries;
+begin
+  AssertTrue('libarchive present', CbrSupported);
+  { Only a text file: no pages survive -> empty result, no crash. }
+  Png := TMemoryStream.Create;
+  Png.WriteAnsiString('nothing here');
+  Png.Position := 0;
+  Path := MakeCbr(FTempDir, 'empty.cbr', [Png], ['readme.txt']);
+  Png.Free;
+
+  Entries := ConvertCbrToCbz(Path);
+  try
+    AssertEquals('0 pages', 0, Length(Entries));
+  finally
+    FreeZipEntries(Entries);
+  end;
+end;
+
+procedure TZipEditorTest.TestConvertCbrToCbz_RealRar;
+var
+  Png: TMemoryStream;
+  PngFile, Path: string;
+  Proc: TProcess;
+  Entries: TZipEntries;
+begin
+  { True RAR coverage requires the rar compressor; skip when absent. }
+  if FindDefaultExecutablePath('rar') = '' then Exit;
+  AssertTrue('libarchive present', CbrSupported);
+
+  PngFile := FTempDir + 'page.png';
+  Png := CreateMinimalPNGStream;
+  Png.SaveToFile(PngFile);
+  Png.Free;
+
+  Path := FTempDir + 'real.cbr';
+  Proc := TProcess.Create(nil);
+  try
+    Proc.Executable := 'rar';
+    Proc.Parameters.Add('a');
+    Proc.Parameters.Add('-idq');
+    Proc.Parameters.Add('-ep');   { store bare names, no path prefix }
+    Proc.Parameters.Add(Path);
+    Proc.Parameters.Add(PngFile);
+    Proc.Options := Proc.Options + [poWaitOnExit];
+    Proc.Execute;
+    Proc.WaitOnExit;
+  finally
+    Proc.Free;
+  end;
+  if not FileExists(Path) then
+    Fail('rar compressor did not produce ' + Path);
+
+  Entries := ConvertCbrToCbz(Path);
+  try
+    AssertEquals('1 page', 1, Length(Entries));
+    AssertEquals('page_001.png', 'page_001.png', Entries[0].Name);
+    AssertTrue('data non-empty', Entries[0].Data.Size > 0);
+  finally
+    FreeZipEntries(Entries);
+  end;
+  AssertTrue('source .cbr untouched', FileExists(Path));
 end;
 
 procedure TZipEditorTest.TestCollectZipEntries;
@@ -396,6 +699,24 @@ begin
   AssertNotNull('.tif', ReaderClassForExt('.tif'));
   AssertNull('.webp', ReaderClassForExt('.webp'));  // handled by uWebP separately
   AssertNull('.txt', ReaderClassForExt('.txt'));
+end;
+
+procedure TImageUtilTest.TestGlobalFilePercent;
+begin
+  { Folds within-file progress into a smooth global sweep across the batch:
+    file 0 of 4 at 50% -> 12, last file at 100% -> 100. }
+  AssertEquals('file 0/4 at 50%', 12, GlobalFilePercent(0, 4, 50));
+  AssertEquals('file 1/4 at 0%', 25, GlobalFilePercent(1, 4, 0));
+  AssertEquals('file 2/4 at 100%', 75, GlobalFilePercent(2, 4, 100));
+  AssertEquals('file 3/4 at 100%', 100, GlobalFilePercent(3, 4, 100));
+  { Monotonic within a file: never regresses while pages advance. }
+  AssertTrue('monotonic', GlobalFilePercent(1, 4, 10) <=
+    GlobalFilePercent(1, 4, 90));
+  { Guards }
+  AssertEquals('no files -> 0', 0, GlobalFilePercent(0, 0, 50));
+  AssertEquals('negative total -> 0', 0, GlobalFilePercent(0, -3, 50));
+  { Single file: within-file percent maps directly. }
+  AssertEquals('single file', 50, GlobalFilePercent(0, 1, 50));
 end;
 
 initialization

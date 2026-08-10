@@ -6,6 +6,7 @@ A FreePascal / Lazarus desktop application for managing CBZ (Comic Book ZIP) fil
 
 - **Validate** — verify CBZ archives are valid ZIPs with non-corrupted images (JPEG, PNG, BMP, GIF, WebP)
 - **Convert to WebP** — re-encode images as WebP (configurable quality), keeping originals only when smaller; rename to `page_NNNN.*`; optional `_OLD.cbz` backup
+- **Convert CBR to CBZ** — batch-convert RAR comic archives to CBZ entirely in RAM (via libarchive, loaded dynamically); read-only .cbr previews in the main window
 - **Merge chapters** — combine chapter files (`Title - NNNN.cbz`) into volumes (`Title VNNN.cbz`) with auto-calculated chapters-per-volume
 - **In-place page editor** — delete, reorder, sort, reverse, and renumber pages inside a single CBZ with live preview, stage bar (save/revert), and optional backup toggle
 - **ComicInfo.xml** — view, edit, remove, or generate `ComicInfo.xml` metadata embedded in CBZ archives
@@ -48,6 +49,7 @@ needed) and exits, otherwise the desktop application starts.
 cbzmanager validate <dir>                 # verify CBZ files and images
 cbzmanager convert-webp <dir> [--delete]  # convert images to WebP (quality 75%, only if smaller)
 cbzmanager merge <dir> [--delete] [--force] [--chapters N1,N2,...] [--chapters-per-volume N]
+cbzmanager cbr-to-cbz <dir> [--delete]    # convert CBR (RAR) archives to CBZ
 cbzmanager --help
 cbzmanager --version
 ```
@@ -57,7 +59,8 @@ cbzmanager --version
   `1` runtime error, `2` usage error.
 - `merge` processes every series found in the directory, one after the other.
 - The commands mirror the Python reference CLI
-  (`porting/cbz_manager`); `delete-pages`, `find-similar` and
+  (`porting/cbz_manager`); `cbr-to-cbz` is a GUI/CLI extension with no
+  Python counterpart, and `delete-pages`, `find-similar` and
   `delete-pages-by-id` are not ported.
 - A man page is provided: `man/cbzmanager.1` — render it from the repo with
   `man -l man/cbzmanager.1`, or install it system-wide with
@@ -110,6 +113,7 @@ src/
   uservicevalidate.pas           CBZ validation service
   userviceconvert.pas            WebP conversion service
   uservicemerge.pas              Chapter merge service
+  uservicecbr.pas                CBR-to-CBZ conversion service
   uservicecomicinfo.pas          ComicInfo.xml management service
   uthreadservice.pas             Background thread runner for services
   uzipeditor.pas                 ZIP/CBZ read/write operations
@@ -118,16 +122,19 @@ src/
   uPageEditModel.pas             In-memory page editing model
   uimgutil.pas                   Image utility functions
   uwebp.pas                      libwebp FFI dynamic loader
+  uarchive.pas                   libarchive FFI dynamic loader (CBR/RAR)
   uloaderthread.pas              Background thumbnail loader
   ulog.pas                       Thread-safe file logger
   usettings.pas                  Persisted application settings
   udlgbase.pas                   Shared dialog chrome and helpers
   udlgvalidate.pas / .lfm       Validate CBZ dialog
   udlgwebp.pas / .lfm           Convert to WebP dialog
+  udlgcbr.pas / .lfm            Convert CBR to CBZ dialog
   udlgmerge.pas / .lfm          Merge chapters dialog
   udlgcomicinfo.pas / .lfm      Remove ComicInfo.xml dialog
   udlgcomicinfoeditor.pas / .lfm  View/edit ComicInfo.xml dialog
   udlgseqbuilder.pas / .lfm     Volume sequence builder dialog
+  udlgpageview.pas / .lfm       Floating page-view window
   udlgrows.pas / .lfm           Delete pages by range dialog
   udlgconvertresults.pas / .lfm  Conversion summary dialog
   ufrmjobmonitor.pas / .lfm     Non-modal job monitor window
@@ -140,6 +147,7 @@ tests/
   test_uservicemerge.pas         Merge service tests
   test_uservicecomicinfo.pas     ComicInfo service tests
   test_ucomicinfo.pas            ComicInfo XML parsing tests
+  test_udlgpageview.pas          Floating page-view dialog tests
 man/
   cbzmanager.1                   Man page (section 1)
 ```

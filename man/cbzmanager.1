@@ -33,6 +33,11 @@ cbzmanager \- CBZ comic archive manager (desktop application and headless CLI)
 .RB ]
 .br
 .B cbzmanager
+.B cbr\-to\-cbz
+.I dir
+.RB [ \-\-delete ]
+.br
+.B cbzmanager
 .B \-\-help
 .br
 .B cbzmanager
@@ -41,8 +46,8 @@ cbzmanager \- CBZ comic archive manager (desktop application and headless CLI)
 .B cbzmanager
 is a Free Pascal / Lazarus desktop application for managing CBZ (Comic Book
 ZIP) archives: validating archives, converting pages to WebP, merging
-chapter files into volumes, editing pages in place, and handling
-ComicInfo.xml metadata.
+chapter files into volumes, editing pages in place, handling
+ComicInfo.xml metadata, and converting CBR (RAR) archives to CBZ.
 .PP
 Launched without arguments, the desktop application starts (it requires a
 graphical session).
@@ -51,6 +56,7 @@ When the first argument is a known command
 .RB ( validate ,
 .BR convert\-webp ,
 .BR merge ,
+.BR cbr\-to\-cbz ,
 .BR \-\-help ,
 .BR \-\-version ),
 the program runs
@@ -65,7 +71,11 @@ their semantics mirror the Python reference CLI
 .RB ( cbz\-manager ,
 in the
 .I porting/cbz_manager
-directory of the source tree); the operations
+directory of the source tree) except
+.BR cbr\-to\-cbz ,
+which has no Python counterpart (see
+.BR merge
+below for the documented divergences); the operations
 .BR delete\-pages ,
 .BR find\-similar ,
 and
@@ -131,15 +141,38 @@ complete volume are reported and skipped unless
 is given.  Volume numbering continues after the highest existing volume.
 Exits 0 on success or on a benign no-op ("not enough chapters", "no
 chapter files"), 1 on error.
+.TP
+.B cbr\-to\-cbz
+.I dir
+.RB [ \-\-delete ]
+Converts every
+.I .cbr
+(RAR) file in
+.I dir
+to a
+.I .cbz
+archive, entirely in memory: image pages are renumbered sequentially as
+.IR page_NNNN.* ,
+non-image entries and ComicInfo.xml are dropped.  Files whose
+.I .cbz
+target already exists are skipped.  The
+.I .cbr
+source is kept unless
+.B \-\-delete
+is given.  RAR support is provided by the libarchive library, loaded
+dynamically at runtime; when libarchive is unavailable the command exits 1
+with an explanatory message.  This command has no counterpart in the Python
+reference CLI.  Exits 0 on success, 1 on error.
 .SH OPTIONS
 .TP
 .B \-\-delete
 Delete the original files after processing instead of renaming them to
 .I *_OLD.cbz.
 Valid for
-.BR convert\-webp
+.BR convert\-webp ,
+.BR merge ,
 and
-.BR merge ;
+.BR cbr\-to\-cbz ;
 accepted but unused for
 .BR validate .
 .TP
@@ -189,8 +222,8 @@ value.
 .TP
 .I cbzmanager.log
 Startup log written next to the executable.  Records, among other things,
-which libwebp library was loaded (WebP support is optional and loaded
-dynamically at runtime).
+which libwebp and libarchive libraries were loaded (WebP and CBR support
+are optional and loaded dynamically at runtime).
 .SH EXAMPLES
 Merge every series in a folder into volumes:
 .PP
@@ -222,6 +255,14 @@ Deep-validate a folder of downloaded archives:
 .nf
 .RS
 cbzmanager validate ~/manga/downloads
+.RE
+.fi
+.PP
+Convert a folder of RAR archives to CBZ, deleting the sources:
+.PP
+.nf
+.RS
+cbzmanager cbr-to-cbz --delete ~/manga/rar-archive
 .RE
 .fi
 .SH SEE ALSO

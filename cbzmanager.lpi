@@ -97,6 +97,14 @@
         <UnitName Value="uWebP"/>
       </Unit>
       <Unit>
+        <Filename Value="src\uarchive.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\uservicecbr.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
         <Filename Value="src\ulog.pas"/>
         <IsPartOfProject Value="True"/>
         <UnitName Value="uLog"/>

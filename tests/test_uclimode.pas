@@ -26,6 +26,11 @@ type
     procedure RunHeadless_ConvertWebp;
     procedure RunHeadless_ConvertWebp_Delete;
 
+    procedure RunHeadless_CbrToCbz;
+    procedure RunHeadless_CbrToCbz_Delete;
+    procedure RunHeadless_CbrToCbz_UsageError;
+    procedure RunHeadless_CbrToCbz_SkipsExisting;
+
     procedure RunHeadless_Merge;
     procedure RunHeadless_Merge_Force;
     procedure RunHeadless_Merge_FlagsBeforeDir;
@@ -45,6 +50,7 @@ uses
   uZipEditor,
   uclimode,
   uservicebase,
+  uarchive,
   test_helpers,
   FileUtil;
 
@@ -96,6 +102,7 @@ begin
   AssertTrue('validate', IsHeadlessCommand('validate'));
   AssertTrue('convert-webp', IsHeadlessCommand('convert-webp'));
   AssertTrue('merge', IsHeadlessCommand('merge'));
+  AssertTrue('cbr-to-cbz', IsHeadlessCommand('cbr-to-cbz'));
   AssertTrue('--help', IsHeadlessCommand('--help'));
   AssertTrue('-h', IsHeadlessCommand('-h'));
   AssertTrue('help', IsHeadlessCommand('help'));
@@ -225,10 +232,98 @@ begin
   AssertTrue('file still present', FileExists(FTempDir + 'conv.cbz'));
 end;
 
+{ cbr-to-cbz }
+
+procedure TClimodeTest.RunHeadless_CbrToCbz;
+var
+  Png1, Png2, Txt: TMemoryStream;
+  Args: TStringArray;
+  Names: TStringArray;
+begin
+  AssertTrue('libarchive present', CbrSupported);
+  { A ZIP-format .cbr (libarchive auto-detects): 2 pages + a text file. }
+  Png1 := CreateMinimalPNGStream;
+  Png2 := CreateMinimalPNGStream;
+  Txt := TMemoryStream.Create;
+  Txt.WriteAnsiString('credits');
+  Txt.Position := 0;
+  CreateCBZ(FTempDir + 'comic.cbr', [Png1, Txt, Png2],
+    ['page002.png', 'credits.txt', 'page001.png']);
+  Png1.Free;
+  Png2.Free;
+  Txt.Free;
+
+  SetLength(Args, 2);
+  Args[0] := 'cbr-to-cbz';
+  Args[1] := FTempDir;
+  AssertEquals(EXIT_OK, RunHeadless(Args));
+  AssertTrue('target .cbz created', FileExists(FTempDir + 'comic.cbz'));
+  AssertTrue('source kept by default', FileExists(FTempDir + 'comic.cbr'));
+  Names := GetImageFileNames(FTempDir + 'comic.cbz');
+  AssertEquals('2 renumbered pages', 2, Length(Names));
+  if Length(Names) = 2 then
+  begin
+    AssertEquals('page_001.png', 'page_001.png', Names[0]);
+    AssertEquals('page_002.png', 'page_002.png', Names[1]);
+  end;
+end;
+
+procedure TClimodeTest.RunHeadless_CbrToCbz_Delete;
+var
+  Png: TMemoryStream;
+  Args: TStringArray;
+begin
+  AssertTrue('libarchive present', CbrSupported);
+  Png := CreateMinimalPNGStream;
+  CreateCBZ(FTempDir + 'del.cbr', [Png], ['p1.png']);
+  Png.Free;
+
+  SetLength(Args, 3);
+  Args[0] := 'cbr-to-cbz';
+  Args[1] := FTempDir;
+  Args[2] := '--delete';
+  AssertEquals(EXIT_OK, RunHeadless(Args));
+  AssertTrue('target .cbz created', FileExists(FTempDir + 'del.cbz'));
+  AssertFalse('source deleted with --delete', FileExists(FTempDir + 'del.cbr'));
+end;
+
+procedure TClimodeTest.RunHeadless_CbrToCbz_SkipsExisting;
+var
+  Png: TMemoryStream;
+  Args: TStringArray;
+begin
+  AssertTrue('libarchive present', CbrSupported);
+  Png := CreateMinimalPNGStream;
+  CreateCBZ(FTempDir + 'skip.cbr', [Png], ['p1.png']);
+  Png.Free;
+  Png := CreateMinimalPNGStream;
+  CreateCBZ(FTempDir + 'skip.cbz', [Png], ['existing.png']);
+  Png.Free;
+
+  SetLength(Args, 2);
+  Args[0] := 'cbr-to-cbz';
+  Args[1] := FTempDir;
+  { A skipped file is a benign no-op (exit 0), like the reference CLI. }
+  AssertEquals(EXIT_OK, RunHeadless(Args));
+  AssertEquals('existing target untouched', 1,
+    GetImageCount(FTempDir + 'skip.cbz'));
+end;
+
+procedure TClimodeTest.RunHeadless_CbrToCbz_UsageError;
+var
+  Args: TStringArray;
+begin
+  SetLength(Args, 3);
+  Args[0] := 'cbr-to-cbz';
+  Args[1] := FTempDir;
+  Args[2] := '--force';
+  AssertEquals('--force not valid for cbr-to-cbz', EXIT_USAGE,
+    RunHeadless(Args));
+end;
+
 { merge }
 
-procedure TClimodeTest.RunHeadless_Merge;
-var
+procedure TClimodeTest.RunHeadless_Merge;var
   Png: TMemoryStream;
   Args: TStringArray;
   i: integer;

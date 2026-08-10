@@ -31,7 +31,10 @@ uses
   udlgseqbuilder,
   ucomicinfo,
   udlgcomicinfoeditor,
-  udlgbase;
+  udlgbase,
+  uarchive,
+  uservicecbr,
+  udlgcbr;
 
   {$R *.res}
 

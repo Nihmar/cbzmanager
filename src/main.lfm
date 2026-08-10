@@ -536,6 +536,10 @@ object frmMain: TfrmMain
         Caption = 'Merge into volumes...'
         OnClick = MnuMergeClick
       end
+      object MnuConvertCbr: TMenuItem
+        Caption = 'Convert CBR to CBZ...'
+        OnClick = MnuConvertCbrClick
+      end
       object SepFile2: TMenuItem
         Caption = '-'
       end

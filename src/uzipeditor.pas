@@ -42,6 +42,52 @@ function GetFirstImageAsIntfImage(const FileName: string): TLazIntfImage;
 function GetFirstImageInfo(const FileName: string; out AImage: TLazIntfImage;
   out AHasComicInfo: boolean; AMaxW, AMaxH: integer): boolean;
 
+{ ---------------------------------------------------------------------------
+  CBR (RAR) archives — read via libarchive (uarchive.pas), entirely in RAM.
+
+  RAR has no central directory, so the walkers scan the archive twice:
+  once for the entry names (data skipped) and once for the data.  The
+  source file is only ever opened read-only; everything decompressed lands
+  in memory.  Raise behaviour mirrors the ZIP equivalents.
+  --------------------------------------------------------------------------- }
+
+{ Reads every entry of a CBR into memory (parity with CollectZipEntries).
+  RAR has no central directory, so a fast counting pass precedes the data
+  pass; AOnProgress (optional) receives (percent, message) per entry with
+  0–100 within the file (the caller folds it into batch progress). }
+function CollectCbrEntries(const FileName: string;
+  AOnProgress: TServiceProgressEvent = nil): TZipEntries;
+
+{ Scans a CBR decoding one page at a time and passing it to ACallback
+  (parity with ForEachImage).  AMaxW/AMaxH > 0 decode JPEG pages at
+  reduced resolution.  The callback receives each page's alphabetical
+  rank via AIndex (0 = first page in reading order).  Raises when the
+  archive cannot be read; the caller is expected to catch. }
+procedure ForEachCbrImage(const FileName: string; ACallback: TImageEntryProc;
+  AMaxW: integer = 0; AMaxH: integer = 0);
+
+{ First page (by alphabetical name order) of a CBR as a TLazIntfImage,
+  plus ComicInfo.xml presence for the thumbnail badge.  Parity with
+  GetFirstImageInfo.  False (and AImage = nil) when libarchive is missing,
+  the archive is unreadable, or it contains no readable images. }
+function GetCbrFirstImageInfo(const FileName: string; out AImage: TLazIntfImage;
+  out AHasComicInfo: boolean; AMaxW, AMaxH: integer): boolean;
+
+{ Decodes a single named entry of a CBR at full resolution (parity with
+  GetImageAsIntfImage).  nil when libarchive is missing, the entry does
+  not exist, or the decode fails.  The caller owns the result. }
+function GetCbrImageAsIntfImage(const FileName, EntryName: string): TLazIntfImage;
+
+{ Converts a CBR to CBZ entries entirely in RAM: strips ComicInfo.xml and
+  non-image entries, renumbers the survivors page_NNNN.* (padding via
+  PagePaddingFor).  The caller writes the result with
+  WriteZipFromEntriesDeflated and frees it with FreeZipEntries.  The
+  source .cbr is never modified.  Raises on unreadable archives.
+  AOnProgress (optional) is forwarded to CollectCbrEntries (per entry,
+  0–100 within the file). }
+function ConvertCbrToCbz(const SourceFile: string;
+  AOnProgress: TServiceProgressEvent = nil): TZipEntries;
+
 {
   Scans the archive decoding one page at a time and passing it to
   ACallback: at most one page stays in memory at a time. Callable from
@@ -99,8 +145,10 @@ function MergeIntoVolume(const SourceFiles: TStringArray; const ADir: string;
   The parameters control the quality and the conversion options.
   SkipExistingWebP: if True, pages already in .webp format are left
   intact; if False they are decoded and re-encoded at the chosen quality.
-  AOnProgress (reserved): no longer called internally; progress is
-  reported by the caller (TConvertService.Convert) at file level. }
+  AOnProgress (optional) receives (percent, message) per archive entry —
+  the WebP encode of a large page is the slowest step, so every entry
+  (skips included) reports activity.  Percent is 0–100 WITHIN the file;
+  the caller folds it into the batch's global progress. }
 function ConvertCBZToWebP(const FileName: string; Quality: integer;
   ReplaceOnlyIfSmaller, SkipExistingWebP, RemoveComicInfo, RenumberPages: boolean;
   out NewEntryCount: integer; out AConvertedCount: integer;
@@ -121,7 +169,8 @@ uses
   Math,
   uImgUtil,
   uWebP,
-  uLog;
+  uLog,
+  uarchive;
 
 type
   { TZipImageWalker – streams a CBZ entry by entry through a callback.
@@ -687,6 +736,14 @@ begin
 
       for i := 0 to High(AllEntries) do
       begin
+        { Per-entry progress: keeps the UI/job monitor visibly alive during
+          the slow decode+WebP-encode steps.  Percent is within the file;
+          the caller (TConvertService.Convert) folds it into the batch. }
+        if Assigned(AOnProgress) then
+          AOnProgress((i * 100) div Length(AllEntries),
+            Format('%s — entry %d/%d (%s)',
+              [ExtractFileName(FileName), i + 1, Length(AllEntries),
+               AllEntries[i].Name]));
 
         AllEntries[i].Data.Position := 0;
         Ext := ExtractFileExt(AllEntries[i].Name);
@@ -902,6 +959,339 @@ begin
     end;
   finally
     FreeZipEntries(AllEntries);
+  end;
+end;
+
+{ ---------------------------------------------------------------------------
+  CBR (RAR) support — implemented on top of uarchive's TCbrReader.
+  --------------------------------------------------------------------------- }
+
+type
+  { TUnRarWalker – streams a CBR entry by entry through a callback via
+    libarchive.  RAR has no central directory, so Run scans the archive
+    twice: once collecting the image entry names (data skipped) so every
+    entry can be tagged with its alphabetical rank, then again decoding
+    the pages.  Data always lands in memory streams — no temp files. }
+
+  TUnRarWalker = class
+  private
+    FCallback: TImageEntryProc;
+    FCancel: boolean;
+    FMaxW: integer;
+    FMaxH: integer;
+    FSortedNames: TStringList;
+    { Decodes the current entry (already positioned by the reader) and
+      passes it to the callback with its alphabetical rank. }
+    procedure HandleEntry(AR: TCbrReader; const AInfo: TCbrEntryInfo);
+  public
+    procedure Run(const FileName: string; ACallback: TImageEntryProc;
+      AMaxW: integer = 0; AMaxH: integer = 0);
+  end;
+
+{ Raises with the reader's last error message. }
+procedure CbrReadError(AR: TCbrReader);
+begin
+  if AR.Error <> '' then
+    raise Exception.Create('CBR: ' + AR.Error)
+  else
+    raise Exception.Create('CBR: unreadable archive');
+end;
+
+procedure TUnRarWalker.HandleEntry(AR: TCbrReader; const AInfo: TCbrEntryInfo);
+var
+  Data: TMemoryStream;
+  Img: TLazIntfImage;
+  Rank: integer;
+begin
+  if FCancel or AInfo.IsDirectory then Exit;
+  if not IsImageExt(ExtractFileExt(AInfo.Name)) then Exit;
+
+  Data := TMemoryStream.Create;
+  try
+    if not AR.ReadData(Data) then
+      CbrReadError(AR);
+    Data.Position := 0;
+    Img := DecodeImage(Data, ExtractFileExt(AInfo.Name), FMaxW, FMaxH);
+  finally
+    Data.Free;
+  end;
+  Rank := SortedRank(FSortedNames, AInfo.Name);
+  FCallback(AInfo.Name, Img, Rank, FCancel);
+end;
+
+procedure TUnRarWalker.Run(const FileName: string; ACallback: TImageEntryProc;
+  AMaxW: integer; AMaxH: integer);
+var
+  Reader: TCbrReader;
+  Info: TCbrEntryInfo;
+begin
+  FCallback := ACallback;
+  FCancel := False;
+  FMaxW := AMaxW;
+  FMaxH := AMaxH;
+  FSortedNames := TStringList.Create;
+  Reader := TCbrReader.Create(FileName);
+  try
+    if Reader.Error <> '' then
+      CbrReadError(Reader);
+
+    { Pass 1: collect the image entry names (data skipped) so every page
+      can be tagged with its alphabetical rank later. }
+    while Reader.NextEntry(Info) do
+    begin
+      if Info.IsDirectory then Continue;   { directories carry no data }
+      if IsImageExt(ExtractFileExt(Info.Name)) then
+        FSortedNames.Add(Info.Name);
+      if not Reader.SkipData then
+        CbrReadError(Reader);
+    end;
+    if Reader.Error <> '' then
+      CbrReadError(Reader);
+    FSortedNames.CustomSort(@CompareNames);
+
+    { Pass 2: decode every image entry in reading order. }
+    Reader.Free;
+    Reader := TCbrReader.Create(FileName);
+    if Reader.Error <> '' then
+      CbrReadError(Reader);
+    while not FCancel and Reader.NextEntry(Info) do
+    begin
+      if Info.IsDirectory then Continue;
+      if IsImageExt(ExtractFileExt(Info.Name)) then
+        HandleEntry(Reader, Info)
+      else if not Reader.SkipData then
+        CbrReadError(Reader);
+    end;
+  finally
+    Reader.Free;
+    FSortedNames.Free;
+  end;
+end;
+
+procedure ForEachCbrImage(const FileName: string; ACallback: TImageEntryProc;
+  AMaxW: integer; AMaxH: integer);
+var
+  Walker: TUnRarWalker;
+begin
+  Walker := TUnRarWalker.Create;
+  try
+    Walker.Run(FileName, ACallback, AMaxW, AMaxH);
+  finally
+    Walker.Free;
+  end;
+end;
+
+function CollectCbrEntries(const FileName: string;
+  AOnProgress: TServiceProgressEvent): TZipEntries;
+var
+  Reader: TCbrReader;
+  Info: TCbrEntryInfo;
+  Data: TMemoryStream;
+  Count, Total: integer;
+begin
+  Result := nil;
+  Count := 0;
+  Reader := TCbrReader.Create(FileName);
+  try
+    if Reader.Error <> '' then
+      CbrReadError(Reader);
+
+    { RAR has no central directory: a fast counting pass (data skipped)
+      gives the total entry count so the read pass can report meaningful
+      percentages. }
+    if Assigned(AOnProgress) then
+    begin
+      Total := 0;
+      while Reader.NextEntry(Info) do
+      begin
+        if Info.IsDirectory then Continue;
+        Inc(Total);
+        if not Reader.SkipData then
+          CbrReadError(Reader);
+      end;
+      if Reader.Error <> '' then
+        CbrReadError(Reader);
+      Reader.Free;
+      Reader := TCbrReader.Create(FileName);
+      if Reader.Error <> '' then
+        CbrReadError(Reader);
+    end
+    else
+      Total := 0;
+
+    while Reader.NextEntry(Info) do
+    begin
+      if Info.IsDirectory then Continue;
+      if Assigned(AOnProgress) then
+        AOnProgress((Count * 100) div Max(1, Total),
+          Format('%s — entry %d/%d (%s)',
+            [ExtractFileName(FileName), Count + 1, Total, Info.Name]));
+      Data := TMemoryStream.Create;
+      try
+        if not Reader.ReadData(Data) then
+          CbrReadError(Reader);
+        { Ownership of Data transfers into the result array. }
+        SetLength(Result, Count + 1);
+        Result[Count].Name := Info.Name;
+        Result[Count].Data := Data;
+        Data := nil;
+        Inc(Count);
+      finally
+        Data.Free;   { no-op when ownership was transferred }
+      end;
+    end;
+    if Reader.Error <> '' then
+    begin
+      FreeZipEntries(Result);
+      CbrReadError(Reader);
+    end;
+  finally
+    Reader.Free;
+  end;
+end;
+
+function GetCbrImageAsIntfImage(const FileName, EntryName: string): TLazIntfImage;
+var
+  Reader: TCbrReader;
+  Info: TCbrEntryInfo;
+  Data: TMemoryStream;
+begin
+  Result := nil;
+  Reader := TCbrReader.Create(FileName);
+  try
+    if Reader.Error <> '' then Exit;
+    while Reader.NextEntry(Info) do
+    begin
+      if Info.IsDirectory then Continue;
+      if CompareStr(Info.Name, EntryName) = 0 then
+      begin
+        Data := TMemoryStream.Create;
+        try
+          if Reader.ReadData(Data) then
+          begin
+            Data.Position := 0;
+            Result := DecodeImage(Data, ExtractFileExt(Info.Name));
+          end;
+        finally
+          Data.Free;
+        end;
+        Exit;
+      end;
+      if not Reader.SkipData then Break;
+    end;
+  finally
+    Reader.Free;
+  end;
+end;
+
+function GetCbrFirstImageInfo(const FileName: string; out AImage: TLazIntfImage;
+  out AHasComicInfo: boolean; AMaxW, AMaxH: integer): boolean;
+var
+  Reader: TCbrReader;
+  Info: TCbrEntryInfo;
+  Names: TStringList;
+  FirstName: string;
+  Data: TMemoryStream;
+begin
+  AImage := nil;
+  AHasComicInfo := False;
+  Result := False;
+  Names := TStringList.Create;
+  Reader := TCbrReader.Create(FileName);
+  try
+    if Reader.Error <> '' then Exit;   { degraded: treated as no thumbnail }
+    { Pass 1: collect image names (for the alphabetical first page) and
+      the ComicInfo.xml presence (thumbnail badge). }
+    while Reader.NextEntry(Info) do
+    begin
+      if Info.IsDirectory then Continue;
+      if SameText(Info.Name, COMICINFO_XML) then
+      begin
+        AHasComicInfo := True;
+        if not Reader.SkipData then Exit;
+        Continue;
+      end;
+      if IsImageExt(ExtractFileExt(Info.Name)) then
+        Names.Add(Info.Name);
+      if not Reader.SkipData then Exit;
+    end;
+    if (Reader.Error <> '') or (Names.Count = 0) then Exit;
+    Names.CustomSort(@CompareNames);
+    FirstName := Names[0];
+
+    { Pass 2: decode only the alphabetically first page. }
+    Reader.Free;
+    Reader := TCbrReader.Create(FileName);
+    if Reader.Error <> '' then Exit;
+    while Reader.NextEntry(Info) do
+    begin
+      if Info.IsDirectory then Continue;
+      if CompareStr(Info.Name, FirstName) = 0 then
+      begin
+        Data := TMemoryStream.Create;
+        try
+          if Reader.ReadData(Data) then
+          begin
+            Data.Position := 0;
+            AImage := DecodeImage(Data, ExtractFileExt(Info.Name), AMaxW, AMaxH);
+            Result := AImage <> nil;
+          end;
+        finally
+          Data.Free;
+        end;
+        Break;
+      end;
+      if not Reader.SkipData then Break;
+    end;
+  finally
+    Reader.Free;
+    Names.Free;
+  end;
+end;
+
+function ConvertCbrToCbz(const SourceFile: string;
+  AOnProgress: TServiceProgressEvent): TZipEntries;
+var
+  All: TZipEntries;
+  i, PageNum, Padding: integer;
+  Ext: string;
+begin
+  Result := nil;
+  All := CollectCbrEntries(SourceFile, AOnProgress);
+  try
+    try
+      PageNum := 0;
+      SetLength(Result, Length(All));
+      for i := 0 to High(All) do
+      begin
+        { House policy (same as the WebP conversion): strip ComicInfo.xml
+          and non-image entries, renumber the survivors page_NNNN.*. }
+        if SameText(All[i].Name, COMICINFO_XML) then
+        begin
+          FreeAndNil(All[i].Data);
+          Continue;
+        end;
+        Ext := LowerCase(ExtractFileExt(All[i].Name));
+        if not IsImageExt(Ext) then
+        begin
+          FreeAndNil(All[i].Data);
+          Continue;
+        end;
+        Result[PageNum].Data := All[i].Data;
+        Result[PageNum].Name := Ext;   { temp carrier; renamed below }
+        All[i].Data := nil;
+        Inc(PageNum);
+      end;
+      SetLength(Result, PageNum);
+      Padding := PagePaddingFor(PageNum);
+      for i := 0 to PageNum - 1 do
+        Result[i].Name := FormatPageName(i + 1, Padding, Result[i].Name);
+    except
+      FreeZipEntries(Result);
+      raise;
+    end;
+  finally
+    FreeZipEntries(All);
   end;
 end;
 

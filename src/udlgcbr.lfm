@@ -1,0 +1,9 @@
+inherited dlgCbr: TdlgCbr
+  Left = 400
+  Height = 150
+  Top = 200
+  Width = 460
+  Caption = 'Convert CBR to CBZ'
+  Position = poOwnerFormCenter
+  OnCreate = FormCreate
+end

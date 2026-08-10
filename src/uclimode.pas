@@ -50,7 +50,8 @@ implementation
 
 uses
   StrUtils,
-  uservicebase, uservicevalidate, userviceconvert, uservicemerge;
+  uservicebase, uservicevalidate, userviceconvert, uservicemerge, uservicecbr,
+  uarchive, uZipEditor;
 
 type
   { Forwards service progress callbacks to stdout. }
@@ -83,12 +84,16 @@ begin
   WriteLn('  validate <dir>                 Verify CBZ files are valid and images readable');
   WriteLn('  convert-webp <dir> [--delete]  Convert images to WebP (quality 75%, only if smaller)');
   WriteLn('  merge <dir> [options]          Merge chapter CBZ files into volumes');
+  WriteLn('  cbr-to-cbz <dir> [--delete]    Convert CBR (RAR) archives to CBZ');
   WriteLn;
   WriteLn('Merge options:');
   WriteLn('  --delete                     Delete originals after processing (default: rename to _OLD.cbz)');
   WriteLn('  --force                      Append remaining chapters to the last volume');
   WriteLn('  --chapters N1,N2,N3,...      Exact chapter counts per volume');
   WriteLn('  --chapters-per-volume N      Fixed chapters per volume');
+  WriteLn;
+  WriteLn('cbr-to-cbz options:');
+  WriteLn('  --delete                     Delete the .cbr source after conversion (default: keep)');
   WriteLn;
   WriteLn('Other:');
   WriteLn('  --version                    Print version and exit');
@@ -390,6 +395,59 @@ begin
   end;
 end;
 
+function CmdCbrToCbz(const ADir: string; const ADelete: boolean): integer;
+var
+  Files: TStringArray;
+  Options: TCbrConvertOptions;
+  Results: TConvertResults;
+  Progress: TCliProgress;
+  i, Converted, Skipped: integer;
+begin
+  if not CbrSupported then
+  begin
+    WriteLn(ErrOutput,
+      'Error: CBR support requires libarchive (libarchive.so / archive.dll)');
+    Exit(EXIT_ERROR);
+  end;
+
+  Files := CollectCBRFiles(ADir);
+  if Length(Files) = 0 then
+  begin
+    WriteLn(Format('No .cbr files found in %s', [ADir]));
+    Exit(EXIT_OK);
+  end;
+  WriteLn(Format('Found %d CBR file(s)', [Length(Files)]));
+
+  { Defaults mirror the GUI dialog: skip files whose .cbz target already
+    exists; keep the source unless --delete. }
+  Options.SkipExisting := True;
+  Options.DeleteSource := ADelete;
+
+  Progress := TCliProgress.Create;
+  try
+    Results := TConvertCbrService.Convert(Files, ADir, Options,
+      @Progress.Progress);
+  finally
+    Progress.Free;
+  end;
+  Converted := 0;
+  Skipped := 0;
+  for i := 0 to High(Results) do
+    if Results[i].Success and (Results[i].PagesConverted > 0) then
+    begin
+      Inc(Converted);
+      WriteLn(Format('  %s: %d page(s) -> .cbz', [Results[i].FileName,
+        Results[i].PagesConverted]));
+    end
+    else
+    begin
+      Inc(Skipped);
+      WriteLn(Format('  - %s: %s', [Results[i].FileName, Results[i].ErrorMsg]));
+    end;
+  WriteLn(Format('Summary: Converted: %d  Skipped: %d', [Converted, Skipped]));
+  Result := EXIT_OK;
+end;
+
 { ---------------------------------------------------------------------------
   RunHeadless — dispatch
   --------------------------------------------------------------------------- }
@@ -413,7 +471,8 @@ begin
     Exit(EXIT_OK);
   end;
 
-  if (Cmd <> 'validate') and (Cmd <> 'convert-webp') and (Cmd <> 'merge') then
+  if (Cmd <> 'validate') and (Cmd <> 'convert-webp') and (Cmd <> 'merge') and
+     (Cmd <> 'cbr-to-cbz') then
   begin
     WriteLn(ErrOutput, Format('Error: unknown command ''%s''', [Cmd]));
     WriteLn(ErrOutput, 'Try ''cbzmanager --help'' for usage.');
@@ -442,6 +501,18 @@ begin
     end;
     Result := CmdConvert(Dir, Flags.Delete);
   end
+  else if Cmd = 'cbr-to-cbz' then
+  begin
+    { cbr-to-cbz accepts only --delete; validate the flag set. }
+    if Flags.Force or (Length(Flags.Chapters) > 0) or
+       (Flags.ChaptersPerVolume > 0) then
+    begin
+      WriteLn(ErrOutput, 'Error: option not valid for ''cbr-to-cbz''');
+      WriteLn(ErrOutput, 'Try ''cbzmanager --help'' for usage.');
+      Exit(EXIT_USAGE);
+    end;
+    Result := CmdCbrToCbz(Dir, Flags.Delete);
+  end
   else
     Result := CmdMerge(Dir, Flags);
 end;
@@ -449,9 +520,9 @@ end;
 function IsHeadlessCommand(const AFirstArg: string): boolean;
 begin
   Result := (AFirstArg = 'validate') or (AFirstArg = 'convert-webp') or
-            (AFirstArg = 'merge') or (AFirstArg = '--help') or
-            (AFirstArg = '-h') or (AFirstArg = 'help') or
-            (AFirstArg = '--version');
+            (AFirstArg = 'merge') or (AFirstArg = 'cbr-to-cbz') or
+            (AFirstArg = '--help') or (AFirstArg = '-h') or
+            (AFirstArg = 'help') or (AFirstArg = '--version');
 end;
 
 function RunHeadlessFromParams: integer;

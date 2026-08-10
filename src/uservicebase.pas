@@ -31,6 +31,11 @@ const
     the ".cbz" suffix used when enumerating and matching archives. }
   CBZ_EXT = '.cbz';
 
+  { File extension identifying a RAR comic archive (read via libarchive).
+    CBR files are read-only in the preview and must be converted to CBZ
+    before editing. }
+  CBR_EXT = '.cbr';
+
 type
   { ------------------------------------------------------------------------
     TServiceProgressEvent – Method-pointer callback for progress reporting.
@@ -48,6 +53,36 @@ type
     thread wrapper passes @Progress to a static service method).
     ------------------------------------------------------------------------ }
   TServiceProgressProc = procedure(APercent: integer; const AMsg: string);
+
+  { ------------------------------------------------------------------------
+    TFileProgress – Translates within-file progress (0–100) into global
+    progress across a whole batch of files, so the progress bar keeps
+    advancing while a single large archive is processed.
+
+    Usage: for file i of N, create one instance with FIndex := i,
+    FTotal := N, FInner := <user callback> and pass @Translate to the
+    per-entry conversion function.
+    ------------------------------------------------------------------------ }
+  TFileProgress = class
+  private
+    FIndex: integer;
+    FTotal: integer;
+    FInner: TServiceProgressEvent;
+  public
+    constructor Create(AIndex, ATotal: integer; AInner: TServiceProgressEvent);
+    { TServiceProgressEvent-compatible: forwards the message unchanged with
+      GlobalFilePercent(FIndex, FTotal, APercent) as the percentage. }
+    procedure Translate(APercent: integer; const AMsg: string);
+  end;
+
+{ ------------------------------------------------------------------------
+  GlobalFilePercent – Fold a within-file percentage into a global one.
+
+  (AFileIndex * 100 + AWithinFile) div AFileTotal gives 0–100 across the
+  whole batch: file 0 of 4 at 50% → 12, file 3 of 4 at 100% → 100.
+  Guarded: AFileTotal <= 0 yields 0 (no files → nothing to show).
+  ------------------------------------------------------------------------ }
+function GlobalFilePercent(AFileIndex, AFileTotal, AWithinFile: integer): integer;
 
 { ------------------------------------------------------------------------
   CBZFullPath – Join a directory and a bare filename into a full path.
@@ -97,6 +132,14 @@ function BackupFile(const AFilePath: string): boolean;
   @return Array of matching filenames, or an empty array if none found.
   ------------------------------------------------------------------------ }
 function CollectCBZFiles(const ADir: string): TStringArray;
+
+{ ------------------------------------------------------------------------
+  CollectCBRFiles – List *.cbr filenames in a directory (non-recursive).
+
+  Same semantics as CollectCBZFiles (case-insensitive extension match),
+  for the RAR archive conversion operation.
+  ------------------------------------------------------------------------ }
+function CollectCBRFiles(const ADir: string): TStringArray;
 
 { ------------------------------------------------------------------------
   ReplaceCBZ – Atomically replace a CBZ file with new in-memory entries.
@@ -151,6 +194,30 @@ begin
 end;
 
 { ----------------------------------------------------------------------------
+  GlobalFilePercent / TFileProgress
+  ---------------------------------------------------------------------------- }
+function GlobalFilePercent(AFileIndex, AFileTotal, AWithinFile: integer): integer;
+begin
+  if AFileTotal <= 0 then
+    Exit(0);
+  Result := (AFileIndex * 100 + AWithinFile) div AFileTotal;
+end;
+
+constructor TFileProgress.Create(AIndex, ATotal: integer;
+  AInner: TServiceProgressEvent);
+begin
+  FIndex := AIndex;
+  FTotal := ATotal;
+  FInner := AInner;
+end;
+
+procedure TFileProgress.Translate(APercent: integer; const AMsg: string);
+begin
+  if Assigned(FInner) then
+    FInner(GlobalFilePercent(FIndex, FTotal, APercent), AMsg);
+end;
+
+{ ----------------------------------------------------------------------------
   BackupFile
   ---------------------------------------------------------------------------- }
 function BackupFile(const AFilePath: string): boolean;
@@ -190,6 +257,28 @@ begin
       end;
     until FindNext(SearchRec) <> 0;
     FindClose(SearchRec);                                     // release OS search handle
+  end;
+end;
+
+function CollectCBRFiles(const ADir: string): TStringArray;
+var
+  SearchRec: TSearchRec;
+  Dir: string;
+begin
+  Result := nil;
+  Dir := IncludeTrailingPathDelimiter(ADir);
+  { Same case-insensitive matching as CollectCBZFiles (Unix FindFirst masks
+    are case-sensitive, so "*.cbr" would miss "*.CBR"). }
+  if FindFirst(Dir + AllFilesMask, faAnyFile, SearchRec) = 0 then
+  begin
+    repeat
+      if SameText(ExtractFileExt(SearchRec.Name), CBR_EXT) then
+      begin
+        SetLength(Result, Length(Result) + 1);
+        Result[High(Result)] := SearchRec.Name;
+      end;
+    until FindNext(SearchRec) <> 0;
+    FindClose(SearchRec);
   end;
 end;
 

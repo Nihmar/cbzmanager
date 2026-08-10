@@ -99,7 +99,8 @@ uses
   Types,
   uloaderthread,
   uPageEditModel,
-  ufrmjobmonitor;
+  ufrmjobmonitor,
+  uservicebase;
 
 type
   {
@@ -127,6 +128,7 @@ type
     MnuValidate: TMenuItem;
     MnuConvertWebP: TMenuItem;
     MnuMerge: TMenuItem;
+    MnuConvertCbr: TMenuItem;
 
     SepFile2: TMenuItem;
     MnuClear: TMenuItem;
@@ -260,6 +262,8 @@ type
     procedure MnuCtxOpenInDirClick(Sender: TObject);
     procedure MnuConvertWebPClick(Sender: TObject);
     procedure ConvertThreadTerminated(Sender: TObject);
+    procedure MnuConvertCbrClick(Sender: TObject);
+    procedure CbrConvertThreadTerminated(Sender: TObject);
 
     procedure MnuDeleteRowsClick(Sender: TObject);
     procedure MnuDeletePagesClick(Sender: TObject);
@@ -351,6 +355,9 @@ type
     procedure OpenPreview(AItem: TListItem);
     procedure ClearPreview;
     procedure HidePreview;
+    { True while the open preview is a .cbr (RAR) archive: the page model
+      is read-only and the conversion path is the only way to edit it. }
+    function IsReadOnlyPreview: boolean;
     procedure RenderPages;
     { Store the shift+click anchor for the given list (-1 = none). }
     procedure SetAnchor(ALV: TListView; AIndex: integer);
@@ -365,8 +372,13 @@ type
     procedure RebuildThumbs(ALV: TListView; AIL: TImageList;
       APages: TLazIntfImageList; ASize: integer);
     { Collect file names from LvFiles. When AAll=True returns every file;
-      otherwise returns selected files, or all files if none selected. }
-    function GetFileList(AAll: boolean = False): TStringArray;
+      otherwise returns selected files, or all files if none selected.
+      Only files whose extension matches AExt are returned (default .cbz):
+      the folder may also list .cbr archives, which the batch operations
+      (validate/convert/merge/comicinfo) cannot process — they must never
+      receive a RAR file.  The CBR conversion collects .cbr explicitly. }
+    function GetFileList(AAll: boolean = False;
+      const AExt: string = CBZ_EXT): TStringArray;
     { Collect the filenames of the explicitly selected LVFiles items only.
       Never falls back to the whole directory (unlike GetFileList). }
     function GetSelectedFiles: TStringArray;
@@ -394,6 +406,8 @@ uses
   uZipEditor,
   userviceconvert,
   uservicemerge,
+  uservicecbr,
+  udlgcbr,
   udlgrows,
   udlgvalidate,
   udlgcomicinfo,
@@ -492,7 +506,8 @@ begin
     HidePreview;
     Key := 0;
   end
-  else if (Key = VK_DELETE) and PanelSingleFile.Visible then
+  else if (Key = VK_DELETE) and PanelSingleFile.Visible and
+    not IsReadOnlyPreview then
   begin
     MnuPageDeleteClick(Sender);
     Key := 0;
@@ -512,7 +527,7 @@ begin
     MnuValidateClick(Sender);
     Key := 0;
   end
-  else if (ssCtrl in Shift) and (Key = Ord('S')) then
+  else if (ssCtrl in Shift) and (Key = Ord('S')) and not IsReadOnlyPreview then
   begin
     BtnStageSaveClick(Sender);
     Key := 0;
@@ -546,6 +561,7 @@ begin
   MnuValidate.Enabled := AEnabled;
   MnuConvertWebP.Enabled := AEnabled;
   MnuMerge.Enabled := AEnabled;
+  MnuConvertCbr.Enabled := AEnabled;
   MnuManageComicInfo.Enabled := AEnabled;
   MnuRemoveComicInfo.Enabled := AEnabled;
   MnuDeleteRows.Enabled := AEnabled;
@@ -1392,6 +1408,79 @@ begin
 end;
 
 {
+  MnuConvertCbrClick
+  ------------------
+  Batch-converts .cbr (RAR) archives in the current folder to .cbz.  Opens
+  the options dialog (skip existing targets, delete source), then runs the
+  conversion in the background.  The whole operation happens in RAM; the
+  only disk writes are the new .cbz files (and the optional source delete).
+}
+procedure TfrmMain.MnuConvertCbrClick(Sender: TObject);
+var
+  Files: TStringArray;
+  Dlg: TdlgCbr;
+  Options: TCbrConvertOptions;
+  Thread: TCbrConvertThread;
+begin
+  if FDir = '' then
+  begin
+    SetStatus(RSOpenFolderFirst);
+    Exit;
+  end;
+  Files := GetFileList(False, CBR_EXT);
+  if Length(Files) = 0 then
+  begin
+    SetStatus('No CBR files in folder');
+    Exit;
+  end;
+
+  Dlg := TdlgCbr.Create(Self);
+  try
+    if Dlg.ShowModal <> mrOk then Exit;
+    Options.SkipExisting := Dlg.SkipExisting;
+    Options.DeleteSource := Dlg.DeleteSource;
+  finally
+    Dlg.Free;
+  end;
+
+  Thread := TCbrConvertThread.Create(Files, FDir, Options, @UpdateProgress);
+  BeginServiceThread(Thread, 'CBR to CBZ conversion started...',
+    @CbrConvertThreadTerminated, nil, MnuConvertCbr);
+end;
+
+{
+  CbrConvertThreadTerminated
+  --------------------------
+  OnTerminate handler for TCbrConvertThread.  Reloads the directory so the
+  new .cbz files appear (and deleted sources disappear), shows the per-file
+  results, and re-enables the UI.
+}
+procedure TfrmMain.CbrConvertThreadTerminated(Sender: TObject);
+var
+  Thread: TCbrConvertThread;
+  Dlg: TdlgConvertResults;
+begin
+  Thread := Sender as TCbrConvertThread;
+  LoadDirectory(FDir);
+  FinishServiceThread(nil, MnuConvertCbr);
+
+  if ServiceThreadFailed(Thread, 'CBR conversion') then Exit;
+  SetStatus(Format('CBR conversion complete: %d files', [Length(Thread.Result)]));
+
+  Dlg := TdlgConvertResults.Create(Self);
+  try
+    { The shared results dialog hardcodes the WebP caption; retitle it. }
+    Dlg.Caption := 'CBR conversion results';
+    Dlg.ShowResults(Thread.Result);
+    Dlg.ShowModal;
+  finally
+    Dlg.Free;
+  end;
+  if FJobMonitor <> nil then
+    FJobMonitor.ActivateOnTop;
+end;
+
+{
   MnuMergeClick
   -------------
   Opens the merge dialog for combining multiple .cbz chapters into volumes.
@@ -2216,7 +2305,8 @@ end;
 procedure TfrmMain.LVPagesDragOver(Sender, Source: TObject; X, Y: integer;
   State: TDragState; var Accept: boolean);
 begin
-  Accept := (Source = LVPages) and (FPagesThread = nil);
+  Accept := (Source = LVPages) and (FPagesThread = nil) and
+    not IsReadOnlyPreview;
 end;
 
 {
@@ -2287,19 +2377,24 @@ end;
   The returned names are the full original filenames (from SubItems[0]),
   so they can be used for actual file I/O.
 }
-function TfrmMain.GetFileList(AAll: boolean = False): TStringArray;
+function TfrmMain.GetFileList(AAll: boolean; const AExt: string): TStringArray;
 var
   i, n: integer;
+  FName: string;
 begin
   n := 0;
   Result := nil;
   SetLength(Result, LVFiles.Items.Count);
   for i := 0 to LVFiles.Items.Count - 1 do
-    if AAll or (LVFiles.SelCount = 0) or LVFiles.Items[i].Selected then
+  begin
+    FName := ItemFileName(LVFiles.Items[i]);
+    if SameText(ExtractFileExt(FName), AExt) and
+       (AAll or (LVFiles.SelCount = 0) or LVFiles.Items[i].Selected) then
     begin
-      Result[n] := ItemFileName(LVFiles.Items[i]);
+      Result[n] := FName;
       Inc(n);
     end;
+  end;
   SetLength(Result, n);
 end;
 
@@ -2468,10 +2563,39 @@ begin
     end;
     FChanges := nil;
     FRenumber := True;
-    SetPageOpsEnabled(True);
-    LblPageCount.Caption := Format('%d pages', [LVPages.Items.Count]);
-    SetStatus(Format('%d pages in preview', [LVPages.Items.Count]));
+    if IsReadOnlyPreview then
+    begin
+      { CBR (RAR) archives cannot be rewritten in place: the preview is
+        read-only and the stage bar points to the conversion path. }
+      SetPageOpsEnabled(False);
+      BtnStageSave.Enabled := False;
+      BtnStageRevert.Enabled := False;
+      PanelStageBar.Visible := True;
+      LblStageMsg.Caption := 'CBR is read-only — convert to CBZ to edit';
+      LblPageCount.Caption := Format('%d pages (read-only)', [LVPages.Items.Count]);
+      SetStatus(Format('%d pages in preview (CBR, read-only)',
+        [LVPages.Items.Count]));
+    end
+    else
+    begin
+      SetPageOpsEnabled(True);
+      LblPageCount.Caption := Format('%d pages', [LVPages.Items.Count]);
+      SetStatus(Format('%d pages in preview', [LVPages.Items.Count]));
+    end;
   end;
+end;
+
+{
+  IsReadOnlyPreview
+  -----------------
+  True while the open preview is a .cbr (RAR) archive.  RAR cannot be
+  rewritten in place, so every page operation and the stage bar are
+  disabled; the CBR→CBZ conversion is the path to editing.
+}
+function TfrmMain.IsReadOnlyPreview: boolean;
+begin
+  Result := (FPageFile <> '') and
+    SameText(ExtractFileExt(FPageFile), CBR_EXT);
 end;
 
 end.

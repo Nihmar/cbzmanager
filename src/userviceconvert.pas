@@ -120,6 +120,7 @@ var
   FullPath: string;
   NewEntries: TZipEntries;
   Modified: boolean;
+  Translator: TFileProgress;
 begin
   Total := Length(AFiles);
   Result := nil;
@@ -132,10 +133,17 @@ begin
     FullPath := CBZFullPath(ADir, AFiles[i]);
     try
       Result[i].OriginalSize := GetFileSize(FullPath);
-      NewEntries := ConvertCBZToWebP(FullPath, Options.Quality,
-        Options.ReplaceOnlyIfSmaller, Options.SkipExistingWebP,
-        Options.RemoveComicInfo, Options.RenumberPages, NewCount,
-        ConvertedCount, Modified, AOnProgress);
+      { Folds ConvertCBZToWebP's within-file percentages into a smooth
+        global 0–100 sweep across the whole batch. }
+      Translator := TFileProgress.Create(i, Total, AOnProgress);
+      try
+        NewEntries := ConvertCBZToWebP(FullPath, Options.Quality,
+          Options.ReplaceOnlyIfSmaller, Options.SkipExistingWebP,
+          Options.RemoveComicInfo, Options.RenumberPages, NewCount,
+          ConvertedCount, Modified, @Translator.Translate);
+      finally
+        Translator.Free;
+      end;
       try
         if ConvertedCount > 0 then
         begin
@@ -167,6 +175,8 @@ begin
       end;
     end;
   end;
+  if Assigned(AOnProgress) then
+    AOnProgress(100, 'Complete');
 end;
 
 end.

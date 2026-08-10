@@ -27,7 +27,7 @@ interface
 uses
   Classes, SysUtils,
   uzipcore, uZipEditor, uservicebase, userviceconvert, uservicemerge, uservicevalidate,
-  uservicecomicinfo;
+  uservicecomicinfo, uservicecbr;
 
 type
   { ------------------------------------------------------------------------
@@ -93,6 +93,30 @@ type
       @param AOnProgress Optional progress callback. }
     constructor Create(const AFiles: TStringArray; const ADir: string;
       const AOptions: TConvertOptions; AOnProgress: TServiceProgressEvent);
+    property Result: TConvertResults read FResult;
+  end;
+
+  { ------------------------------------------------------------------------
+    TCbrConvertThread – Background CBR-to-CBZ conversion.
+
+    Wraps TConvertCbrService.Convert.  The per-file results are available
+    in the Result property after termination.
+    ------------------------------------------------------------------------ }
+  TCbrConvertThread = class(TServiceThread)
+  private
+    FFiles: TStringArray;            // list of .cbr filenames to convert
+    FDir: string;                    // directory containing the files
+    FOptions: TCbrConvertOptions;    // skip-existing / delete-source
+    FResult: TConvertResults;        // outcome populated by Execute
+  protected
+    procedure Execute; override;
+  public
+    { @param AFiles      Array of .cbr filenames to convert.
+      @param ADir        Directory containing the files.
+      @param AOptions    Conversion settings.
+      @param AOnProgress Optional progress callback. }
+    constructor Create(const AFiles: TStringArray; const ADir: string;
+      const AOptions: TCbrConvertOptions; AOnProgress: TServiceProgressEvent);
     property Result: TConvertResults read FResult;
   end;
 
@@ -349,6 +373,25 @@ end;
 procedure TConvertThread.Execute;
 begin
   FResult := TConvertService.Convert(FFiles, FDir, FOptions, @Progress);
+end;
+
+{ ============================================================================
+  TCbrConvertThread
+  ============================================================================ }
+
+constructor TCbrConvertThread.Create(const AFiles: TStringArray;
+  const ADir: string; const AOptions: TCbrConvertOptions;
+  AOnProgress: TServiceProgressEvent);
+begin
+  inherited Create(AOnProgress);
+  FFiles := AFiles;
+  FDir := ADir;
+  FOptions := AOptions;
+end;
+
+procedure TCbrConvertThread.Execute;
+begin
+  FResult := TConvertCbrService.Convert(FFiles, FDir, FOptions, @Progress);
 end;
 
 { ============================================================================

@@ -151,6 +151,31 @@
         <ResourceBaseClass Value="Form"/>
       </Unit>
       <Unit>
+        <Filename Value="src\udlgpageview.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="dlgPageView"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\udlgpageeditor.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="dlgPageEditor"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\uimageedit.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\udlgcbr.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="dlgCbr"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+      </Unit>
+      <Unit>
         <Filename Value="src\ucomicinfo.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>

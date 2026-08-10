@@ -37,7 +37,7 @@ type
     Image: TLazIntfImage;  // cached thumbnail image (writable copy owned by the preview pane)
     Gone: boolean;         // when True the page is marked for deletion and is skipped on save
     OrigIndex: integer;    // original 0-based position at open time (preserved for undo reference)
-    Data: TMemoryStream;  // raw image data for inserted pages (nil for original archive pages)
+    Data: TMemoryStream;  // raw image data for inserted or edited pages (nil = unchanged archive page)
   end;
 
   { Dynamic array of TPageState — represents the entire page list of a CBZ. }
@@ -47,8 +47,11 @@ type
     TChangeKind – Enumerates the types of changes tracked for undo/redo.
       - ckDeleted: the page was removed from the list.
       - ckMoved:   the page was reordered to a different position.
+      - ckEdited:  the page's image content was replaced (resize / colour
+                   adjust / split).  Counted by the stage bar so pending
+                   edits trigger the Save/Revert flow like any other change.
     ------------------------------------------------------------------------ }
-  TChangeKind = (ckDeleted, ckMoved);
+  TChangeKind = (ckDeleted, ckMoved, ckEdited);
 
   { ------------------------------------------------------------------------
     TChange – A single undo/redo change record.
@@ -139,6 +142,8 @@ procedure PageDragDrop(var APages: TPageStates; var AChanges: TChanges;
   AFromIdx, AToIdx: integer);
 procedure PageInsertFront(var APages: TPageStates; var AChanges: TChanges;
   const APage: TPageState);
+procedure PageInsertAt(var APages: TPageStates; var AChanges: TChanges;
+  AIndex: integer; const APage: TPageState);
 
 implementation
 
@@ -329,13 +334,30 @@ end;
   ---------------------------------------------------------------------------- }
 procedure PageInsertFront(var APages: TPageStates; var AChanges: TChanges;
   const APage: TPageState);
+begin
+  PageInsertAt(APages, AChanges, 0, APage);
+end;
+
+{ ----------------------------------------------------------------------------
+  PageInsertAt
+  -------------
+  Inserts APage at position AIndex (clamped to 0..Length), shifting all
+  existing elements from AIndex onward right by one.  The caller must provide
+  a fully initialized TPageState (Name, OrigName, Image, and optionally Data)
+  which this function does NOT free.  Used by the page editor to place the
+  extra pieces of a split directly after the split page.
+  ---------------------------------------------------------------------------- }
+procedure PageInsertAt(var APages: TPageStates; var AChanges: TChanges;
+  AIndex: integer; const APage: TPageState);
 var
   i: integer;
 begin
+  if AIndex < 0 then AIndex := 0;
+  if AIndex > Length(APages) then AIndex := Length(APages);
   SetLength(APages, Length(APages) + 1);
-  for i := High(APages) downto 1 do
+  for i := High(APages) downto AIndex + 1 do
     APages[i] := APages[i - 1];
-  APages[0] := APage;
+  APages[AIndex] := APage;
   AppendChange(AChanges, ckMoved, APage.Name);
 end;
 
@@ -367,9 +389,10 @@ begin
     FPages[i].OrigName := APages[i].OrigName;
     FPages[i].Gone := APages[i].Gone;
     { Data stream reference: copied as-is.  For inserted pages (not in the
-      original archive) the stream holds the raw image bytes.  The thread
-      reads from it but does NOT free it — ownership stays with the main
-      thread's snapshot (which lives until the thread completes). }
+      original archive) and edited pages (image content replaced by the page
+      editor) the stream holds the raw image bytes.  The thread reads from it
+      but does NOT free it — ownership stays with the main thread's snapshot
+      (which lives until the thread completes). }
     FPages[i].Data := APages[i].Data;
     { Image reference intentionally NOT copied — the thread works with
       streams read from disk, not the in-memory TLazIntfImage copies. }
@@ -527,19 +550,22 @@ begin
           else
             OutEntries[Idx].Name := FPages[i].Name;   // keep the (possibly renamed) name
 
-          if SrcIdx >= 0 then
+          if FPages[i].Data <> nil then
+          begin
+            { Edited/inserted page: the snapshot's raw stream wins over the
+              archive entry (the page editor replaces image content in place).
+              The OrigName lookup above still consumes the source entry so
+              the metadata pass below does not duplicate it. }
+            FPages[i].Data.Position := 0;
+            OutEntries[Idx].Data.CopyFrom(FPages[i].Data,
+              FPages[i].Data.Size);
+          end
+          else if SrcIdx >= 0 then
           begin
             // Deep-copy the original archive entry data.
             AllEntries[SrcIdx].Data.Position := 0;
             OutEntries[Idx].Data.CopyFrom(AllEntries[SrcIdx].Data,
               AllEntries[SrcIdx].Data.Size);
-          end
-          else if FPages[i].Data <> nil then
-          begin
-            // Inserted page (not from the original archive).
-            FPages[i].Data.Position := 0;
-            OutEntries[Idx].Data.CopyFrom(FPages[i].Data,
-              FPages[i].Data.Size);
           end;
         end;
 

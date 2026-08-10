@@ -16,7 +16,8 @@ uses
   test_uservicevalidate,
   test_uservicecomicinfo,
   test_ucomicinfo,
-  test_upageeditmodel;
+  test_upageeditmodel,
+  test_uimageedit;
 var
   App: TTestRunner;
 begin

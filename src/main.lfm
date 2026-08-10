@@ -316,6 +316,20 @@ object frmMain: TfrmMain
           TabOrder = 2
           OnClick = MnuPageAddFrontClick
         end
+        object BtnPgEdit: TButton
+          Left = 273
+          Height = 28
+          Hint = 'Edit page image (resize / colors / split)'
+          Top = 2
+          Width = 60
+          Align = alLeft
+          BorderSpacing.Around = 2
+          Caption = 'Edit'
+          ParentShowHint = False
+          ShowHint = True
+          TabOrder = 3
+          OnClick = MnuPageEditClick
+        end
         object BtnPgMoveUp: TButton
           Left = 282
           Height = 28
@@ -493,6 +507,7 @@ object frmMain: TfrmMain
         ViewStyle = vsIcon
         OnDragDrop = LVPagesDragDrop
         OnDragOver = LVPagesDragOver
+        OnDblClick = LVPagesDblClick
         OnMouseDown = LVFilesMouseDown
       end
     end
@@ -584,6 +599,10 @@ object frmMain: TfrmMain
     end
     object MnuPages: TMenuItem
       Caption = '&Pages'
+      object MnuPageEdit: TMenuItem
+        Caption = 'Edit image...'
+        OnClick = MnuPageEditClick
+      end
       object MnuPageDelete: TMenuItem
         Caption = 'Delete page(s)'
         OnClick = MnuPageDeleteClick
@@ -741,6 +760,10 @@ object frmMain: TfrmMain
     OnPopup = PMPagesPopup
     Left = 40
     Top = 200
+    object MnuPgEdit: TMenuItem
+      Caption = 'Edit image...'
+      OnClick = MnuPageEditClick
+    end
     object MnuPgDelete: TMenuItem
       Caption = 'Delete page(s)'
       OnClick = MnuPageDeleteClick

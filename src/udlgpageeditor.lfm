@@ -1,0 +1,10 @@
+inherited dlgPageEditor: TdlgPageEditor
+  Left = 400
+  Height = 660
+  Top = 150
+  Width = 980
+  Caption = 'Page editor'
+  Position = poOwnerFormCenter
+  OnCreate = FormCreate
+  OnKeyDown = FormKeyDown
+end

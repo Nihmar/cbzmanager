@@ -3,7 +3,8 @@ unit test_upageeditmodel;
 interface
 uses
   fpcunit, testregistry,
-  Classes, SysUtils, upageeditmodel, uzipcore, test_helpers;
+  Classes, SysUtils, IntfGraphics, FPImage, GraphType,
+  upageeditmodel, uzipcore, uimgutil, uimageedit, uzipeditor, test_helpers;
 
 type
   { Runs TSaveChangesThread.Execute synchronously on the calling thread so a
@@ -27,6 +28,8 @@ type
     procedure TestSave_Renumber_KeepsAllPagesAndComicInfo;
     procedure TestSave_DeleteGone_NoRenumber;
     procedure TestSave_CreatesOldBackup;
+    procedure TestSave_EditedPage_DataWins;
+    procedure TestSave_Split_StagedPiecesWritesNewPages;
   end;
 
   TPageEditModelTest = class(TTestCase)
@@ -40,6 +43,9 @@ type
     procedure TestMoveUp_FirstVisibleIsNoop;
     procedure TestDeleteSelected_MarksGone;
     procedure TestDragDrop_WithGoneEntry;
+    procedure TestInsertAt_Middle;
+    procedure TestInsertAt_Clamps;
+    procedure TestInsertAt_Front;
   end;
 
 implementation
@@ -163,6 +169,52 @@ begin
   AssertEquals('d,b,c', VisibleNames(P));
 end;
 
+{ A single initialized TPageState for insertion tests. }
+function MakePage(const AName: string): TPageState;
+begin
+  Result.Name := AName;
+  Result.OrigName := AName;
+  Result.Image := nil;
+  Result.Data := nil;
+  Result.OrigIndex := 0;
+  Result.Gone := False;
+end;
+
+procedure TPageEditModelTest.TestInsertAt_Middle;
+var
+  P: TPageStates;
+  Ch: TChanges;
+begin
+  P := MakePages(['a', 'b', 'c'], []);
+  Ch := nil;
+  PageInsertAt(P, Ch, 1, MakePage('x'));
+  AssertEquals('a,x,b,c', VisibleNames(P));
+end;
+
+procedure TPageEditModelTest.TestInsertAt_Clamps;
+var
+  P: TPageStates;
+  Ch: TChanges;
+begin
+  P := MakePages(['a', 'b'], []);
+  Ch := nil;
+  PageInsertAt(P, Ch, -5, MakePage('front'));
+  AssertEquals('front,a,b', VisibleNames(P));
+  PageInsertAt(P, Ch, 99, MakePage('back'));
+  AssertEquals('front,a,b,back', VisibleNames(P));
+end;
+
+procedure TPageEditModelTest.TestInsertAt_Front;
+var
+  P: TPageStates;
+  Ch: TChanges;
+begin
+  P := MakePages(['a', 'b'], []);
+  Ch := nil;
+  PageInsertAt(P, Ch, 0, MakePage('x'));
+  AssertEquals('x,a,b', VisibleNames(P));
+end;
+
 procedure TSyncSaveChanges.RunSync;
 begin
   Execute;
@@ -282,6 +334,238 @@ begin
     Save.Free;
   end;
   AssertTrue('_OLD.cbz backup exists', FileExists(ChangeFileExt(FCBZ, '_OLD.cbz')));
+end;
+
+{ A page whose OrigName still matches an archive entry but carries its own
+  Data stream (the page editor's replace mode) must be saved from the Data
+  stream — the archive copy must not win.  The original entry is consumed by
+  the OrigName lookup so it is not duplicated by the metadata pass. }
+procedure TSaveChangesTest.TestSave_EditedPage_DataWins;
+var
+  Save: TSyncSaveChanges;
+  Pages: TPageStates;
+  Entries: TZipEntries;
+  i: integer;
+  S: string;
+begin
+  MakePages([], Pages);
+  Pages[0].Data := TStringStream.Create('EDITED-BYTES-123');
+  Save := TSyncSaveChanges.Create(FCBZ, Pages, True, False, nil);
+  try
+    Save.RunSync;
+    AssertTrue('save succeeds', Save.Result.Success);
+  finally
+    Save.Free;
+  end;
+  Entries := CollectZipEntries(FCBZ);
+  try
+    AssertEquals('3 pages + ComicInfo', 4, Length(Entries));
+    for i := 0 to High(Entries) do
+      if Entries[i].Name = 'page_0001.png' then
+      begin
+        SetString(S, PChar(Entries[i].Data.Memory), Entries[i].Data.Size);
+        AssertEquals('edited bytes win over the archive copy',
+          'EDITED-BYTES-123', S);
+        Pages[0].Data.Free;
+        Exit;
+      end;
+    Fail('page_0001.png not found in saved CBZ');
+  finally
+    FreeZipEntries(Entries);
+  end;
+end;
+
+{ Builds a W x H PNG stream whose rows carry the row index as grey value
+  (allows the split pieces to be told apart after a round trip). }
+function MakeGradientPNGStream(W, H: integer): TMemoryStream;
+var
+  Desc: TRawImageDescription;
+  Img: TLazIntfImage;
+  x, y: integer;
+  C: TFPColor;
+begin
+  Desc.Init_BPP32_B8G8R8A8_BIO_TTB(W, H);
+  Img := TLazIntfImage.Create(0, 0);
+  try
+    Img.DataDescription := Desc;
+    C.Alpha := 65535;
+    for y := 0 to H - 1 do
+    begin
+      C.Red := y * 256;
+      C.Green := y * 256;
+      C.Blue := y * 256;
+      for x := 0 to W - 1 do
+        Img.Colors[x, y] := C;
+    end;
+    Result := EncodeIntfImage(Img, '.png');
+  finally
+    Img.Free;
+  end;
+end;
+
+{ Decodes the named entry of AFile at full resolution, or nil when missing. }
+function DecodeEntry(const AFile, AName: string): TLazIntfImage;
+var
+  Entries: TZipEntries;
+  i: integer;
+begin
+  Result := nil;
+  Entries := CollectZipEntries(AFile);
+  try
+    for i := 0 to High(Entries) do
+      if Entries[i].Name = AName then
+      begin
+        Entries[i].Data.Position := 0;
+        Result := DecodeImage(Entries[i].Data, '.png');
+        Break;
+      end;
+  finally
+    FreeZipEntries(Entries);
+  end;
+end;
+
+{ True when AFile contains an entry named AName. }
+function HasEntry(const AFile, AName: string): boolean;
+var
+  Entries: TZipEntries;
+  i: integer;
+begin
+  Result := False;
+  Entries := CollectZipEntries(AFile);
+  try
+    for i := 0 to High(Entries) do
+      if Entries[i].Name = AName then
+        Exit(True);
+  finally
+    FreeZipEntries(Entries);
+  end;
+end;
+
+{ Grey value of the first pixel of a BGRA32 image (byte 2 = R). }
+function FirstPixelGray(Img: TLazIntfImage): integer;
+var
+  P: pbyte;
+begin
+  P := Img.GetDataLineStart(0);
+  Result := P[2];
+end;
+
+{ Full split pipeline, staged exactly like main.pas ApplyPageEdit:
+  piece 0 replaces the split page in place, the extra piece becomes a new
+  page inserted right after it, and all pages are renumbered; the save
+  thread must write the piece bytes at the split positions. }
+procedure TSaveChangesTest.TestSave_Split_StagedPiecesWritesNewPages;
+var
+  CBZ: string;
+  S1, S2, S3, CInfo: TMemoryStream;
+  Save: TSyncSaveChanges;
+  Pages: TPageStates;
+  Ch: TChanges;
+  Img, Piece: TLazIntfImage;
+  Pieces: TIntfImageArray;
+  i, Cut, H: integer;
+  P: TPageState;
+begin
+  { Fixture: three 8x10 gradient pages (row y has grey value y). }
+  CBZ := FTempDir + 'split.cbz';
+  S1 := MakeGradientPNGStream(8, 10);
+  S2 := MakeGradientPNGStream(8, 10);
+  S3 := MakeGradientPNGStream(8, 10);
+  CInfo := TStringStream.Create('<ComicInfo><Title>Test</Title></ComicInfo>');
+  CreateCBZ(CBZ, [S1, S2, S3, CInfo],
+    ['page_a.png', 'page_b.png', 'page_c.png', 'ComicInfo.xml']);
+  S1.Free;
+  S2.Free;
+  S3.Free;
+  CInfo.Free;
+
+  { Decode page_b and cut it at 50%. }
+  Img := DecodeEntry(CBZ, 'page_b.png');
+  AssertNotNull('page_b decodes', Img);
+  H := Img.Height;
+  try
+    Pieces := SplitIntfImage(Img, True, [0.5]);
+  finally
+    Img.Free;
+  end;
+  AssertEquals('two pieces', 2, Length(Pieces));
+  Cut := Round(0.5 * H);
+  try
+    AssertEquals('top piece height', Cut, Pieces[0].Height);
+    AssertEquals('bottom piece height', H - Cut, Pieces[1].Height);
+
+    { Stage like main.pas: piece 0 replaces page_b (index 1), piece 1 becomes
+      a new page inserted after it; then renumber everything. }
+    SetLength(Pages, 3);
+    for i := 0 to 2 do
+    begin
+      Pages[i].Name := 'page_' + Chr(Ord('a') + i) + '.png';
+      Pages[i].OrigName := Pages[i].Name;
+      Pages[i].OrigIndex := i;
+      Pages[i].Gone := False;
+      Pages[i].Data := nil;
+      Pages[i].Image := nil;
+    end;
+    Pages[1].Data := EncodeIntfImage(Pieces[0], '.png');
+    AssertNotNull('piece 0 encodes', Pages[1].Data);
+    P.Name := 'split1.png';
+    P.OrigName := 'split1.png';
+    P.OrigIndex := -1;
+    P.Gone := False;
+    P.Data := EncodeIntfImage(Pieces[1], '.png');
+    P.Image := nil;
+    AssertNotNull('piece 1 encodes', P.Data);
+    PageInsertAt(Pages, Ch, 2, P);
+    Ch := nil;
+    PageRenumber(Pages, Ch);
+
+    Save := TSyncSaveChanges.Create(CBZ, Pages, True, False, nil);
+    try
+      Save.RunSync;
+      AssertTrue('save succeeds', Save.Result.Success);
+    finally
+      Save.Free;
+    end;
+  finally
+    FreeImageArray(Pieces);
+    for i := 0 to High(Pages) do
+      Pages[i].Data.Free;
+  end;
+
+  { Verify: 4 renumbered pages + ComicInfo, with the piece bytes in place. }
+  Img := DecodeEntry(CBZ, 'page_0001.png');
+  try
+    AssertNotNull('page_0001 present', Img);
+    AssertEquals('page_0001 = original page_a height', 10, Img.Height);
+  finally
+    Img.Free;
+  end;
+  Img := DecodeEntry(CBZ, 'page_0002.png');
+  try
+    AssertNotNull('page_0002 (top piece) present', Img);
+    AssertEquals('top piece height', Cut, Img.Height);
+    AssertEquals('top piece first row', 0, FirstPixelGray(Img));
+  finally
+    Img.Free;
+  end;
+  Img := DecodeEntry(CBZ, 'page_0003.png');
+  try
+    AssertNotNull('page_0003 (bottom piece) present', Img);
+    AssertEquals('bottom piece height', H - Cut, Img.Height);
+    AssertEquals('bottom piece starts at the cut row', Cut, FirstPixelGray(Img));
+  finally
+    Img.Free;
+  end;
+  Img := DecodeEntry(CBZ, 'page_0004.png');
+  try
+    AssertNotNull('page_0004 = original page_c present', Img);
+    AssertEquals('page_0004 height', 10, Img.Height);
+  finally
+    Img.Free;
+  end;
+  AssertTrue('ComicInfo.xml kept',
+    HasEntry(CBZ, 'ComicInfo.xml'));
+  DeleteFile(CBZ);
 end;
 
 initialization

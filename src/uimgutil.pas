@@ -116,10 +116,29 @@ function IsImageExt(const Ext: string): boolean;
   The stream must be seekable; its position is restored on exit. }
 function DetectImageFormat(Stream: TStream): string;
 
+{
+  Encodes Img into a TMemoryStream in the format selected by Ext (leading
+  dot, case-insensitive): '.jpg'/'.jpeg' via TFPWriterJPEG, '.png' via
+  TFPWriterPNG, '.bmp' via TFPWriterBMP, '.webp' via IntfImageToWebP.
+  AQuality overrides the format default (JPEG 92, WebP 75); PNG/BMP are
+  lossless and ignore it.  Returns nil on failure (nil image, unsupported
+  extension, or a WebP encode error).  The caller owns the result.
+  Memory only: callable from worker threads. }
+function EncodeIntfImage(Img: TLazIntfImage; const Ext: string;
+  AQuality: integer = -1): TMemoryStream;
+
+{
+  Returns the extension that EncodeIntfImage will actually produce for Ext:
+  formats without a writer (.gif, .tif, .tiff) map to '.png'; everything
+  else is returned unchanged.  Used by the page editor to rename the page
+  when its content format changes. }
+function EncodeExtFor(const Ext: string): string;
+
 implementation
 
 uses
-  FPReadJPEG, FPReadPNG, FPReadBMP, FPReadGIF, FPReadTiff, GraphType, LCLType;
+  FPReadJPEG, FPReadPNG, FPReadBMP, FPReadGIF, FPReadTiff, GraphType, LCLType,
+  FPWriteJPEG, FPWritePNG, FPWriteBMP, uWebP;
 
 function ExtInList(const Ext: string; const AList: array of string): boolean;
 var
@@ -186,6 +205,69 @@ begin
       Result := EXT_TIFF;
   finally
     Stream.Position := OldPos;
+  end;
+end;
+
+const
+  { Default JPEG re-encode quality: high enough that repeated edit/save
+    cycles do not visibly degrade comic pages. }
+  DEFAULT_JPEG_QUALITY = 92;
+
+function EncodeExtFor(const Ext: string): string;
+begin
+  if SameText(Ext, EXT_GIF) or SameText(Ext, EXT_TIFF) or
+    SameText(Ext, EXT_TIF) then
+    Result := EXT_PNG
+  else
+    Result := LowerCase(Ext);
+end;
+
+function EncodeIntfImage(Img: TLazIntfImage; const Ext: string;
+  AQuality: integer): TMemoryStream;
+var
+  Writer: TFPCustomImageWriter;
+  FmtExt: string;
+begin
+  Result := nil;
+  if (Img = nil) or (Img.Width <= 0) or (Img.Height <= 0) then Exit;
+
+  FmtExt := EncodeExtFor(Ext);
+  if SameText(FmtExt, EXT_WEBP) then
+  begin
+    { uWebP produces the stream itself; no generic writer involved. }
+    if AQuality >= 0 then
+      Result := IntfImageToWebP(Img, AQuality)
+    else
+      Result := IntfImageToWebP(Img);
+    Exit;
+  end;
+
+  { Select the writer: JPEG (quality 92 by default), PNG, BMP. }
+  if SameText(FmtExt, EXT_JPG) or SameText(FmtExt, EXT_JPEG) then
+  begin
+    Writer := TFPWriterJPEG.Create;
+    if AQuality >= 0 then
+      TFPWriterJPEG(Writer).CompressionQuality := AQuality
+    else
+      TFPWriterJPEG(Writer).CompressionQuality := DEFAULT_JPEG_QUALITY;
+  end
+  else if SameText(FmtExt, EXT_PNG) then
+    Writer := TFPWriterPNG.Create
+  else if SameText(FmtExt, EXT_BMP) then
+    Writer := TFPWriterBMP.Create
+  else
+    Exit;  { unsupported output format }
+
+  try
+    Result := TMemoryStream.Create;
+    try
+      Img.SaveToStream(Result, Writer);
+      Result.Position := 0;
+    except
+      FreeAndNil(Result);
+    end;
+  finally
+    Writer.Free;
   end;
 end;
 

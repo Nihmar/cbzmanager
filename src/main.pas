@@ -101,6 +101,7 @@ uses
   uPageEditModel,
   ufrmjobmonitor,
   udlgpageview,
+  udlgpageeditor,
   uservicebase;
 
 type
@@ -144,6 +145,7 @@ type
     SepArch1: TMenuItem;
     MnuReload: TMenuItem;
     MnuPages: TMenuItem;
+    MnuPageEdit: TMenuItem;
     MnuPageDelete: TMenuItem;
     MnuPageDeleteRows: TMenuItem;
     SepPag1: TMenuItem;
@@ -195,6 +197,7 @@ type
     BtnPgDelete: TButton;
     BtnPgDeleteRows: TButton;
     BtnPgAddFront: TButton;
+    BtnPgEdit: TButton;
     BtnPgMoveUp: TButton;
     BtnPgMoveDown: TButton;
     BtnPgMoveStart: TButton;
@@ -270,6 +273,8 @@ type
     procedure MnuDeletePagesClick(Sender: TObject);
     procedure DeleteRowsThreadTerminated(Sender: TObject);
     procedure MnuExitClick(Sender: TObject);
+    procedure MnuPageEditClick(Sender: TObject);
+    procedure LVPagesDblClick(Sender: TObject);
 
     procedure MnuMergeClick(Sender: TObject);
     procedure MergeThreadTerminated(Sender: TObject);
@@ -363,6 +368,19 @@ type
     { Opens (or re-focuses and reloads) the floating page-view window with
       the currently selected preview page at full resolution. }
     procedure ShowPageView;
+    { Opens the page editor dialog for the page at model index AIdx and
+      stages the result into the page-editing model (see ApplyPageEdit). }
+    procedure OpenPageEditor(AIdx: integer);
+    { Commits a TPageEditResult into FPages/FChanges: replace mode swaps the
+      page's image bytes and thumbnail in place; split mode replaces the
+      page with the first piece and inserts the remaining pieces after it,
+      then renumbers all visible pages.  Owns (and consumes) the result. }
+    procedure ApplyPageEdit(Idx: integer; const AResult: TPageEditResult);
+    { Rebuilds ILPages at ASize from the in-memory FPages model (visible
+      pages only), keeping the thumbnails aligned with the page rows.  Used
+      by the zoom debounce timer — the FPagePreviews cache is no longer
+      index-aligned with FPages after edits/splits. }
+    procedure RebuildPagesThumbs(ASize: integer);
     { True while the open preview is a .cbr (RAR) archive: the page model
       is read-only and the conversion path is the only way to edit it. }
     function IsReadOnlyPreview: boolean;
@@ -595,6 +613,7 @@ end;
 procedure TfrmMain.SetPageOpsEnabled(AEnabled: boolean);
 begin
   PanelPageTools.Enabled := AEnabled;
+  MnuPageEdit.Enabled := AEnabled;
   MnuPageDelete.Enabled := AEnabled;
   MnuPageDeleteRows.Enabled := AEnabled;
   MnuPageMoveUp.Enabled := AEnabled;
@@ -863,8 +882,39 @@ begin
   Sz := Max(THUMB_RENDER_FLOOR, ZoomScroll.Position);
   RebuildThumbs(LVFiles, ILFilesFirstPages, FFirstPages, Sz);
   if PanelSingleFile.Visible then
-    RebuildThumbs(LVPages, ILPages, FPagePreviews, Sz);
+    RebuildPagesThumbs(Sz);
   LblZoomVal.Caption := IntToStr(ZoomScroll.Position);
+end;
+
+{
+  RebuildPagesThumbs
+  ------------------
+  Zoom-time rebuild of the page-preview thumbnails, rendered from the
+  in-memory FPages model (visible, non-Gone pages) instead of the
+  FPagePreviews cache: after edits and splits the cache is no longer
+  index-aligned with the page list, so rendering from it would show stale
+  or shifted thumbnails.
+}
+procedure TfrmMain.RebuildPagesThumbs(ASize: integer);
+var
+  i: integer;
+begin
+  if FPages = nil then Exit;
+  LVPages.BeginUpdate;
+  try
+    LVPages.LargeImages := nil;
+    ILPages.Clear;
+    ILPages.Width := ASize;
+    ILPages.Height := ThumbHeight(ASize);
+    for i := 0 to High(FPages) do
+    begin
+      if FPages[i].Gone then Continue;
+      AppendThumb(ILPages, FPages[i].Image);
+    end;
+    LVPages.LargeImages := ILPages;
+  finally
+    LVPages.EndUpdate;
+  end;
 end;
 
 {
@@ -1025,6 +1075,182 @@ begin
   if not FPageView.Visible then
     FPageView.Show;
   FPageView.BringToFront;
+end;
+
+{
+  OpenPageEditor
+  --------------
+  Opens the modal page editor for the page at model index AIdx.  The dialog
+  extracts the page at full resolution from the archive (FPages[Idx].OrigName
+  is still the on-disk entry name — pending renames have not been written),
+  lets the user resize / adjust colours / split, and encodes the result.
+  On OK the result is staged into the editing model; nothing is written to
+  disk until the user saves via the stage bar.
+}
+procedure TfrmMain.OpenPageEditor(AIdx: integer);
+var
+  Dlg: TdlgPageEditor;
+begin
+  if IsReadOnlyPreview or (FPagesThread <> nil) or (FPageFile = '') then Exit;
+  if (AIdx < 0) or (AIdx > High(FPages)) then Exit;
+  if FPages[AIdx].OrigName = '' then Exit;
+
+  Dlg := TdlgPageEditor.Create(Self);
+  try
+    Dlg.LoadPage(FPageFile, FPages[AIdx].OrigName,
+      ExtractFileName(FPageFile) + ' — ' + FPages[AIdx].OrigName);
+    if Dlg.ShowModal = mrOk then
+      ApplyPageEdit(AIdx, Dlg.ExtractResult);
+  finally
+    Dlg.Free;
+  end;
+end;
+
+{
+  ApplyPageEdit
+  -------------
+  Stages the page editor's result into the in-memory model.  The result is
+  consumed: streams become the pages' Data (written by TSaveChangesThread),
+  images are scaled into thumbnails appended to the FPagePreviews cache
+  (which owns them and frees them on preview close), and a ckEdited change
+  is recorded so the stage bar appears and Save becomes available.
+
+  Replace mode: the page keeps its slot, name (extension updated when the
+  encoded format changed, e.g. GIF -> PNG) and OrigName; only its bytes and
+  thumbnail change.
+
+  Split mode: the first piece replaces the page in place; every further
+  piece becomes a new page inserted directly after it.  All pages are then
+  renumbered (FRenumber + PageRenumber), so every page following the split
+  gets the next sequential name — the rename happens on save as usual, and
+  PageRenumber previews it immediately in the list.
+}
+procedure TfrmMain.ApplyPageEdit(Idx: integer; const AResult: TPageEditResult);
+var
+  i: integer;
+  Thumb: TLazIntfImage;
+  NewPage: TPageState;
+  PageName: string;
+
+  procedure DiscardResult;
+  var
+    j: integer;
+  begin
+    AResult.Stream.Free;
+    AResult.Image.Free;
+    for j := 0 to High(AResult.Slices) do
+    begin
+      AResult.Slices[j].Stream.Free;
+      AResult.Slices[j].Image.Free;
+    end;
+  end;
+
+begin
+  if (Idx < 0) or (Idx > High(FPages)) then
+  begin
+    DiscardResult;
+    Exit;
+  end;
+
+  if not AResult.Split then
+  begin
+    { Replace in place: new bytes + new thumbnail. }
+    FreeAndNil(FPages[Idx].Data);
+    FPages[Idx].Data := AResult.Stream;
+    if not SameText(ExtractFileExt(FPages[Idx].Name), AResult.Ext) then
+      FPages[Idx].Name := ChangeFileExt(FPages[Idx].Name, AResult.Ext);
+    Thumb := ScaleIntfImage(AResult.Image, CacheW, CacheH);
+    AResult.Image.Free;
+    if Thumb <> nil then
+    begin
+      FPages[Idx].Image := Thumb;
+      FPagePreviews.Add(Thumb);  { cache owns it; freed at preview close }
+    end;
+    AddChange(ckEdited, FPages[Idx].Name);
+    UpdateStageBar;
+    RenderPages;
+    SetStatus(Format('Page edited: %s', [FPages[Idx].Name]));
+  end
+  else
+  begin
+    { Split: piece 0 replaces the page, the rest are inserted after it. }
+    for i := 0 to High(AResult.Slices) do
+    begin
+      if i = 0 then
+      begin
+        FreeAndNil(FPages[Idx].Data);
+        FPages[Idx].Data := AResult.Slices[0].Stream;
+        FPages[Idx].Name := ChangeFileExt(FPages[Idx].Name,
+          AResult.Slices[0].Ext);
+        Thumb := ScaleIntfImage(AResult.Slices[0].Image, CacheW, CacheH);
+        AResult.Slices[0].Image.Free;
+        if Thumb <> nil then
+        begin
+          FPages[Idx].Image := Thumb;
+          FPagePreviews.Add(Thumb);
+        end;
+        AddChange(ckEdited, FPages[Idx].Name);
+      end
+      else
+      begin
+        { New page for the extra piece.  OrigName must never match an
+          archive entry (the Data stream supplies the bytes). }
+        PageName := Format('split%d%s', [i, AResult.Slices[i].Ext]);
+        NewPage.Name := PageName;
+        NewPage.OrigName := PageName;
+        NewPage.OrigIndex := -1;
+        NewPage.Gone := False;
+        NewPage.Data := AResult.Slices[i].Stream;
+        Thumb := ScaleIntfImage(AResult.Slices[i].Image, CacheW, CacheH);
+        AResult.Slices[i].Image.Free;
+        NewPage.Image := Thumb;
+        if Thumb <> nil then
+          FPagePreviews.Add(Thumb);
+        PageInsertAt(FPages, FChanges, Idx + i, NewPage);
+        AddChange(ckEdited, NewPage.Name);
+      end;
+    end;
+    FRenumber := True;
+    PageRenumber(FPages, FChanges);
+    UpdateStageBar;
+    RenderPages;
+    SetStatus(Format('Page split into %d pages', [Length(AResult.Slices)]));
+  end;
+end;
+
+{
+  MnuPageEditClick
+  ----------------
+  Menu/toolbar entry point: opens the editor for the selected page.
+}
+procedure TfrmMain.MnuPageEditClick(Sender: TObject);
+begin
+  if not PanelSingleFile.Visible then Exit;
+  if LVPages.Selected = nil then
+  begin
+    SetStatus('No page selected');
+    Exit;
+  end;
+  OpenPageEditor(PtrInt(LVPages.Selected.Data));
+end;
+
+{
+  LVPagesDblClick
+  ---------------
+  Double-click on a page thumbnail opens the page editor (item resolved by
+  position first, falling back to the selection, like LVFilesDblClick).
+}
+procedure TfrmMain.LVPagesDblClick(Sender: TObject);
+var
+  P: TPoint;
+  It: TListItem;
+begin
+  P := LVPages.ScreenToClient(Mouse.CursorPos);
+  It := LVPages.GetItemAt(P.X, P.Y);
+  if It = nil then
+    It := LVPages.Selected;
+  if It <> nil then
+    OpenPageEditor(PtrInt(It.Data));
 end;
 
 {

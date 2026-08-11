@@ -46,7 +46,7 @@ var
   Files: TStringArray;
   Opts: TConvertOptions;
   Results: TConvertResults;
-  F1, F2: TMemoryStream;
+  Msg: string;
 begin
   if not WebPAvailable then Exit;   { degraded env: nothing to convert }
 
@@ -84,19 +84,10 @@ begin
   Results := TConvertService.Convert(Files, FTempDir, Opts);
   AssertEquals('par converted', 3, Results[0].PagesConverted);
 
-  F1 := TMemoryStream.Create;
-  F2 := TMemoryStream.Create;
-  try
-    F1.LoadFromFile(FTempDir + 'seq.cbz');
-    F2.LoadFromFile(FTempDir + 'par.cbz');
-    AssertEquals('same output size', F1.Size, F2.Size);
-    if F1.Size > 0 then
-      AssertTrue('byte-identical output',
-        CompareMem(F1.Memory, F2.Memory, F1.Size));
-  finally
-    F1.Free;
-    F2.Free;
-  end;
+  { Compared by entry content — raw archive bytes carry TZipper's write
+    timestamp, so a byte comparison would flake across second boundaries. }
+  AssertTrue('identical archives by content',
+    ZipFilesEqual(FTempDir + 'seq.cbz', FTempDir + 'par.cbz', Msg));
 end;
 
 initialization

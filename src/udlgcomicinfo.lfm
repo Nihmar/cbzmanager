@@ -53,10 +53,38 @@ inherited dlgComicInfo: TdlgComicInfo
       OnClick = BtnRemoveClick
     end
   end
-  object LVFiles: TListView[1]
+  object PanelTop: TPanel[1]
+    Left = 0
+    Height = 36
+    Top = 0
+    Width = 560
+    Align = alTop
+    BevelOuter = bvNone
+    ClientHeight = 36
+    ClientWidth = 560
+    TabOrder = 2
+    object LblThreads: TLabel
+      Left = 8
+      Height = 20
+      Top = 8
+      Width = 130
+      Caption = 'Parallel threads'
+    end
+    object SpinThreads: TSpinEdit
+      Left = 432
+      Height = 28
+      Top = 4
+      Width = 120
+      MaxValue = 32
+      MinValue = 0
+      TabOrder = 0
+      Value = 0
+    end
+  end
+  object LVFiles: TListView[2]
     Left = 4
-    Height = 348
-    Top = 4
+    Height = 308
+    Top = 40
     Width = 552
     Align = alClient
     BorderSpacing.Around = 4

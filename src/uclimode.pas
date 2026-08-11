@@ -83,10 +83,13 @@ begin
   WriteLn('  cbzmanager <command> [options]');
   WriteLn;
   WriteLn('Commands:');
-  WriteLn('  validate <dir>                 Verify CBZ files are valid and images readable');
-  WriteLn('  convert-webp <dir> [options]   Convert images to WebP (quality 75%, only if smaller)');
-  WriteLn('  merge <dir> [options]          Merge chapter CBZ files into volumes');
-  WriteLn('  cbr-to-cbz <dir> [options]     Convert CBR (RAR) archives to CBZ');
+  WriteLn('  validate <dir> [options]      Verify CBZ files are valid and images readable');
+  WriteLn('  convert-webp <dir> [options]  Convert images to WebP (quality 75%, only if smaller)');
+  WriteLn('  merge <dir> [options]         Merge chapter CBZ files into volumes');
+  WriteLn('  cbr-to-cbz <dir> [options]    Convert CBR (RAR) archives to CBZ');
+  WriteLn;
+  WriteLn('validate options:');
+  WriteLn('  --threads N                  Decode pages on N worker threads (default: one per CPU core)');
   WriteLn;
   WriteLn('convert-webp options:');
   WriteLn('  --delete                     Delete originals after conversion (default: rename to _OLD.cbz)');
@@ -250,7 +253,7 @@ var
 begin
   { --delete is accepted for validate (argparse parity) but unused. }
   if Flags.Force or (Length(Flags.Chapters) > 0) or
-     (Flags.ChaptersPerVolume > 0) or (Flags.Threads > 0) then
+     (Flags.ChaptersPerVolume > 0) then
   begin
     WriteLn(ErrOutput, 'Error: option not valid for ''validate''');
     WriteLn(ErrOutput, 'Try ''cbzmanager --help'' for usage.');
@@ -266,7 +269,8 @@ begin
   WriteLn(Format('Checking %d CBZ file(s)...', [Length(Files)]));
   Progress := TCliProgress.Create;
   try
-    Results := TValidateService.ValidateDeep(Files, ADir, @Progress.Progress);
+    Results := TValidateService.ValidateDeep(Files, ADir, @Progress.Progress,
+      Flags.Threads);   { 0 = automatic (CPU count, capped) }
   finally
     Progress.Free;
   end;

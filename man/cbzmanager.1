@@ -14,6 +14,8 @@ cbzmanager \- CBZ comic archive manager (desktop application and headless CLI)
 .B validate
 .I dir
 .RB [ \-\-delete ]
+.RB [ \-\-threads
+.IR N ]
 .br
 .B cbzmanager
 .B convert\-webp
@@ -89,6 +91,8 @@ are not ported.
 .TP
 .B validate
 .I dir
+.RB [ \-\-threads
+.IR N ]
 Verifies every
 .I .cbz
 file in
@@ -102,7 +106,11 @@ line per file plus a summary.  Exits 0 when all files are valid, 1 when at
 least one file fails.  The
 .B \-\-delete
 flag is accepted for compatibility with the reference CLI but has no
-effect.
+effect.  Image entries are decoded in parallel on one worker thread per
+CPU core (at most 8);
+.B \-\-threads
+selects an explicit number (1 = sequential).  The reported per-image
+results are identical regardless of the thread count.
 .TP
 .B convert\-webp
 .I dir
@@ -217,13 +225,16 @@ Mutually exclusive with
 .BR \-\-chapters .
 .TP
 .BI \-\-threads " N"
-.B convert\-webp
+.B validate
+.BR convert\-webp
 and
 .B cbr\-to\-cbz
-only: convert on
+only: validate/convert on
 .I N
 worker threads.  The default (0 / omitted) is one worker per CPU core —
 capped at 8 for
+.B validate
+and
 .B convert\-webp
 and at 4 for
 .B cbr\-to\-cbz

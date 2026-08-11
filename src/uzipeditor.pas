@@ -148,9 +148,13 @@ type
 
 { Deep-validate a CBZ: tries to decode every image entry.
   Returns the number of readable images and an array of per-entry results.
-  Non-image entries (ComicInfo.xml etc.) are skipped, not reported. }
+  Non-image entries (ComicInfo.xml etc.) are skipped, not reported.
+  AThreads controls decode parallelism: 0 = automatic (CPU count, capped
+  at 8), 1 = sequential.  Every worker holds one full-resolution image in
+  RAM.  The per-entry results are deterministic regardless of AThreads —
+  they are assembled in archive order after the pool joins. }
 function ValidateCBZImages(const FileName: string;
-  out ImageResults: TImageChecks): integer;
+  out ImageResults: TImageChecks; AThreads: integer = 0): integer;
 
 {
   Merges multiple CBZ files into a single CBZ with renumbered pages.
@@ -735,68 +739,235 @@ begin
   end;
 end;
 
-{ TImageValidator – receives each decoded image from ForEachImage and
-  builds a per-entry report (TImageCheck) recording success or the
-  reason for failure. }
-
+{ Shared state of a validation pool: the source entries, per-source-index
+  check slots and the claim counter.  Mutable fields are guarded by Lock;
+  each worker writes only Checks[Idx] with the Idx it claimed, so slot
+  writes need no lock. }
 type
-  TImageValidator = class
-  private
-    FResults: TImageChecks;
-    FValidCount: integer;
-    { Appends a TImageCheck for AName to FResults, incrementing
-      FValidCount when AImage is valid (non-nil). }
-    procedure CheckImage(const AName: string; AImage: TLazIntfImage;
-      AIndex: integer; var ACancel: boolean);
-  end;
+  TValidatePoolState = class
+  Lock: TRTLCriticalSection;
+  Entries: TZipEntries;        { read-only source data }
+  Checks: TImageChecks;        { per-source-index results }
+  Work: array of integer;      { indices of image entries }
+  Next: integer;               { next index into Work (under Lock) }
+  Completed: integer;          { finished entries (under Lock) }
+  BaseName: string;            { ExtractFileName(FileName), for messages }
+  OnProgress: TServiceProgressEvent;
+  constructor Create;
+  destructor Destroy; override;
+end;
 
-procedure TImageValidator.CheckImage(const AName: string; AImage: TLazIntfImage;
-  AIndex: integer; var ACancel: boolean);
-var
-  n: integer;
+{ Pool worker: claims the next image-entry index under the lock, decodes
+  it and writes the TImageCheck into its own slot.  DecodeImage is
+  stateless per call and never raises (failures become Valid=False
+  checks), so workers share nothing but the pool fields. }
+TValidateWorker = class(TThread)
+private
+  FPool: TValidatePoolState;
+protected
+  procedure Execute; override;
+public
+  constructor Create(APool: TValidatePoolState);
+end;
+
+constructor TValidatePoolState.Create;
 begin
-  n := Length(FResults);
-  SetLength(FResults, n + 1);
-  FResults[n].EntryName := AName;
-  if AImage <> nil then
+  inherited Create;
+  InitCriticalSection(Lock);
+end;
+
+destructor TValidatePoolState.Destroy;
+begin
+  DoneCriticalSection(Lock);
+  inherited Destroy;
+end;
+
+constructor TValidateWorker.Create(APool: TValidatePoolState);
+begin
+  { Created suspended: the caller Start()s every worker before joining. }
+  inherited Create(True);
+  FPool := APool;
+end;
+
+{ TValidateWorker.Execute
+
+  Claims the next image-entry index under the pool lock, decodes the entry
+  (DecodeImage never raises — a failed decode is a Valid=False check) and
+  writes the result into its own slot.  Progress is reported per finished
+  entry, serialized by the lock, monotonic via the completed counter. }
+procedure TValidateWorker.Execute;
+var
+  Idx: integer;
+  Img: TLazIntfImage;
+begin
+  while True do
   begin
-    FResults[n].Valid := True;
-    FResults[n].ErrorMsg := '';
-    Inc(FValidCount);
-    AImage.Free;
-  end
-  else
-  begin
-    FResults[n].Valid := False;
-    FResults[n].ErrorMsg := 'Image decode failed';
+    EnterCriticalSection(FPool.Lock);
+    try
+      if FPool.Next >= Length(FPool.Work) then Exit;
+      Idx := FPool.Work[FPool.Next];
+      Inc(FPool.Next);
+    finally
+      LeaveCriticalSection(FPool.Lock);
+    end;
+
+    FPool.Checks[Idx].EntryName := FPool.Entries[Idx].Name;
+    Img := DecodeImage(FPool.Entries[Idx].Data,
+      ExtractFileExt(FPool.Entries[Idx].Name));
+    FPool.Checks[Idx].Valid := Img <> nil;
+    if Img <> nil then
+    begin
+      FPool.Checks[Idx].ErrorMsg := '';
+      Img.Free;
+    end
+    else
+      FPool.Checks[Idx].ErrorMsg := 'Image decode failed';
+
+    EnterCriticalSection(FPool.Lock);
+    try
+      Inc(FPool.Completed);
+      if Assigned(FPool.OnProgress) then
+        FPool.OnProgress((FPool.Completed * 100) div Length(FPool.Work),
+          Format('%s — entry %d/%d (%s)', [FPool.BaseName, Idx + 1,
+            Length(FPool.Entries), FPool.Entries[Idx].Name]));
+    finally
+      LeaveCriticalSection(FPool.Lock);
+    end;
   end;
 end;
 
 function ValidateCBZImages(const FileName: string;
-  out ImageResults: TImageChecks): integer;
+  out ImageResults: TImageChecks; AThreads: integer = 0): integer;
 var
-  Validator: TImageValidator;
+  AllEntries: TZipEntries;
+  i, j, Idx, Count, ValidCount, ThreadCount: integer;
+  Img: TLazIntfImage;
+  Pool: TValidatePoolState;
+  Checks: TImageChecks;
+  Workers: array of TValidateWorker;
+  Started: boolean;
 begin
-  Validator := TImageValidator.Create;
+  ImageResults := nil;
+  Result := 0;
   try
-    Validator.FResults := nil;
-    Validator.FValidCount := 0;
-    try
-      ForEachImage(FileName, @Validator.CheckImage);
-    except
-      on E: Exception do
-      begin
-        { File-level error: return it as a single pseudo-entry }
-        SetLength(Validator.FResults, 1);
-        Validator.FResults[0].EntryName := ExtractFileName(FileName);
-        Validator.FResults[0].Valid := False;
-        Validator.FResults[0].ErrorMsg := E.Message;
-      end;
+    AllEntries := CollectZipEntries(FileName);
+  except
+    on E: Exception do
+    begin
+      { File-level error: return it as a single pseudo-entry }
+      SetLength(ImageResults, 1);
+      ImageResults[0].EntryName := ExtractFileName(FileName);
+      ImageResults[0].Valid := False;
+      ImageResults[0].ErrorMsg := E.Message;
+      Exit;
     end;
-    ImageResults := Validator.FResults;
-    Result := Validator.FValidCount;
+  end;
+
+  try
+    if Length(AllEntries) = 0 then
+    begin
+      { Empty archive: report a single invalid pseudo-entry (parity with
+        the historical streaming walker, which raised on empty zips). }
+      SetLength(ImageResults, 1);
+      ImageResults[0].EntryName := ExtractFileName(FileName);
+      ImageResults[0].Valid := False;
+      ImageResults[0].ErrorMsg := 'No images found';
+      Exit;
+    end;
+
+    { Phase 1 — decode every image entry into its slot, in parallel. }
+    Pool := TValidatePoolState.Create;
+    Workers := nil;
+    Started := False;
+    try
+      Pool.Entries := AllEntries;
+      Pool.BaseName := ExtractFileName(FileName);
+      for i := 0 to High(AllEntries) do
+        if IsImageExt(ExtractFileExt(AllEntries[i].Name)) then
+        begin
+          SetLength(Pool.Work, Length(Pool.Work) + 1);
+          Pool.Work[High(Pool.Work)] := i;
+        end;
+
+      { Allocate the slots up front — phase 2 indexes them by source entry
+        even when no entry is an image. }
+      SetLength(Pool.Checks, Length(AllEntries));
+      if Length(Pool.Work) > 0 then
+      begin
+        ThreadCount := AThreads;
+        if ThreadCount <= 0 then
+          ThreadCount := Min(OnlineCpuCount, MAX_WEBP_CONVERT_THREADS);
+        ThreadCount := Min(ThreadCount, Length(Pool.Work));
+
+        if ThreadCount > 1 then
+        begin
+          SetLength(Workers, ThreadCount);
+          for i := 0 to ThreadCount - 1 do
+            Workers[i] := TValidateWorker.Create(Pool);
+          Started := True;
+          for i := 0 to ThreadCount - 1 do
+            Workers[i].Start;
+        end
+        else
+        begin
+          { Single entry (or explicitly sequential): claim and decode
+            inline — same slot semantics as the pool path. }
+          while Pool.Next < Length(Pool.Work) do
+          begin
+            Idx := Pool.Work[Pool.Next];
+            Inc(Pool.Next);
+            Pool.Checks[Idx].EntryName := AllEntries[Idx].Name;
+            Img := DecodeImage(AllEntries[Idx].Data,
+              ExtractFileExt(AllEntries[Idx].Name));
+            Pool.Checks[Idx].Valid := Img <> nil;
+            if Img <> nil then
+            begin
+              Pool.Checks[Idx].ErrorMsg := '';
+              Img.Free;
+            end
+            else
+              Pool.Checks[Idx].ErrorMsg := 'Image decode failed';
+            Inc(Pool.Completed);
+            if Assigned(Pool.OnProgress) then
+              Pool.OnProgress((Pool.Completed * 100) div Length(Pool.Work),
+                Format('%s — entry %d/%d (%s)', [Pool.BaseName, Idx + 1,
+                  Length(AllEntries), AllEntries[Idx].Name]));
+          end;
+        end;
+      end;
+    finally
+      { Join and free the workers here — also covers a mid-spawn failure,
+        where only the created (started) workers must be waited for. }
+      if Started then
+        for i := 0 to High(Workers) do
+          Workers[i].WaitFor;
+      for i := 0 to High(Workers) do
+        if Workers[i] <> nil then
+          Workers[i].Free;
+      { Keep a refcounted reference to the check slots: phase 2 reads them
+        after the pool object itself is freed. }
+      Checks := Pool.Checks;
+      Pool.Free;
+    end;
+
+    { Phase 2 — assemble the per-entry checks in archive order
+      (deterministic regardless of the thread count). }
+    Count := 0;
+    for i := 0 to High(AllEntries) do
+      if Checks[i].EntryName <> '' then Inc(Count);
+    SetLength(ImageResults, Count);
+    j := 0;
+    ValidCount := 0;
+    for i := 0 to High(AllEntries) do
+      if Checks[i].EntryName <> '' then
+      begin
+        ImageResults[j] := Checks[i];
+        if ImageResults[j].Valid then Inc(ValidCount);
+        Inc(j);
+      end;
+    Result := ValidCount;
   finally
-    Validator.Free;
+    FreeZipEntries(AllEntries);
   end;
 end;
 

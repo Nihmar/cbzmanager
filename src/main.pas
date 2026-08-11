@@ -436,6 +436,7 @@ uses
   udlgcbr,
   udlgrows,
   udlgvalidate,
+  udlgvalidateopts,
   udlgcomicinfo,
   udlgwebp,
   udlgmerge,
@@ -1588,11 +1589,18 @@ end;
 procedure TfrmMain.MnuValidateClick(Sender: TObject);
 var
   Files: TStringArray;
+  Dlg: TdlgValidateOpts;
   Thread: TValidateThread;
 begin
   if not RequireFiles(False, Files) then Exit;
 
-  Thread := TValidateThread.Create(Files, FDir, @UpdateProgress);
+  Dlg := TdlgValidateOpts.Create(Self);
+  try
+    if Dlg.ShowModal <> mrOk then Exit;
+    Thread := TValidateThread.Create(Files, FDir, Dlg.Threads, @UpdateProgress);
+  finally
+    Dlg.Free;
+  end;
   BeginServiceThread(Thread, 'Validating...', @ValidateThreadTerminated,
     TbValidate, MnuValidate);
 end;

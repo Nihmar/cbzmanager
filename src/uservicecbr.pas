@@ -85,16 +85,6 @@ type
     destructor Destroy; override;
   end;
 
-  { Serializes a progress callback through a pool lock: the pool workers
-    report within-file progress concurrently (CollectCbrEntries ticks per
-    entry), so the underlying callback must never be entered twice at once
-    (it may block, e.g. TServiceThread.Progress's Synchronize). }
-  TLockedProgress = class
-    Lock: PRTLCriticalSection;
-    Inner: TServiceProgressEvent;
-    procedure Translate(APercent: integer; const AMsg: string);
-  end;
-
   { Pool worker: claims the next file index under the lock, converts that
     file with the untouched per-file logic, then reports progress —
     serialized, monotonic via the completed counter. }
@@ -141,16 +131,6 @@ begin
   inherited Create(True);
   FPool := APool;
   FProgress := AProgress;
-end;
-
-procedure TLockedProgress.Translate(APercent: integer; const AMsg: string);
-begin
-  EnterCriticalSection(Lock^);
-  try
-    if Assigned(Inner) then Inner(APercent, AMsg);
-  finally
-    LeaveCriticalSection(Lock^);
-  end;
 end;
 
 { TCbrConvertWorker.Execute

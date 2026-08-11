@@ -81,6 +81,21 @@ type
     procedure Translate(APercent: integer; const AMsg: string);
   end;
 
+  { ------------------------------------------------------------------------
+    TLockedProgress – Serializes a progress callback through a pool lock.
+
+    Pool workers report progress concurrently (per entry or per file), so
+    the underlying callback must never be entered twice at once — it may
+    block (e.g. TServiceThread.Progress uses a blocking Synchronize).
+    Create one shared instance per pool and pass @Translate as the
+    callback.
+    ------------------------------------------------------------------------ }
+  TLockedProgress = class
+    Lock: PRTLCriticalSection;
+    Inner: TServiceProgressEvent;
+    procedure Translate(APercent: integer; const AMsg: string);
+  end;
+
 { ------------------------------------------------------------------------
   GlobalFilePercent – Fold a within-file percentage into a global one.
 
@@ -216,6 +231,19 @@ begin
   if AFileTotal <= 0 then
     Exit(0);
   Result := (AFileIndex * 100 + AWithinFile) div AFileTotal;
+end;
+
+{ ----------------------------------------------------------------------------
+  TLockedProgress
+  ---------------------------------------------------------------------------- }
+procedure TLockedProgress.Translate(APercent: integer; const AMsg: string);
+begin
+  EnterCriticalSection(Lock^);
+  try
+    if Assigned(Inner) then Inner(APercent, AMsg);
+  finally
+    LeaveCriticalSection(Lock^);
+  end;
 end;
 
 { ----------------------------------------------------------------------------

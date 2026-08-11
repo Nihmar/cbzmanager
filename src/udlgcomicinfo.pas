@@ -14,6 +14,7 @@ uses
   StdCtrls,
   ComCtrls,
   ExtCtrls,
+  Spin,
   udlgbase,
   usettings;
 
@@ -26,16 +27,20 @@ type
     BtnRemove: TButton;
     CbBackup: TCheckBox;
     LVFiles: TListView;
-    PanelBottom: TPanel;                  
+    PanelBottom: TPanel;
+    PanelTop: TPanel;
+    SpinThreads: TSpinEdit;
     procedure BtnRemoveClick(Sender: TObject);
     procedure FormCreate(Sender: TObject);
   private
     FDir: string;
     FFiles: TStringArray;
+    function GetThreads: integer;
     procedure LoadSettings; override;
     procedure SaveSettings; override;
   public
     procedure ScanFiles(const AFiles: TStringArray; const ADir: string);
+    property Threads: integer read GetThreads;
   end;
 
 implementation
@@ -66,11 +71,18 @@ end;
 procedure TdlgComicInfo.LoadSettings;
 begin
   CbBackup.Checked := AppSettings.ReadBool('RemoveComicInfo', 'Backup', True);
+  SpinThreads.Value := AppSettings.ReadInteger('RemoveComicInfo', 'Threads', 0);
 end;
 
 procedure TdlgComicInfo.SaveSettings;
 begin
   AppSettings.WriteBool('RemoveComicInfo', 'Backup', CbBackup.Checked);
+  AppSettings.WriteInteger('RemoveComicInfo', 'Threads', SpinThreads.Value);
+end;
+
+function TdlgComicInfo.GetThreads: integer;
+begin
+  Result := SpinThreads.Value;
 end;
 
 procedure TdlgComicInfo.ScanFiles(const AFiles: TStringArray;
@@ -127,7 +139,8 @@ begin
 
   if Length(ToRemove) = 0 then Exit;
 
-  Results := TComicInfoService.Remove(ToRemove, FDir, CbBackup.Checked);
+  Results := TComicInfoService.Remove(ToRemove, FDir, CbBackup.Checked,
+    nil, SpinThreads.Value);
   Removed := 0;
   for i := 0 to High(Results) do
     if Results[i].Removed then

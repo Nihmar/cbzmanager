@@ -210,7 +210,7 @@ const
   the main thread must keep up with the batch publication. }
 function WorkerCount: integer;
 begin
-  Result := Min(4, Max(1, TThread.ProcessorCount));
+  Result := Min(4, Max(1, OnlineCpuCount));
 end;
 
 { TThumbThread }

@@ -42,6 +42,7 @@ type
     procedure TestFilterPages_DeleteNone;
     procedure TestFilterPages_DeleteAll;
     procedure TestConvertWebP_ParallelDeterministic;
+    procedure TestValidateCBZImages_ParallelDeterministic;
   end;
 
   TImageUtilTest = class(TTestCase)
@@ -705,16 +706,19 @@ begin
   end;
 end;
 
-{ Parallel WebP conversion must be byte-identical to the sequential one:
-  the pool writes each slot by source index and the compaction pass runs
-  in archive order, so the thread count must not change the output. }
+{ Parallel WebP conversion must produce identical archives to the
+  sequential one: the pool writes each slot by source index and the
+  compaction pass runs in archive order, so the thread count must not
+  change the output.  Compared by entry content — raw archive bytes carry
+  TZipper's write timestamp. }
 procedure TZipEditorTest.TestConvertWebP_ParallelDeterministic;
 var
   Pngs: array[0..7] of TMemoryStream;
-  CiXml, F1, F2: TMemoryStream;
+  CiXml: TMemoryStream;
   i, N1, N2, C1, C2: integer;
   M1, M2: boolean;
   E1, E2: TZipEntries;
+  Msg: string;
 begin
   if not WebPAvailable then Exit;   { degraded env: nothing to convert }
 
@@ -751,20 +755,51 @@ begin
   AssertEquals('entry count matches', N1, N2);
   AssertEquals('converted count matches', C1, C2);
   AssertEquals('modified flag matches', M1, M2);
+  AssertTrue('identical archives by content',
+    ZipFilesEqual(FTempDir + 'seq.cbz', FTempDir + 'par.cbz.out', Msg));
+end;
 
-  F1 := TMemoryStream.Create;
-  F2 := TMemoryStream.Create;
-  try
-    F1.LoadFromFile(FTempDir + 'seq.cbz');
-    F2.LoadFromFile(FTempDir + 'par.cbz.out');
-    AssertEquals('same output size', F1.Size, F2.Size);
-    if F1.Size > 0 then
-      AssertTrue('byte-identical output',
-        CompareMem(F1.Memory, F2.Memory, F1.Size));
-  finally
-    F1.Free;
-    F2.Free;
+{ Parallel validation must produce identical per-image checks to the
+  sequential run: the pool writes each check into its own slot and the
+  results are assembled in archive order after the join. }
+procedure TZipEditorTest.TestValidateCBZImages_ParallelDeterministic;
+var
+  Pngs: array[0..3] of TMemoryStream;
+  Garbage, Xml: TMemoryStream;
+  i: integer;
+  Checks1, Checks4: TImageChecks;
+  V1, V4: integer;
+begin
+  for i := 0 to 3 do
+    Pngs[i] := CreateNoisePNGStream;
+  Xml := TMemoryStream.Create;
+  Xml.WriteAnsiString('<ComicInfo/>');
+  Xml.Position := 0;
+  Garbage := TMemoryStream.Create;
+  Garbage.WriteAnsiString('not an image');
+  Garbage.Position := 0;
+  CreateCBZ(FTempDir + 'parval.cbz',
+    [Pngs[0], Xml, Garbage, Pngs[1], Pngs[2], Pngs[3]],
+    ['p01.png', 'ComicInfo.xml', 'broken.png', 'p02.png', 'p03.png', 'p04.png']);
+  for i := 0 to 3 do Pngs[i].Free;
+  Xml.Free;
+  Garbage.Free;
+
+  V1 := ValidateCBZImages(FTempDir + 'parval.cbz', Checks1, 1);
+  V4 := ValidateCBZImages(FTempDir + 'parval.cbz', Checks4, 4);
+
+  AssertEquals('valid count matches', V1, V4);
+  AssertEquals('check count matches', Length(Checks1), Length(Checks4));
+  for i := 0 to High(Checks1) do
+  begin
+    AssertEquals('check name', Checks1[i].EntryName, Checks4[i].EntryName);
+    AssertEquals('check valid', Checks1[i].Valid, Checks4[i].Valid);
   end;
+  { 4 good pages decode, the fake one fails; ComicInfo.xml is skipped. }
+  AssertEquals('4 valid images', 4, V1);
+  AssertEquals('5 checks (4 pages + 1 broken)', 5, Length(Checks1));
+  AssertEquals('broken entry named', 'broken.png', Checks1[1].EntryName);
+  AssertFalse('broken entry reported invalid', Checks1[1].Valid);
 end;
 
 { TImageUtilTest }

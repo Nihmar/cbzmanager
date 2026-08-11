@@ -22,6 +22,7 @@ type
 
     procedure RunHeadless_Validate_Ok;
     procedure RunHeadless_Validate_Corrupt;
+    procedure RunHeadless_Validate_Threads;
 
     procedure RunHeadless_ConvertWebp;
     procedure RunHeadless_ConvertWebp_Delete;
@@ -118,8 +119,6 @@ begin
     RunHeadless(['convert-webp', FTempDir, '--threads', '-1']));
   AssertEquals('non-numeric --threads value', EXIT_USAGE,
     RunHeadless(['convert-webp', FTempDir, '--threads', 'abc']));
-  AssertEquals('--threads not valid for validate', EXIT_USAGE,
-    RunHeadless(['validate', FTempDir, '--threads', '4']));
   AssertEquals('--threads not valid for merge', EXIT_USAGE,
     RunHeadless(['merge', FTempDir, '--threads', '4']));
 end;
@@ -163,6 +162,22 @@ begin
   Args[0] := 'validate';
   Args[1] := FTempDir;
   AssertEquals(EXIT_ERROR, RunHeadless(Args));
+end;
+
+procedure TClimodeTest.RunHeadless_Validate_Threads;
+var
+  Png: TMemoryStream;
+  Args: TStringArray;
+begin
+  Png := CreateMinimalPNGStream;
+  CreateCBZ(FTempDir + 'ok.cbz', [Png], ['p1.png']);
+  Png.Free;
+  SetLength(Args, 4);
+  Args[0] := 'validate';
+  Args[1] := FTempDir;
+  Args[2] := '--threads';
+  Args[3] := '4';
+  AssertEquals(EXIT_OK, RunHeadless(Args));
 end;
 
 { convert-webp }

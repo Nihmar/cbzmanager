@@ -91,10 +91,12 @@ type
 
       This method calls ValidateCBZImages, which attempts to decode every
       image entry in the CBZ using the FPImage readers.  Non-image entries
-      (e.g. ComicInfo.xml) are skipped and not reported. }
+      (e.g. ComicInfo.xml) are skipped and not reported.
+      AThreads controls decode parallelism within each file: 0 = automatic
+      (CPU count, capped at 8), 1 = sequential. }
     class function ValidateDeep(const AFiles: TStringArray;
-      const ADir: string;
-      AOnProgress: TServiceProgressEvent = nil): TValidationResults;
+      const ADir: string; AOnProgress: TServiceProgressEvent = nil;
+      AThreads: integer = 0): TValidationResults;
   end;
 
 implementation
@@ -174,7 +176,8 @@ end;
   memory-intensive.  Use the quick Validate method for routine scans.
   --------------------------------------------------------------------------- }
 class function TValidateService.ValidateDeep(const AFiles: TStringArray;
-  const ADir: string; AOnProgress: TServiceProgressEvent): TValidationResults;
+  const ADir: string; AOnProgress: TServiceProgressEvent;
+  AThreads: integer): TValidationResults;
 var
   i: integer;
   FullPath: string;
@@ -192,7 +195,7 @@ begin
     try
       { ValidateCBZImages attempts to decode every image and returns both
         the count of successes and a per-entry status array. }
-      TotalValid := ValidateCBZImages(FullPath, Checks);
+      TotalValid := ValidateCBZImages(FullPath, Checks, AThreads);
       Result[i].ImageChecks := Checks;
       Result[i].ImageCount := TotalValid;
       Result[i].Valid := TotalValid > 0;

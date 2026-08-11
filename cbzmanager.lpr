@@ -24,6 +24,7 @@ uses
   upreviewloader,
   udlgrows,
   udlgvalidate,
+  udlgvalidateopts,
   udlgcomicinfo,
   udlgwebp,
   udlgmerge,

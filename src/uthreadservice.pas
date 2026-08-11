@@ -154,15 +154,17 @@ type
   private
     FFiles: TStringArray;            // list of .cbz filenames to validate
     FDir: string;                    // directory containing the files
+    FThreads: integer;               // decode workers per file (0 = auto)
     FResult: TValidationResults;     // outcome populated by Execute
   protected
     procedure Execute; override;
   public
     { @param AFiles      Array of .cbz filenames to validate.
       @param ADir        Directory containing the files.
+      @param AThreads    Per-file decode workers (0 = automatic).
       @param AOnProgress Optional progress callback. }
     constructor Create(const AFiles: TStringArray; const ADir: string;
-      AOnProgress: TServiceProgressEvent);
+      AThreads: integer; AOnProgress: TServiceProgressEvent);
     property Result: TValidationResults read FResult;
   end;
 
@@ -441,16 +443,17 @@ end;
   Copies the file list and directory.  Validation does not have extra
   options beyond the file list. }
 constructor TValidateThread.Create(const AFiles: TStringArray;
-  const ADir: string; AOnProgress: TServiceProgressEvent);
+  const ADir: string; AThreads: integer; AOnProgress: TServiceProgressEvent);
 begin
   inherited Create(AOnProgress);
   FFiles := AFiles;
   FDir := ADir;
+  FThreads := AThreads;
 end;
 
 procedure TValidateThread.Execute;
 begin
-  FResult := TValidateService.ValidateDeep(FFiles, FDir, @Progress);
+  FResult := TValidateService.ValidateDeep(FFiles, FDir, @Progress, FThreads);
 end;
 
 { ============================================================================

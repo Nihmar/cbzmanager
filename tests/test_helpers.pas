@@ -13,6 +13,13 @@ function CreateMinimalPNGStream: TMemoryStream;
   pixels. }
 function CreateNoisePNGStream: TMemoryStream;
 
+{ Compares two CBZ archives by entry content (names + data bytes), ignoring
+  ZIP metadata.  Deterministic tests must NOT compare raw archive bytes:
+  TZipper stamps the current time into the headers, so two writes of the
+  same entries can differ whenever they straddle a second boundary.
+  Returns False with a description in AMsg on the first mismatch. }
+function ZipFilesEqual(const A, B: string; out AMsg: string): boolean;
+
 { Build a CBZ file at APath from memory streams with given names. }
 procedure CreateCBZ(const APath: string; const Entries: array of TMemoryStream;
   const Names: array of string);
@@ -25,7 +32,8 @@ implementation
 uses
   Zipper,
   FPImage,
-  FPWritePNG;
+  FPWritePNG,
+  uzipcore;
 
 const
   { Minimal 1x1 red RGBA PNG, generated with Python }
@@ -93,6 +101,53 @@ begin
     end;
   finally
     ZW.Free;
+  end;
+end;
+
+function ZipFilesEqual(const A, B: string; out AMsg: string): boolean;
+var
+  EA, EB: TZipEntries;
+  i: integer;
+begin
+  Result := False;
+  EA := CollectZipEntries(A);
+  try
+    EB := CollectZipEntries(B);
+    try
+      if Length(EA) <> Length(EB) then
+      begin
+        AMsg := Format('entry count differs: %d vs %d',
+          [Length(EA), Length(EB)]);
+        Exit;
+      end;
+      for i := 0 to High(EA) do
+      begin
+        if EA[i].Name <> EB[i].Name then
+        begin
+          AMsg := Format('entry %d name differs: "%s" vs "%s"',
+            [i, EA[i].Name, EB[i].Name]);
+          Exit;
+        end;
+        if EA[i].Data.Size <> EB[i].Data.Size then
+        begin
+          AMsg := Format('entry %d size differs: %d vs %d',
+            [i, EA[i].Data.Size, EB[i].Data.Size]);
+          Exit;
+        end;
+        if not CompareMem(EA[i].Data.Memory, EB[i].Data.Memory,
+          EA[i].Data.Size) then
+        begin
+          AMsg := Format('entry %d data differs (%s)', [i, EA[i].Name]);
+          Exit;
+        end;
+      end;
+      Result := True;
+      AMsg := '';
+    finally
+      FreeZipEntries(EB);
+    end;
+  finally
+    FreeZipEntries(EA);
   end;
 end;
 

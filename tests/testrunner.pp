@@ -18,6 +18,7 @@ uses
   test_ucomicinfo,
   test_uthreadservice,
   test_userviceconvert,
+  test_uservicecbr,
   test_upageeditmodel,
   test_uimageedit;
 var

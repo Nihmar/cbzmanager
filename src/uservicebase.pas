@@ -36,6 +36,12 @@ const
     before editing. }
   CBR_EXT = '.cbr';
 
+  { Automatic worker-pool caps.  Every worker holds its working set in RAM:
+    convert-webp keeps one full-resolution image per worker, cbr-to-cbz a
+    whole decompressed archive per worker — hence the lower CBR cap. }
+  MAX_WEBP_CONVERT_THREADS = 8;
+  MAX_CBR_CONVERT_THREADS = 4;
+
 type
   { ------------------------------------------------------------------------
     TServiceProgressEvent – Method-pointer callback for progress reporting.
@@ -83,6 +89,15 @@ type
   Guarded: AFileTotal <= 0 yields 0 (no files → nothing to show).
   ------------------------------------------------------------------------ }
 function GlobalFilePercent(AFileIndex, AFileTotal, AWithinFile: integer): integer;
+
+{ ------------------------------------------------------------------------
+  OnlineCpuCount – Number of online CPUs for automatic worker-pool sizes.
+
+  TThread.ProcessorCount can report 1 even on many-core machines (FPC
+  relies on sched_getaffinity in some environments), so on Linux it falls
+  back to counting /proc/cpuinfo "processor" lines.  Always >= 1.
+  ------------------------------------------------------------------------ }
+function OnlineCpuCount: integer;
 
 { ------------------------------------------------------------------------
   CBZFullPath – Join a directory and a bare filename into a full path.
@@ -201,6 +216,37 @@ begin
   if AFileTotal <= 0 then
     Exit(0);
   Result := (AFileIndex * 100 + AWithinFile) div AFileTotal;
+end;
+
+{ ----------------------------------------------------------------------------
+  OnlineCpuCount
+  ---------------------------------------------------------------------------- }
+function OnlineCpuCount: integer;
+var
+  T: TextFile;
+  Line: string;
+begin
+  Result := TThread.ProcessorCount;
+  if Result > 1 then Exit;
+  Result := 0;
+  {$IFDEF LINUX}
+  if FileExists('/proc/cpuinfo') then
+  begin
+    try
+      AssignFile(T, '/proc/cpuinfo');
+      Reset(T);
+      while not Eof(T) do
+      begin
+        ReadLn(T, Line);
+        if Pos('processor', Line) = 1 then Inc(Result);
+      end;
+      CloseFile(T);
+    except
+      Result := 0;
+    end;
+  end;
+  {$ENDIF}
+  if Result < 1 then Result := 1;
 end;
 
 constructor TFileProgress.Create(AIndex, ATotal: integer;

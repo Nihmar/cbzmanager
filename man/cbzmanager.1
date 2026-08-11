@@ -38,6 +38,8 @@ cbzmanager \- CBZ comic archive manager (desktop application and headless CLI)
 .B cbr\-to\-cbz
 .I dir
 .RB [ \-\-delete ]
+.RB [ \-\-threads
+.IR N ]
 .br
 .B cbzmanager
 .B \-\-help
@@ -154,6 +156,8 @@ chapter files"), 1 on error.
 .B cbr\-to\-cbz
 .I dir
 .RB [ \-\-delete ]
+.RB [ \-\-threads
+.IR N ]
 Converts every
 .I .cbr
 (RAR) file in
@@ -171,7 +175,12 @@ source is kept unless
 is given.  RAR support is provided by the libarchive library, loaded
 dynamically at runtime; when libarchive is unavailable the command exits 1
 with an explanatory message.  This command has no counterpart in the Python
-reference CLI.  Exits 0 on success, 1 on error.
+reference CLI.  Files are converted in parallel on one worker thread per
+CPU core (at most 4, because every worker holds a whole decompressed
+archive in RAM);
+.B \-\-threads
+selects an explicit number (1 = sequential).  The output is identical
+regardless of the thread count.  Exits 0 on success, 1 on error.
 .SH OPTIONS
 .TP
 .B \-\-delete
@@ -209,10 +218,16 @@ Mutually exclusive with
 .TP
 .BI \-\-threads " N"
 .B convert\-webp
-only: decode and re-encode pages on
+and
+.B cbr\-to\-cbz
+only: convert on
 .I N
-worker threads.  The default (0 / omitted) is one worker per CPU core,
-capped at 8 so the pool's peak memory stays bounded.
+worker threads.  The default (0 / omitted) is one worker per CPU core —
+capped at 8 for
+.B convert\-webp
+and at 4 for
+.B cbr\-to\-cbz
+(every CBR worker holds a whole decompressed archive in RAM).
 .TP
 .BR \-\-help ", " \-h ", " help
 Print usage information and exit 0.
@@ -278,7 +293,7 @@ Convert a folder of RAR archives to CBZ, deleting the sources:
 .PP
 .nf
 .RS
-cbzmanager cbr-to-cbz --delete ~/manga/rar-archive
+cbzmanager cbr-to-cbz --threads 4 --delete ~/manga/rar-archive
 .RE
 .fi
 .SH SEE ALSO

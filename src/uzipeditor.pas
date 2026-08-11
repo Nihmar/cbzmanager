@@ -243,12 +243,6 @@ type
     constructor Create(APool: TConvertPoolState);
   end;
 
-const
-  { Automatic thread count is capped: each worker holds one full-resolution
-    image in RAM (~50 MB for a 3000x4500 page), so an uncapped pool on a
-    many-core machine would multiply peak memory. }
-  MAX_CONVERT_THREADS = 8;
-
 type
   { TZipImageWalker – streams a CBZ entry by entry through a callback.
   OnCreateStream / OnDoneStream redirect TUnZipper output into memory
@@ -814,38 +808,6 @@ begin
   Result := ExtInList(Ext, CONVERTIBLE_EXTS);
 end;
 
-{ Number of online CPUs for the automatic worker-pool size.
-  TThread.ProcessorCount can report 1 even on many-core machines (FPC
-  relies on sched_getaffinity in some environments), so on Linux it falls
-  back to counting /proc/cpuinfo "processor" lines. }
-function OnlineCpuCount: integer;
-var
-  T: TextFile;
-  Line: string;
-begin
-  Result := TThread.ProcessorCount;
-  if Result > 1 then Exit;
-  Result := 0;
-  {$IFDEF LINUX}
-  if FileExists('/proc/cpuinfo') then
-  begin
-    try
-      AssignFile(T, '/proc/cpuinfo');
-      Reset(T);
-      while not Eof(T) do
-      begin
-        ReadLn(T, Line);
-        if Pos('processor', Line) = 1 then Inc(Result);
-      end;
-      CloseFile(T);
-    except
-      Result := 0;
-    end;
-  end;
-  {$ENDIF}
-  if Result < 1 then Result := 1;
-end;
-
 { Decode + WebP-encode a single entry's data.  Returns the WebP stream, or
   nil when the decode or the encode fails (the caller then keeps the
   original entry).  Stateless per call — DecodeImage and IntfImageToWebP
@@ -1059,7 +1021,7 @@ begin
         SetLength(Pool.Slots, Length(AllEntries));
         ThreadCount := AThreads;
         if ThreadCount <= 0 then
-          ThreadCount := Min(OnlineCpuCount, MAX_CONVERT_THREADS);
+          ThreadCount := Min(OnlineCpuCount, MAX_WEBP_CONVERT_THREADS);
         ThreadCount := Min(ThreadCount, WorkCount);
 
         if ThreadCount > 1 then

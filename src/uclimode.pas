@@ -86,7 +86,7 @@ begin
   WriteLn('  validate <dir>                 Verify CBZ files are valid and images readable');
   WriteLn('  convert-webp <dir> [options]   Convert images to WebP (quality 75%, only if smaller)');
   WriteLn('  merge <dir> [options]          Merge chapter CBZ files into volumes');
-  WriteLn('  cbr-to-cbz <dir> [--delete]    Convert CBR (RAR) archives to CBZ');
+  WriteLn('  cbr-to-cbz <dir> [options]     Convert CBR (RAR) archives to CBZ');
   WriteLn;
   WriteLn('convert-webp options:');
   WriteLn('  --delete                     Delete originals after conversion (default: rename to _OLD.cbz)');
@@ -100,6 +100,7 @@ begin
   WriteLn;
   WriteLn('cbr-to-cbz options:');
   WriteLn('  --delete                     Delete the .cbr source after conversion (default: keep)');
+  WriteLn('  --threads N                  Convert files on N worker threads (default: one per CPU core, max 4)');
   WriteLn;
   WriteLn('Other:');
   WriteLn('  --version                    Print version and exit');
@@ -426,7 +427,7 @@ begin
   end;
 end;
 
-function CmdCbrToCbz(const ADir: string; const ADelete: boolean): integer;
+function CmdCbrToCbz(const ADir: string; const Flags: THeadlessFlags): integer;
 var
   Files: TStringArray;
   Options: TCbrConvertOptions;
@@ -452,7 +453,8 @@ begin
   { Defaults mirror the GUI dialog: skip files whose .cbz target already
     exists; keep the source unless --delete. }
   Options.SkipExisting := True;
-  Options.DeleteSource := ADelete;
+  Options.DeleteSource := Flags.Delete;
+  Options.Threads := Flags.Threads;   { 0 = automatic (CPU count, capped) }
 
   Progress := TCliProgress.Create;
   try
@@ -535,15 +537,16 @@ begin
   end
   else if Cmd = 'cbr-to-cbz' then
   begin
-    { cbr-to-cbz accepts only --delete; validate the flag set. }
+    { cbr-to-cbz accepts only --delete and --threads; validate the flag
+      set. }
     if Flags.Force or (Length(Flags.Chapters) > 0) or
-       (Flags.ChaptersPerVolume > 0) or (Flags.Threads > 0) then
+       (Flags.ChaptersPerVolume > 0) then
     begin
       WriteLn(ErrOutput, 'Error: option not valid for ''cbr-to-cbz''');
       WriteLn(ErrOutput, 'Try ''cbzmanager --help'' for usage.');
       Exit(EXIT_USAGE);
     end;
-    Result := CmdCbrToCbz(Dir, Flags.Delete);
+    Result := CmdCbrToCbz(Dir, Flags);
   end
   else
     Result := CmdMerge(Dir, Flags);

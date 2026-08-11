@@ -1722,6 +1722,7 @@ begin
     if Dlg.ShowModal <> mrOk then Exit;
     Options.SkipExisting := Dlg.SkipExisting;
     Options.DeleteSource := Dlg.DeleteSource;
+    Options.Threads := Dlg.Threads;
   finally
     Dlg.Free;
   end;

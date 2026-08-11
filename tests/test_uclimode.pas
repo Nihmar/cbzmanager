@@ -30,6 +30,7 @@ type
 
     procedure RunHeadless_CbrToCbz;
     procedure RunHeadless_CbrToCbz_Delete;
+    procedure RunHeadless_CbrToCbz_Threads;
     procedure RunHeadless_CbrToCbz_UsageError;
     procedure RunHeadless_CbrToCbz_SkipsExisting;
 
@@ -119,8 +120,6 @@ begin
     RunHeadless(['convert-webp', FTempDir, '--threads', 'abc']));
   AssertEquals('--threads not valid for validate', EXIT_USAGE,
     RunHeadless(['validate', FTempDir, '--threads', '4']));
-  AssertEquals('--threads not valid for cbr-to-cbz', EXIT_USAGE,
-    RunHeadless(['cbr-to-cbz', FTempDir, '--threads', '4']));
   AssertEquals('--threads not valid for merge', EXIT_USAGE,
     RunHeadless(['merge', FTempDir, '--threads', '4']));
 end;
@@ -313,6 +312,25 @@ begin
   AssertEquals(EXIT_OK, RunHeadless(Args));
   AssertTrue('target .cbz created', FileExists(FTempDir + 'del.cbz'));
   AssertFalse('source deleted with --delete', FileExists(FTempDir + 'del.cbr'));
+end;
+
+procedure TClimodeTest.RunHeadless_CbrToCbz_Threads;
+var
+  Png: TMemoryStream;
+  Args: TStringArray;
+begin
+  AssertTrue('libarchive present', CbrSupported);
+  Png := CreateMinimalPNGStream;
+  CreateCBZ(FTempDir + 'par.cbr', [Png], ['p1.png']);
+  Png.Free;
+
+  SetLength(Args, 4);
+  Args[0] := 'cbr-to-cbz';
+  Args[1] := FTempDir;
+  Args[2] := '--threads';
+  Args[3] := '4';
+  AssertEquals(EXIT_OK, RunHeadless(Args));
+  AssertTrue('target .cbz created', FileExists(FTempDir + 'par.cbz'));
 end;
 
 procedure TClimodeTest.RunHeadless_CbrToCbz_SkipsExisting;

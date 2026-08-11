@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls,
-  ExtCtrls, ComCtrls, udlgbase, usettings, uWebP;
+  ExtCtrls, ComCtrls, Spin, udlgbase, usettings, uWebP;
 
 type
   TdlgWebp = class(TSettingsDialog)
@@ -15,6 +15,7 @@ type
     TrackQuality: TTrackBar;
     LabelQuality: TLabel;
     LblQualityVal: TLabel;
+    SpinThreads: TSpinEdit;
     CbReplaceOnlySmaller: TCheckBox;
     CbSkipExistingWebP: TCheckBox;
     CbRemoveComicInfo: TCheckBox;
@@ -32,6 +33,7 @@ type
     function GetSkipExistingWebP: boolean;
     function GetRemoveComicInfo: boolean;
     function GetRenumberPages: boolean;
+    function GetThreads: integer;
   public
     property Quality: integer read GetQuality;
     property ReplaceOnlyIfSmaller: boolean read GetReplaceOnlyIfSmaller;
@@ -39,6 +41,7 @@ type
     property RemoveComicInfo: boolean read GetRemoveComicInfo;
     property RenumberPages: boolean read GetRenumberPages;
     property BackupOld: boolean read GetBackup;
+    property Threads: integer read GetThreads;
   end;
 
 implementation
@@ -82,6 +85,24 @@ begin
   CbReplaceOnlySmaller.Caption := 'Replace only if smaller';
   CbReplaceOnlySmaller.Checked := True;
 
+  { 0 = automatic (one worker per CPU core, capped); 1 = sequential. }
+  with TLabel.Create(Self) do
+  begin
+    Parent := Self;
+    Left := 12;
+    Top := 214;
+    Width := 120;
+    Caption := 'Parallel threads';
+  end;
+  SpinThreads := TSpinEdit.Create(Self);
+  SpinThreads.Parent := Self;
+  SpinThreads.Left := 328;
+  SpinThreads.Top := 210;
+  SpinThreads.Width := 120;
+  SpinThreads.MinValue := 0;
+  SpinThreads.MaxValue := 32;
+  SpinThreads.Value := 0;
+
   CbSkipExistingWebP := TCheckBox.Create(Self);
   CbSkipExistingWebP.Parent := Self;
   CbSkipExistingWebP.Left := 12;
@@ -109,7 +130,7 @@ begin
   GroupBackup := TRadioGroup.Create(Self);
   GroupBackup.Parent := Self;
   GroupBackup.Left := 12;
-  GroupBackup.Top := 196;
+  GroupBackup.Top := 244;
   GroupBackup.Width := 436;
   GroupBackup.Height := 72;
   GroupBackup.Caption := 'Original file';
@@ -140,6 +161,7 @@ begin
     AppSettings.ReadBool('WebP', 'RemoveComicInfo', True);
   CbRenumber.Checked := AppSettings.ReadBool('WebP', 'Renumber', True);
   GroupBackup.ItemIndex := AppSettings.ReadInteger('WebP', 'BackupMode', 0);
+  SpinThreads.Value := AppSettings.ReadInteger('WebP', 'Threads', 0);
 end;
 
 procedure TdlgWebp.SaveSettings;
@@ -151,6 +173,7 @@ begin
   AppSettings.WriteBool('WebP', 'RemoveComicInfo', CbRemoveComicInfo.Checked);
   AppSettings.WriteBool('WebP', 'Renumber', CbRenumber.Checked);
   AppSettings.WriteInteger('WebP', 'BackupMode', GroupBackup.ItemIndex);
+  AppSettings.WriteInteger('WebP', 'Threads', SpinThreads.Value);
 end;
 
 procedure TdlgWebp.TrackQualityChange(Sender: TObject);
@@ -186,6 +209,11 @@ end;
 function TdlgWebp.GetBackup: boolean;
 begin
   Result := GroupBackup.ItemIndex <> 1;
+end;
+
+function TdlgWebp.GetThreads: integer;
+begin
+  Result := SpinThreads.Value;
 end;
 
 end.

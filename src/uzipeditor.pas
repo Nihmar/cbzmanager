@@ -165,6 +165,11 @@ function MergeIntoVolume(const SourceFiles: TStringArray; const ADir: string;
   The parameters control the quality and the conversion options.
   SkipExistingWebP: if True, pages already in .webp format are left
   intact; if False they are decoded and re-encoded at the chosen quality.
+  AThreads controls decode/encode parallelism: 0 = automatic (CPU count,
+  capped at 8), 1 = sequential.  Every worker holds one full-resolution
+  image in RAM, so the pool multiplies the peak memory of a single page.
+  The result is deterministic regardless of AThreads: pages are written
+  back in archive order.
   AOnProgress (optional) receives (percent, message) per archive entry —
   the WebP encode of a large page is the slowest step, so every entry
   (skips included) reports activity.  Percent is 0–100 WITHIN the file;
@@ -172,7 +177,8 @@ function MergeIntoVolume(const SourceFiles: TStringArray; const ADir: string;
 function ConvertCBZToWebP(const FileName: string; Quality: integer;
   ReplaceOnlyIfSmaller, SkipExistingWebP, RemoveComicInfo, RenumberPages: boolean;
   out NewEntryCount: integer; out AConvertedCount: integer;
-  out AModified: boolean; AOnProgress: TServiceProgressEvent = nil): TZipEntries;
+  out AModified: boolean; AOnProgress: TServiceProgressEvent = nil;
+  AThreads: integer = 0): TZipEntries;
 
 { Filter pages from a CBZ by 1-indexed position.
   PagesToDelete: a boolean array where True = delete this page (1-indexed).
@@ -191,6 +197,57 @@ uses
   uWebP,
   uLog,
   uarchive;
+
+type
+  { One conversion slot per source entry, filled by a pool worker and read
+    by the sequential compaction pass.  Slot[i] corresponds to entry i of
+    the archive; the worker writes only its own slot (each work index is
+    claimed exactly once), so no locking is needed on the slot writes. }
+  TConvertSlot = record
+    { Decoded+re-encoded WebP stream, or nil when decode/encode failed
+      (the original entry is then kept).  Owned by the slot. }
+    Data: TMemoryStream;
+  end;
+  TConvertSlots = array of TConvertSlot;
+
+  { Shared state of a WebP conversion pool: the job list, the slots, the
+    claim counter and the progress callback.  All mutable fields are
+    guarded by Lock; the pool owner creates it and frees it after join. }
+  TConvertPoolState = class
+    Lock: TRTLCriticalSection;
+    Entries: TZipEntries;        { read-only source data }
+    Slots: TConvertSlots;        { one writer per index }
+    Work: array of integer;      { indices of convertible entries }
+    Next: integer;               { next index into Work (under Lock) }
+    Completed: integer;          { finished jobs (under Lock) }
+    Quality: integer;
+    BaseName: string;            { ExtractFileName(FileName), for messages }
+    OnProgress: TServiceProgressEvent;
+    Error: string;               { first worker exception (under Lock) }
+    constructor Create;
+    destructor Destroy; override;
+  end;
+
+  { Pool worker: claims convertible entry indices under the shared lock and
+    decodes + WebP-encodes each one into its own slot.  DecodeImage and
+    IntfImageToWebP are stateless per call, so workers never share mutable
+    state except the pool fields above.  Progress is reported per finished
+    job, serialized by the lock (a callback may itself block, e.g. the
+    service thread's Synchronize). }
+  TWebPConvertWorker = class(TThread)
+  private
+    FPool: TConvertPoolState;
+  protected
+    procedure Execute; override;
+  public
+    constructor Create(APool: TConvertPoolState);
+  end;
+
+const
+  { Automatic thread count is capped: each worker holds one full-resolution
+    image in RAM (~50 MB for a 3000x4500 page), so an uncapped pool on a
+    many-core machine would multiply peak memory. }
+  MAX_CONVERT_THREADS = 8;
 
 type
   { TZipImageWalker – streams a CBZ entry by entry through a callback.
@@ -757,10 +814,154 @@ begin
   Result := ExtInList(Ext, CONVERTIBLE_EXTS);
 end;
 
+{ Number of online CPUs for the automatic worker-pool size.
+  TThread.ProcessorCount can report 1 even on many-core machines (FPC
+  relies on sched_getaffinity in some environments), so on Linux it falls
+  back to counting /proc/cpuinfo "processor" lines. }
+function OnlineCpuCount: integer;
+var
+  T: TextFile;
+  Line: string;
+begin
+  Result := TThread.ProcessorCount;
+  if Result > 1 then Exit;
+  Result := 0;
+  {$IFDEF LINUX}
+  if FileExists('/proc/cpuinfo') then
+  begin
+    try
+      AssignFile(T, '/proc/cpuinfo');
+      Reset(T);
+      while not Eof(T) do
+      begin
+        ReadLn(T, Line);
+        if Pos('processor', Line) = 1 then Inc(Result);
+      end;
+      CloseFile(T);
+    except
+      Result := 0;
+    end;
+  end;
+  {$ENDIF}
+  if Result < 1 then Result := 1;
+end;
+
+{ Decode + WebP-encode a single entry's data.  Returns the WebP stream, or
+  nil when the decode or the encode fails (the caller then keeps the
+  original entry).  Stateless per call — DecodeImage and IntfImageToWebP
+  keep no shared mutable state, so pool workers can run it concurrently. }
+function EncodeEntryAsWebP(const Source: TZipEntryData; const Ext: string;
+  Quality: integer): TMemoryStream;
+var
+  RawStream: TMemoryStream;
+  Img: TLazIntfImage;
+begin
+  Result := nil;
+  RawStream := TMemoryStream.Create;
+  try
+    Source.Data.Position := 0;
+    RawStream.CopyFrom(Source.Data, Source.Data.Size);
+    RawStream.Position := 0;
+    { Reuse the shared decoder (magic-byte detection + reader selection +
+      logging) instead of duplicating it here. }
+    Img := DecodeImage(RawStream, Ext);
+  finally
+    RawStream.Free;
+  end;
+  if Img = nil then Exit;
+  try
+    Result := IntfImageToWebP(Img, Quality);
+  finally
+    Img.Free;
+  end;
+end;
+
+constructor TConvertPoolState.Create;
+begin
+  inherited Create;
+  InitCriticalSection(Lock);
+end;
+
+destructor TConvertPoolState.Destroy;
+begin
+  DoneCriticalSection(Lock);
+  inherited Destroy;
+end;
+
+constructor TWebPConvertWorker.Create(APool: TConvertPoolState);
+begin
+  { Created suspended: the caller Start()s every worker before joining. }
+  inherited Create(True);
+  FPool := APool;
+end;
+
+{ TWebPConvertWorker.Execute
+
+  Claims the next convertible entry index under the pool lock, then
+  decodes + WebP-encodes it into its own slot (each index is claimed
+  exactly once, so the slot write needs no lock).  Progress is reported
+  per finished job, serialized by the lock — the callback may itself
+  block (e.g. TServiceThread.Progress uses a blocking Synchronize), so it
+  must never be entered concurrently.  The reported percentage derives
+  from the completed-job counter, which makes the sequence monotonic even
+  though jobs finish out of order.
+
+  When any job raises, the first error is recorded and every worker stops
+  claiming new work: the file fails as a whole, mirroring the sequential
+  path's exception propagation. }
+procedure TWebPConvertWorker.Execute;
+var
+  Idx: integer;
+  Stream: TMemoryStream;
+begin
+  while True do
+  begin
+    EnterCriticalSection(FPool.Lock);
+    try
+      if FPool.Error <> '' then Exit;
+      if FPool.Next >= Length(FPool.Work) then Exit;
+      Idx := FPool.Work[FPool.Next];
+      Inc(FPool.Next);
+    finally
+      LeaveCriticalSection(FPool.Lock);
+    end;
+
+    try
+      Stream := EncodeEntryAsWebP(FPool.Entries[Idx],
+        ExtractFileExt(FPool.Entries[Idx].Name), FPool.Quality);
+      FPool.Slots[Idx].Data := Stream;
+    except
+      on E: Exception do
+      begin
+        EnterCriticalSection(FPool.Lock);
+        try
+          if FPool.Error = '' then
+            FPool.Error := Format('%s: %s', [FPool.Entries[Idx].Name, E.Message]);
+        finally
+          LeaveCriticalSection(FPool.Lock);
+        end;
+        Exit;
+      end;
+    end;
+
+    EnterCriticalSection(FPool.Lock);
+    try
+      Inc(FPool.Completed);
+      if Assigned(FPool.OnProgress) then
+        FPool.OnProgress((FPool.Completed * 100) div Length(FPool.Work),
+          Format('%s — entry %d/%d (%s)', [FPool.BaseName, Idx + 1,
+            Length(FPool.Entries), FPool.Entries[Idx].Name]));
+    finally
+      LeaveCriticalSection(FPool.Lock);
+    end;
+  end;
+end;
+
 function ConvertCBZToWebP(const FileName: string; Quality: integer;
   ReplaceOnlyIfSmaller, SkipExistingWebP, RemoveComicInfo, RenumberPages: boolean;
   out NewEntryCount: integer; out AConvertedCount: integer;
-  out AModified: boolean; AOnProgress: TServiceProgressEvent = nil): TZipEntries;
+  out AModified: boolean; AOnProgress: TServiceProgressEvent = nil;
+  AThreads: integer = 0): TZipEntries;
 
   { Copy entry from source into Result[Count], increment Count }
   procedure KeepEntry(var Result: TZipEntries; var Count: integer;
@@ -803,40 +1004,15 @@ function ConvertCBZToWebP(const FileName: string; Quality: integer;
       KeepEntry(Dest, Count, Source.Name, Source);
   end;
 
-  { Try to decode image, encode as WebP, return WebP stream or nil.
-    Existing .webp pages are decoded via uWebP (re-encoding at the chosen
-    quality); other formats use the matching FPImage reader.
-    Detects actual format from magic bytes — extension may be misleading. }
-  function TryWebPEncode(const Source: TZipEntryData;
-  const Ext: string): TMemoryStream;
-  var
-    RawStream: TMemoryStream;
-    Img: TLazIntfImage;
-  begin
-    Result := nil;
-    RawStream := TMemoryStream.Create;
-    try
-      RawStream.CopyFrom(Source.Data, Source.Data.Size);
-      RawStream.Position := 0;
-      { Reuse the shared decoder (magic-byte detection + reader selection +
-        logging) instead of duplicating it here. }
-      Img := DecodeImage(RawStream, Ext);
-    finally
-      RawStream.Free;
-    end;
-    if Img = nil then Exit;
-    try
-      Result := IntfImageToWebP(Img, Quality);
-    finally
-      Img.Free;
-    end;
-  end;
-
 var
   AllEntries: TZipEntries;
-  i, PageNum: integer;
-  Ext: string;
+  i, PageNum, WorkCount, ThreadCount: integer;
+  Ext, BaseName: string;
   WebPData: TMemoryStream;
+  Pool: TConvertPoolState;
+  Slots: TConvertSlots;
+  Workers: array of TWebPConvertWorker;
+  Started: boolean;
 begin
   Result := nil;
   NewEntryCount := 0;
@@ -846,21 +1022,116 @@ begin
   if Length(AllEntries) = 0 then Exit;
 
   try
+    { Phase 1 — decode + WebP-encode every convertible entry into its slot.
+      Convertible means: a known raster format, or an existing .webp that
+      must be re-encoded because SkipExistingWebP is off. }
+    Pool := TConvertPoolState.Create;
+    Workers := nil;
+    Started := False;
+    try
+      Pool.Entries := AllEntries;
+      Pool.Quality := Quality;
+      Pool.OnProgress := AOnProgress;
+      Pool.BaseName := ExtractFileName(FileName);
+      BaseName := Pool.BaseName;
+      Slots := nil;
+      for i := 0 to High(AllEntries) do
+      begin
+        Ext := ExtractFileExt(AllEntries[i].Name);
+        if SameText(Ext, EXT_WEBP) then
+        begin
+          if not SkipExistingWebP then
+          begin
+            SetLength(Pool.Work, Length(Pool.Work) + 1);
+            Pool.Work[High(Pool.Work)] := i;
+          end;
+        end
+        else if IsConvertibleExt(Ext) then
+        begin
+          SetLength(Pool.Work, Length(Pool.Work) + 1);
+          Pool.Work[High(Pool.Work)] := i;
+        end;
+      end;
+
+      WorkCount := Length(Pool.Work);
+      if WorkCount > 0 then
+      begin
+        SetLength(Pool.Slots, Length(AllEntries));
+        ThreadCount := AThreads;
+        if ThreadCount <= 0 then
+          ThreadCount := Min(OnlineCpuCount, MAX_CONVERT_THREADS);
+        ThreadCount := Min(ThreadCount, WorkCount);
+
+        if ThreadCount > 1 then
+        begin
+          SetLength(Workers, ThreadCount);
+          for i := 0 to ThreadCount - 1 do
+            Workers[i] := TWebPConvertWorker.Create(Pool);
+          Started := True;
+          for i := 0 to ThreadCount - 1 do
+            Workers[i].Start;
+        end
+        else
+        begin
+          { Single job (or explicitly sequential): claim and encode inline.
+            Same slot semantics and progress shape as the pool path, no
+            thread creation. }
+          while Pool.Next < Length(Pool.Work) do
+          begin
+            i := Pool.Work[Pool.Next];
+            Inc(Pool.Next);
+            try
+              Pool.Slots[i].Data := EncodeEntryAsWebP(AllEntries[i],
+                ExtractFileExt(AllEntries[i].Name), Quality);
+            except
+              on E: Exception do
+                Pool.Error := Format('%s: %s', [AllEntries[i].Name, E.Message]);
+            end;
+            if Pool.Error <> '' then Break;
+            Inc(Pool.Completed);
+            if Assigned(AOnProgress) then
+              AOnProgress((Pool.Completed * 100) div WorkCount,
+                Format('%s — entry %d/%d (%s)', [Pool.BaseName, i + 1,
+                  Length(AllEntries), AllEntries[i].Name]));
+          end;
+        end;
+      end;
+
+      { A worker failure fails the whole file, exactly like the sequential
+        path's exception propagation.  Free the already-encoded streams
+        before raising. }
+      if Pool.Error <> '' then
+      begin
+        for i := 0 to High(Pool.Slots) do
+          FreeAndNil(Pool.Slots[i].Data);
+        raise Exception.Create(Pool.Error);
+      end;
+    finally
+      { Join and free the workers here — also covers a mid-spawn failure,
+        where only the created (started) workers must be waited for. }
+      if Started then
+        for i := 0 to High(Workers) do
+          Workers[i].WaitFor;
+      for i := 0 to High(Workers) do
+        if Workers[i] <> nil then
+          Workers[i].Free;
+      { Keep a refcounted reference to the slot array: phase 2 reads the
+        encoded streams after the pool object itself is freed. }
+      Slots := Pool.Slots;
+      Pool.Free;
+    end;
+
+    { Phase 2 — sequential compaction and naming.  Deterministic: slots are
+      read in archive order, so the output is byte-identical regardless of
+      the thread count.  Progress for the cheap branches (ComicInfo, skips,
+      non-convertible formats) is reported here; convertible entries were
+      already reported by phase 1, so every entry ticks exactly once. }
     try
       SetLength(Result, Length(AllEntries));
       PageNum := 0;
 
       for i := 0 to High(AllEntries) do
       begin
-        { Per-entry progress: keeps the UI/job monitor visibly alive during
-          the slow decode+WebP-encode steps.  Percent is within the file;
-          the caller (TConvertService.Convert) folds it into the batch. }
-        if Assigned(AOnProgress) then
-          AOnProgress((i * 100) div Length(AllEntries),
-            Format('%s — entry %d/%d (%s)',
-              [ExtractFileName(FileName), i + 1, Length(AllEntries),
-               AllEntries[i].Name]));
-
         AllEntries[i].Data.Position := 0;
         Ext := ExtractFileExt(AllEntries[i].Name);
 
@@ -871,17 +1142,27 @@ begin
             AModified := True
           else
             KeepEntry(Result, PageNum, COMICINFO_XML, AllEntries[i]);
+          if Assigned(AOnProgress) then
+            AOnProgress((i * 100) div Length(AllEntries),
+              Format('%s — entry %d/%d (%s)',
+                [BaseName, i + 1, Length(AllEntries),
+                 AllEntries[i].Name]));
           FreeAndNil(AllEntries[i].Data);
           Continue;
         end;
 
-        { --- Existing .webp: keep as-is when skipping, otherwise fall
-              through to re-encode it at the chosen quality. --- }
+        { --- Existing .webp: keep as-is when skipping, otherwise the slot
+              holds the re-encoded stream. --- }
         if SameText(Ext, EXT_WEBP) then
         begin
           if SkipExistingWebP then
           begin
             KeepOriginal(Result, PageNum, AllEntries[i], Ext);
+            if Assigned(AOnProgress) then
+              AOnProgress((i * 100) div Length(AllEntries),
+                Format('%s — entry %d/%d (%s)',
+                  [BaseName, i + 1, Length(AllEntries),
+                   AllEntries[i].Name]));
             FreeAndNil(AllEntries[i].Data);
             Continue;
           end;
@@ -890,12 +1171,18 @@ begin
         else if not IsConvertibleExt(Ext) then
         begin
           KeepOriginal(Result, PageNum, AllEntries[i], Ext);
+          if Assigned(AOnProgress) then
+            AOnProgress((i * 100) div Length(AllEntries),
+              Format('%s — entry %d/%d (%s)',
+                [BaseName, i + 1, Length(AllEntries),
+                 AllEntries[i].Name]));
           FreeAndNil(AllEntries[i].Data);
           Continue;
         end;
 
-        { --- Attempt WebP conversion --- }
-        WebPData := TryWebPEncode(AllEntries[i], Ext);
+        { --- Use the phase-1 result --- }
+        WebPData := Slots[i].Data;
+        Slots[i].Data := nil;
 
         if (WebPData = nil) or (ReplaceOnlyIfSmaller and
           (WebPData.Size >= AllEntries[i].Data.Size)) then
@@ -919,6 +1206,10 @@ begin
       SetLength(Result, PageNum);
       NewEntryCount := PageNum;
     except
+      { Free the streams still waiting in their slots: consumed ones were
+        either adopted into Result (freed below) or already freed. }
+      for i := 0 to High(Slots) do
+        FreeAndNil(Slots[i].Data);
       SetLength(Result, PageNum);
       FreeZipEntries(Result);
       raise;

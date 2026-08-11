@@ -7,6 +7,12 @@ uses
 { Build a minimal valid 1x1 pixel red RGBA PNG in memory (70 bytes). }
 function CreateMinimalPNGStream: TMemoryStream;
 
+{ Build a 64x64 noise PNG — large enough that the WebP conversion is
+  deterministically smaller, so conversion tests assert real conversions.
+  The noise is seeded (RandSeed = 12345), so every call returns identical
+  pixels. }
+function CreateNoisePNGStream: TMemoryStream;
+
 { Build a CBZ file at APath from memory streams with given names. }
 procedure CreateCBZ(const APath: string; const Entries: array of TMemoryStream;
   const Names: array of string);
@@ -17,7 +23,9 @@ function CreateTempDir(const Prefix: string): string;
 implementation
 
 uses
-  Zipper;
+  Zipper,
+  FPImage,
+  FPWritePNG;
 
 const
   { Minimal 1x1 red RGBA PNG, generated with Python }
@@ -35,6 +43,32 @@ begin
   Result := TMemoryStream.Create;
   Result.Write(TEST_PNG[0], Length(TEST_PNG));
   Result.Position := 0;
+end;
+
+function CreateNoisePNGStream: TMemoryStream;
+var
+  Img: TFPMemoryImage;
+  Writer: TFPWriterPNG;
+  x, y: integer;
+begin
+  RandSeed := 12345;
+  Img := TFPMemoryImage.Create(64, 64);
+  try
+    for y := 0 to 63 do
+      for x := 0 to 63 do
+        Img.Colors[x, y] := FPColor(Random(65536), Random(65536),
+          Random(65536));
+    Result := TMemoryStream.Create;
+    Writer := TFPWriterPNG.Create;
+    try
+      Writer.ImageWrite(Result, Img);
+    finally
+      Writer.Free;
+    end;
+    Result.Position := 0;
+  finally
+    Img.Free;
+  end;
 end;
 
 procedure CreateCBZ(const APath: string; const Entries: array of TMemoryStream;

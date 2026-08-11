@@ -33,6 +33,9 @@ type
                                 (e.g. "001.webp", "002.webp", …).
     @field BackupOld            When True, the original CBZ is renamed to
                                 *_OLD.cbz before writing the converted version.
+    @field Threads              Number of worker threads used to decode/encode
+                                pages in parallel.  0 = automatic (CPU count,
+                                capped); 1 = sequential.
     ------------------------------------------------------------------------ }
   TConvertOptions = record
     Quality: integer;
@@ -41,6 +44,7 @@ type
     RemoveComicInfo: boolean;
     RenumberPages: boolean;
     BackupOld: boolean;
+    Threads: integer;
   end;
 
   { ------------------------------------------------------------------------
@@ -140,7 +144,7 @@ begin
         NewEntries := ConvertCBZToWebP(FullPath, Options.Quality,
           Options.ReplaceOnlyIfSmaller, Options.SkipExistingWebP,
           Options.RemoveComicInfo, Options.RenumberPages, NewCount,
-          ConvertedCount, Modified, @Translator.Translate);
+          ConvertedCount, Modified, @Translator.Translate, Options.Threads);
       finally
         Translator.Free;
       end;

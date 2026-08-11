@@ -60,12 +60,14 @@ type
   end;
 
   { Parsed command-line flags.  Chapters is empty when --chapters was not
-    given; ChaptersPerVolume is 0 when --chapters-per-volume was not given. }
+    given; ChaptersPerVolume is 0 when --chapters-per-volume was not given;
+    Threads is 0 when --threads was not given (0 = automatic). }
   THeadlessFlags = record
     Delete: boolean;
     Force: boolean;
     Chapters: TIntArray;
     ChaptersPerVolume: integer;
+    Threads: integer;
   end;
 
 procedure TCliProgress.Progress(APercent: integer; const AMsg: string);
@@ -82,9 +84,13 @@ begin
   WriteLn;
   WriteLn('Commands:');
   WriteLn('  validate <dir>                 Verify CBZ files are valid and images readable');
-  WriteLn('  convert-webp <dir> [--delete]  Convert images to WebP (quality 75%, only if smaller)');
+  WriteLn('  convert-webp <dir> [options]   Convert images to WebP (quality 75%, only if smaller)');
   WriteLn('  merge <dir> [options]          Merge chapter CBZ files into volumes');
   WriteLn('  cbr-to-cbz <dir> [--delete]    Convert CBR (RAR) archives to CBZ');
+  WriteLn;
+  WriteLn('convert-webp options:');
+  WriteLn('  --delete                     Delete originals after conversion (default: rename to _OLD.cbz)');
+  WriteLn('  --threads N                  Decode/encode pages on N worker threads (default: one per CPU core)');
   WriteLn;
   WriteLn('Merge options:');
   WriteLn('  --delete                     Delete originals after processing (default: rename to _OLD.cbz)');
@@ -147,6 +153,7 @@ begin
   Flags.Force := False;
   Flags.Chapters := nil;
   Flags.ChaptersPerVolume := 0;
+  Flags.Threads := 0;
 
   i := 1;
   while i < Length(AArgs) do
@@ -156,6 +163,23 @@ begin
       Flags.Delete := True
     else if S = '--force' then
       Flags.Force := True
+    else if S = '--threads' then
+    begin
+      if i + 1 >= Length(AArgs) then
+      begin
+        WriteLn(ErrOutput, 'Error: --threads expects a value');
+        WriteLn(ErrOutput, 'Try ''cbzmanager --help'' for usage.');
+        Exit;
+      end;
+      Val(AArgs[i + 1], Flags.Threads, ErrPos);
+      if (ErrPos <> 0) or (Flags.Threads <= 0) then
+      begin
+        WriteLn(ErrOutput,
+          'Error: --threads expects a positive integer');
+        Exit;
+      end;
+      Inc(i);
+    end
     else if (S = '--chapters') or (S = '--chapters-per-volume') then
     begin
       if i + 1 >= Length(AArgs) then
@@ -225,7 +249,7 @@ var
 begin
   { --delete is accepted for validate (argparse parity) but unused. }
   if Flags.Force or (Length(Flags.Chapters) > 0) or
-     (Flags.ChaptersPerVolume > 0) then
+     (Flags.ChaptersPerVolume > 0) or (Flags.Threads > 0) then
   begin
     WriteLn(ErrOutput, 'Error: option not valid for ''validate''');
     WriteLn(ErrOutput, 'Try ''cbzmanager --help'' for usage.');
@@ -264,7 +288,7 @@ begin
     Result := EXIT_OK;
 end;
 
-function CmdConvert(const ADir: string; const ADelete: boolean): integer;
+function CmdConvert(const ADir: string; const Flags: THeadlessFlags): integer;
 var
   Files: TStringArray;
   Options: TConvertOptions;
@@ -288,7 +312,8 @@ begin
   Options.SkipExistingWebP := True;
   Options.RemoveComicInfo := True;
   Options.RenumberPages := True;
-  Options.BackupOld := not ADelete;
+  Options.BackupOld := not Flags.Delete;
+  Options.Threads := Flags.Threads;   { 0 = automatic (CPU count, capped) }
 
   Progress := TCliProgress.Create;
   try
@@ -331,6 +356,12 @@ begin
     WriteLn(ErrOutput,
       'Error: --chapters and --chapters-per-volume are mutually exclusive');
     Exit(EXIT_ERROR);                    // Python reference returns 1 here
+  end;
+  if Flags.Threads > 0 then
+  begin
+    WriteLn(ErrOutput, 'Error: option not valid for ''merge''');
+    WriteLn(ErrOutput, 'Try ''cbzmanager --help'' for usage.');
+    Exit(EXIT_USAGE);
   end;
 
   Files := CollectCBZFiles(ADir);
@@ -491,7 +522,8 @@ begin
     Result := CmdValidate(Dir, Flags)
   else if Cmd = 'convert-webp' then
   begin
-    { convert-webp accepts only --delete; validate the flag set. }
+    { convert-webp accepts only --delete and --threads; validate the flag
+      set. }
     if Flags.Force or (Length(Flags.Chapters) > 0) or
        (Flags.ChaptersPerVolume > 0) then
     begin
@@ -499,13 +531,13 @@ begin
       WriteLn(ErrOutput, 'Try ''cbzmanager --help'' for usage.');
       Exit(EXIT_USAGE);
     end;
-    Result := CmdConvert(Dir, Flags.Delete);
+    Result := CmdConvert(Dir, Flags);
   end
   else if Cmd = 'cbr-to-cbz' then
   begin
     { cbr-to-cbz accepts only --delete; validate the flag set. }
     if Flags.Force or (Length(Flags.Chapters) > 0) or
-       (Flags.ChaptersPerVolume > 0) then
+       (Flags.ChaptersPerVolume > 0) or (Flags.Threads > 0) then
     begin
       WriteLn(ErrOutput, 'Error: option not valid for ''cbr-to-cbz''');
       WriteLn(ErrOutput, 'Try ''cbzmanager --help'' for usage.');

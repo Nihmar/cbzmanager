@@ -1647,6 +1647,7 @@ begin
     Options.RemoveComicInfo := Dlg.RemoveComicInfo;
     Options.RenumberPages := Dlg.RenumberPages;
     Options.BackupOld := Dlg.BackupOld;
+    Options.Threads := Dlg.Threads;
   finally
     Dlg.Free;
   end;

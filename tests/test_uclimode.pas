@@ -25,6 +25,8 @@ type
 
     procedure RunHeadless_ConvertWebp;
     procedure RunHeadless_ConvertWebp_Delete;
+    procedure RunHeadless_ConvertWebp_Threads;
+    procedure RunHeadless_ConvertWebp_ThreadsFlagBeforeDir;
 
     procedure RunHeadless_CbrToCbz;
     procedure RunHeadless_CbrToCbz_Delete;
@@ -44,8 +46,6 @@ implementation
 
 uses
   Math,
-  FPImage,
-  FPWritePNG,
   uzipcore,
   uZipEditor,
   uclimode,
@@ -65,34 +65,6 @@ procedure TClimodeTest.TearDown;
 begin
   if DirectoryExists(FTempDir) then
     DeleteDirectory(FTempDir, False);
-end;
-
-{ Build a 64x64 noise PNG — large enough that the WebP conversion is
-  deterministically smaller, so the convert tests assert real conversions. }
-function CreateNoisePNGStream: TMemoryStream;
-var
-  Img: TFPMemoryImage;
-  Writer: TFPWriterPNG;
-  x, y: integer;
-begin
-  RandSeed := 12345;
-  Img := TFPMemoryImage.Create(64, 64);
-  try
-    for y := 0 to 63 do
-      for x := 0 to 63 do
-        Img.Colors[x, y] := FPColor(Random(65536), Random(65536),
-          Random(65536));
-    Result := TMemoryStream.Create;
-    Writer := TFPWriterPNG.Create;
-    try
-      Writer.ImageWrite(Result, Img);
-    finally
-      Writer.Free;
-    end;
-    Result.Position := 0;
-  finally
-    Img.Free;
-  end;
 end;
 
 { IsHeadlessCommand }
@@ -137,6 +109,20 @@ begin
     RunHeadless(['merge', FTempDir, '--chapters-per-volume', 'abc']));
   AssertEquals('unknown convert flag', EXIT_USAGE,
     RunHeadless(['convert-webp', FTempDir, '--bogus']));
+  AssertEquals('missing --threads value', EXIT_USAGE,
+    RunHeadless(['convert-webp', FTempDir, '--threads']));
+  AssertEquals('zero --threads value', EXIT_USAGE,
+    RunHeadless(['convert-webp', FTempDir, '--threads', '0']));
+  AssertEquals('negative --threads value', EXIT_USAGE,
+    RunHeadless(['convert-webp', FTempDir, '--threads', '-1']));
+  AssertEquals('non-numeric --threads value', EXIT_USAGE,
+    RunHeadless(['convert-webp', FTempDir, '--threads', 'abc']));
+  AssertEquals('--threads not valid for validate', EXIT_USAGE,
+    RunHeadless(['validate', FTempDir, '--threads', '4']));
+  AssertEquals('--threads not valid for cbr-to-cbz', EXIT_USAGE,
+    RunHeadless(['cbr-to-cbz', FTempDir, '--threads', '4']));
+  AssertEquals('--threads not valid for merge', EXIT_USAGE,
+    RunHeadless(['merge', FTempDir, '--threads', '4']));
 end;
 
 procedure TClimodeTest.RunHeadless_UnknownCommand;
@@ -230,6 +216,48 @@ begin
   AssertFalse('no _OLD backup with --delete',
     FileExists(FTempDir + 'conv_OLD.cbz'));
   AssertTrue('file still present', FileExists(FTempDir + 'conv.cbz'));
+end;
+
+procedure TClimodeTest.RunHeadless_ConvertWebp_Threads;
+var
+  Png: TMemoryStream;
+  Args: TStringArray;
+  Entries: TZipEntries;
+begin
+  Png := CreateNoisePNGStream;
+  CreateCBZ(FTempDir + 'conv.cbz', [Png], ['p1.png']);
+  Png.Free;
+  SetLength(Args, 4);
+  Args[0] := 'convert-webp';
+  Args[1] := FTempDir;
+  Args[2] := '--threads';
+  Args[3] := '4';
+  AssertEquals(EXIT_OK, RunHeadless(Args));
+  Entries := CollectZipEntries(FTempDir + 'conv.cbz');
+  try
+    AssertEquals('1 page', 1, Length(Entries));
+    AssertEquals('page renamed to .webp', '.webp',
+      LowerCase(ExtractFileExt(Entries[0].Name)));
+  finally
+    FreeZipEntries(Entries);
+  end;
+end;
+
+procedure TClimodeTest.RunHeadless_ConvertWebp_ThreadsFlagBeforeDir;
+var
+  Png: TMemoryStream;
+  Args: TStringArray;
+begin
+  Png := CreateNoisePNGStream;
+  CreateCBZ(FTempDir + 'conv.cbz', [Png], ['p1.png']);
+  Png.Free;
+  SetLength(Args, 4);
+  Args[0] := 'convert-webp';
+  Args[1] := '--threads';
+  Args[2] := '2';
+  Args[3] := FTempDir;
+  AssertEquals(EXIT_OK, RunHeadless(Args));
+  AssertTrue('converted file exists', FileExists(FTempDir + 'conv.cbz'));
 end;
 
 { cbr-to-cbz }

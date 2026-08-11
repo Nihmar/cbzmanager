@@ -19,6 +19,8 @@ cbzmanager \- CBZ comic archive manager (desktop application and headless CLI)
 .B convert\-webp
 .I dir
 .RB [ \-\-delete ]
+.RB [ \-\-threads
+.IR N ]
 .br
 .B cbzmanager
 .B merge
@@ -103,6 +105,8 @@ effect.
 .B convert\-webp
 .I dir
 .RB [ \-\-delete ]
+.RB [ \-\-threads
+.IR N ]
 Converts the images of every
 .I .cbz
 file in
@@ -116,7 +120,12 @@ The original file is renamed to
 unless
 .B \-\-delete
 is given, in which case it is replaced in place.  Per-file failures are
-reported and skipped; the exit status is always 0.
+reported and skipped; the exit status is always 0.  By default the pages
+of a file are decoded and re-encoded on one worker thread per CPU core
+(at most 8, so the memory held by the pool stays bounded);
+.B \-\-threads
+selects an explicit number (1 = sequential).  The output is identical
+regardless of the thread count.
 .TP
 .B merge
 .I dir
@@ -198,6 +207,13 @@ only: fixed number of chapters per volume.
 Mutually exclusive with
 .BR \-\-chapters .
 .TP
+.BI \-\-threads " N"
+.B convert\-webp
+only: decode and re-encode pages on
+.I N
+worker threads.  The default (0 / omitted) is one worker per CPU core,
+capped at 8 so the pool's peak memory stays bounded.
+.TP
 .BR \-\-help ", " \-h ", " help
 Print usage information and exit 0.
 .TP
@@ -242,11 +258,11 @@ cbzmanager merge --force --chapters-per-volume 5 ~/manga/one-piece
 .RE
 .fi
 .PP
-Convert a folder to WebP, deleting the originals:
+Convert a folder to WebP on 4 worker threads, deleting the originals:
 .PP
 .nf
 .RS
-cbzmanager convert-webp --delete ~/manga/archive
+cbzmanager convert-webp --threads 4 --delete ~/manga/archive
 .RE
 .fi
 .PP

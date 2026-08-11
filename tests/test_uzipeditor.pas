@@ -3,7 +3,7 @@ unit test_uzipeditor;
 interface
 uses
   fpcunit, testregistry,
-  Classes, SysUtils, IntfGraphics, uzipcore, uZipEditor;
+  Classes, SysUtils, IntfGraphics, uzipcore, uZipEditor, uWebP;
 
 type
   TZipEditorTest = class(TTestCase)
@@ -41,6 +41,7 @@ type
     procedure TestFilterPages_KeepOriginalNumbers_DeleteMiddle;
     procedure TestFilterPages_DeleteNone;
     procedure TestFilterPages_DeleteAll;
+    procedure TestConvertWebP_ParallelDeterministic;
   end;
 
   TImageUtilTest = class(TTestCase)
@@ -701,6 +702,68 @@ begin
     AssertEquals('0 survivors', 0, Length(E));
   finally
     FreeZipEntries(E);
+  end;
+end;
+
+{ Parallel WebP conversion must be byte-identical to the sequential one:
+  the pool writes each slot by source index and the compaction pass runs
+  in archive order, so the thread count must not change the output. }
+procedure TZipEditorTest.TestConvertWebP_ParallelDeterministic;
+var
+  Pngs: array[0..7] of TMemoryStream;
+  CiXml, F1, F2: TMemoryStream;
+  i, N1, N2, C1, C2: integer;
+  M1, M2: boolean;
+  E1, E2: TZipEntries;
+begin
+  if not WebPAvailable then Exit;   { degraded env: nothing to convert }
+
+  for i := 0 to 7 do
+    Pngs[i] := CreateNoisePNGStream;
+  CiXml := TMemoryStream.Create;
+  CiXml.WriteAnsiString('<ComicInfo/>');
+  CiXml.Position := 0;
+  { ComicInfo.xml + 8 noise pages: exercises the skip/keep branch of the
+    compaction pass alongside the pooled decode+encode work. }
+  CreateCBZ(FTempDir + 'par.cbz',
+    [Pngs[0], Pngs[1], CiXml, Pngs[2], Pngs[3], Pngs[4], Pngs[5], Pngs[6], Pngs[7]],
+    ['p01.png', 'p02.png', 'ComicInfo.xml', 'p03.png', 'p04.png', 'p05.png',
+     'p06.png', 'p07.png', 'p08.png']);
+  for i := 0 to 7 do Pngs[i].Free;
+  CiXml.Free;
+
+  E1 := ConvertCBZToWebP(FTempDir + 'par.cbz', 75, True, True, True, True,
+    N1, C1, M1, nil, 1);
+  try
+    WriteZipFromEntriesDeflated(FTempDir + 'seq.cbz', E1);
+  finally
+    FreeZipEntries(E1);
+  end;
+
+  E2 := ConvertCBZToWebP(FTempDir + 'par.cbz', 75, True, True, True, True,
+    N2, C2, M2, nil, 4);
+  try
+    WriteZipFromEntriesDeflated(FTempDir + 'par.cbz.out', E2);
+  finally
+    FreeZipEntries(E2);
+  end;
+
+  AssertEquals('entry count matches', N1, N2);
+  AssertEquals('converted count matches', C1, C2);
+  AssertEquals('modified flag matches', M1, M2);
+
+  F1 := TMemoryStream.Create;
+  F2 := TMemoryStream.Create;
+  try
+    F1.LoadFromFile(FTempDir + 'seq.cbz');
+    F2.LoadFromFile(FTempDir + 'par.cbz.out');
+    AssertEquals('same output size', F1.Size, F2.Size);
+    if F1.Size > 0 then
+      AssertTrue('byte-identical output',
+        CompareMem(F1.Memory, F2.Memory, F1.Size));
+  finally
+    F1.Free;
+    F2.Free;
   end;
 end;
 

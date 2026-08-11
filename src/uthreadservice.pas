@@ -321,11 +321,22 @@ end;
 { TServiceThread.Progress
 
   Thread-safe progress dispatch.  Stores the values in fields owned by the
-  thread object, then enqueues a call to SyncProgress on the main thread.
-  Uses Queue(nil, ...) so the update is never dropped — even near the end
-  of Execute when the thread is about to finish.  SyncProgress accesses
-  thread fields; all queued entries are guaranteed to execute before the
-  OnTerminate handler fires, so the thread object is still alive.
+  thread object, then hands SyncProgress to the main thread with a BLOCKING
+  Synchronize call.
+
+  Synchronize (not Queue) is deliberate:
+  - The thread object has FreeOnTerminate=True, so with Queue the main
+    thread could still find a queued SyncProgress after the worker freed
+    itself (use-after-free, crashed with SIGSEGV in SyncProgress).
+  - FPC's CheckSynchronize RE-RAISES exceptions raised by queued methods on
+    the MAIN thread (classes.inc "for Queue entries we dispose the entry
+    and raise the exception"), so a failing progress callback escaped the
+    event loop and killed the app ("Range check error" + crash).  With
+    Synchronize the exception is passed back to the worker and re-raised
+    inside Execute, where the per-file try/except records it as a file
+    error instead of taking down the GUI.
+  - The per-entry progress flood can queue thousands of entries; a
+    synchronous update keeps the queue bounded and the UI fresh.
 
   Skipped entirely when no callback is assigned. }
 procedure TServiceThread.Progress(APercent: integer; const AMsg: string);
@@ -333,14 +344,16 @@ begin
   FPendingPct := APercent;
   FPendingMsg := AMsg;
   if Assigned(FOnProgress) then
-    TThread.Queue(nil, @SyncProgress);
+    Synchronize(@SyncProgress);
 end;
 
 { TServiceThread.SyncProgress
 
-  Runs on the MAIN thread.  Reads the latest pending values and fires the
-  callback.  The nil-guard is re-checked because the callback could have
-  been detached between the Queue call and this execution. }
+  Runs on the MAIN thread (via Synchronize — the worker blocks until this
+  returns, so the thread object is guaranteed alive).  Reads the latest
+  pending values and fires the callback.  The nil-guard is re-checked
+  because the callback could have been detached between the Progress call
+  and this execution. }
 procedure TServiceThread.SyncProgress;
 begin
   if Assigned(FOnProgress) then

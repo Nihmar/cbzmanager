@@ -1,4 +1,4 @@
-.PHONY: all build test clean man install-man
+.PHONY: all build test test-checks clean man install-man
 
 PREFIX ?= /usr/local
 DESTDIR ?=
@@ -39,6 +39,29 @@ test-compile:
 test: test-compile
 	QT_QPA_PLATFORM=offscreen ./bin/tests/testrunner --all
 
+test-compile-checks:
+	mkdir -p bin/testchecks obj/testchecks
+	fpc -MObjFPC -Scghi -O1 -gw3 -gl -l -Cr -Co -Ci -Ct -gh \
+	  -Fu/usr/lib/fpc/3.2.2/units/x86_64-linux/rtl \
+	  -Fu/usr/lib/fpc/3.2.2/units/x86_64-linux/fcl-fpcunit \
+	  -Fu/usr/lib/fpc/3.2.2/units/x86_64-linux/paszlib \
+	  -Fu/usr/lib/lazarus/lcl/units/x86_64-linux \
+	  -Fu/usr/lib/lazarus/lcl/units/x86_64-linux/qt6 \
+	  -Fu/usr/lib/lazarus/components/lazutils/lib/x86_64-linux \
+	  -Fu/usr/lib/lazarus/packager/units/x86_64-linux \
+	  -Fu/usr/lib/lazarus/components/freetype/lib/x86_64-linux \
+	  -Fu$$HOME/.lazarus/lib/units/x86_64-linux/qt6 \
+	  -Fusrc -Fulib \
+	  -FEbin/testchecks -FUobj/testchecks \
+	  -dLCL -dLCLqt6 \
+	  tests/testrunner.pp
+
+# Run the FPCUnit suite with the full debug profile (range checks, overflow
+# checks, heaptrc) so memory errors that the release build tolerates are
+# caught in CI instead of the user's session.
+test-checks: test-compile-checks
+	QT_QPA_PLATFORM=offscreen ./bin/testchecks/testrunner --all
+
 man:
 	@if command -v groff >/dev/null 2>&1; then \
 	  groff -man -z man/cbzmanager.1 && \
@@ -51,4 +74,4 @@ install-man:
 	install -Dm644 man/cbzmanager.1 $(DESTDIR)$(PREFIX)/share/man/man1/cbzmanager.1
 
 clean:
-	rm -rf bin/tests obj/tests
+	rm -rf bin/tests obj/tests bin/testchecks obj/testchecks

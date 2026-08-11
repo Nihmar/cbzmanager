@@ -16,6 +16,7 @@ uses
   test_uservicevalidate,
   test_uservicecomicinfo,
   test_ucomicinfo,
+  test_uthreadservice,
   test_upageeditmodel,
   test_uimageedit;
 var

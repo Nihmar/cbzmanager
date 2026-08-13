@@ -458,6 +458,7 @@ var
   PageExt: string;
   Found: boolean;
   SortedNames: array of TNameIdx;
+  Key: TNameIdx;
   Idx: integer;
 
   function FindIdx(const AName: string): integer;
@@ -499,12 +500,13 @@ begin
       for i := 1 to High(SortedNames) do
       begin
         j := i - 1;
-        while (j >= 0) and (SortedNames[j].Name > SortedNames[i].Name) do
+        Key := SortedNames[i];
+        while (j >= 0) and (SortedNames[j].Name > Key.Name) do
         begin
           SortedNames[j + 1] := SortedNames[j];
           Dec(j);
         end;
-        SortedNames[j + 1] := SortedNames[i];
+        SortedNames[j + 1] := Key;
       end;
 
       // Upper bound: every page survives (no Gone), plus all metadata entries.

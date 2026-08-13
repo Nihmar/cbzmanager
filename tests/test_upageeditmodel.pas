@@ -30,6 +30,8 @@ type
     procedure TestSave_CreatesOldBackup;
     procedure TestSave_EditedPage_DataWins;
     procedure TestSave_Split_StagedPiecesWritesNewPages;
+    { Insertion sort must handle entries stored in non-alphabetical order. }
+    procedure TestSave_ScrambledOrder_RenumbersAllPages;
   end;
 
   TPageEditModelTest = class(TTestCase)
@@ -565,6 +567,61 @@ begin
   end;
   AssertTrue('ComicInfo.xml kept',
     HasEntry(CBZ, 'ComicInfo.xml'));
+  DeleteFile(CBZ);
+end;
+
+{ Entries stored in reverse-alphabetical order (maximum shift cascades in the
+  insertion sort).  The buggy sort overwrites several SortedNames slots with
+  shifted copies, causing multiple distinct OrigName lookups to resolve to the
+  same archive index — which produces duplicate page entries instead of four
+  unique ones. }
+procedure TSaveChangesTest.TestSave_ScrambledOrder_RenumbersAllPages;
+var
+  CBZ: string;
+  S1, S2, S3, S4, CInfo: TMemoryStream;
+  Save: TSyncSaveChanges;
+  Pages: TPageStates;
+begin
+  { Build a CBZ with entries in descending order — forces 6 total shifts
+    during insertion sort, corrupting multiple SortedNames slots. }
+  CBZ := FTempDir + 'scrambled.cbz';
+  S1 := CreateMinimalPNGStream;   { page_z (idx 0) }
+  S2 := CreateMinimalPNGStream;   { page_d (idx 1) }
+  S3 := CreateMinimalPNGStream;   { page_b (idx 2) }
+  S4 := CreateMinimalPNGStream;   { page_a (idx 3) }
+  CInfo := TStringStream.Create('<ComicInfo><Title>Scrambled</Title></ComicInfo>');
+  CreateCBZ(CBZ, [S1, S2, S3, S4, CInfo],
+    ['page_z.png', 'page_d.png', 'page_b.png', 'page_a.png', 'ComicInfo.xml']);
+  S1.Free;
+  S2.Free;
+  S3.Free;
+  S4.Free;
+  CInfo.Free;
+
+  { Build a page model — each page carries the correct OrigName. }
+  SetLength(Pages, 4);
+  Pages[0].Name := 'page_z.png';   Pages[0].OrigName := 'page_z.png';
+  Pages[1].Name := 'page_d.png';   Pages[1].OrigName := 'page_d.png';
+  Pages[2].Name := 'page_b.png';   Pages[2].OrigName := 'page_b.png';
+  Pages[3].Name := 'page_a.png';   Pages[3].OrigName := 'page_a.png';
+  Pages[0].Image := nil;           Pages[0].Data := nil;          Pages[0].OrigIndex := 0; Pages[0].Gone := False;
+  Pages[1].Image := nil;           Pages[1].Data := nil;          Pages[1].OrigIndex := 1; Pages[1].Gone := False;
+  Pages[2].Image := nil;           Pages[2].Data := nil;          Pages[2].OrigIndex := 2; Pages[2].Gone := False;
+  Pages[3].Image := nil;           Pages[3].Data := nil;          Pages[3].OrigIndex := 3; Pages[3].Gone := False;
+
+  { Save with renumber. }
+  Save := TSyncSaveChanges.Create(CBZ, Pages, True, False, nil);
+  try
+    Save.RunSync;
+    AssertTrue('save succeeds', Save.Result.Success);
+  finally
+    Save.Free;
+  end;
+
+  { Verify: exactly 4 renumbered pages + ComicInfo — no duplicates. }
+  AssertEquals('5 entries total (4 pages + ComicInfo)',
+    'page_0001.png,page_0002.png,page_0003.png,page_0004.png,ComicInfo.xml',
+    EntryNames(CBZ));
   DeleteFile(CBZ);
 end;
 

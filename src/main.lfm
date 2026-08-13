@@ -284,60 +284,50 @@ object frmMain: TfrmMain
           Left = 2
           Height = 28
           Top = 2
-          Width = 85
+          Width = 62
           Align = alLeft
           BorderSpacing.Around = 2
           Caption = 'Delete'
           TabOrder = 0
           OnClick = MnuPageDeleteClick
         end
-        object BtnPgDeleteRows: TButton
-          Left = 89
-          Height = 28
-          Top = 2
-          Width = 90
-          Align = alLeft
-          BorderSpacing.Around = 2
-          Caption = 'Delete rows'
-          TabOrder = 1
-          OnClick = MnuDeleteRowsClick
-        end
         object BtnPgAddFront: TButton
-          Left = 181
+          Left = 68
           Height = 28
           Hint = 'Insert image as first page'
           Top = 2
-          Width = 90
+          Width = 74
           Align = alLeft
           BorderSpacing.Around = 2
           Caption = 'Add front'
           ParentShowHint = False
           ShowHint = True
-          TabOrder = 2
+          TabOrder = 1
           OnClick = MnuPageAddFrontClick
         end
         object BtnPgEdit: TButton
-          Left = 273
+          Left = 146
           Height = 28
           Hint = 'Edit page image (resize / colors / split)'
           Top = 2
-          Width = 60
+          Width = 48
           Align = alLeft
           BorderSpacing.Around = 2
           Caption = 'Edit'
           ParentShowHint = False
           ShowHint = True
-          TabOrder = 3
+          TabOrder = 2
           OnClick = MnuPageEditClick
         end
         object BtnPgMoveUp: TButton
-          Left = 282
+          Left = 198
           Height = 28
           Hint = 'Move page up'
           Top = 2
-          Width = 30
-          Align = alRight
+          Width = 25
+          Align = alLeft
           BorderSpacing.Around = 2
+          BorderSpacing.Left = 8
           Caption = '▲'
           ParentShowHint = False
           ShowHint = True
@@ -345,12 +335,12 @@ object frmMain: TfrmMain
           OnClick = MnuPageMoveUpClick
         end
         object BtnPgMoveDown: TButton
-          Left = 314
+          Left = 227
           Height = 28
-          Hint = 'Move down|Move page down'
+          Hint = 'Move page down'
           Top = 2
-          Width = 30
-          Align = alRight
+          Width = 25
+          Align = alLeft
           BorderSpacing.Around = 2
           Caption = '▼'
           ParentShowHint = False
@@ -359,12 +349,12 @@ object frmMain: TfrmMain
           OnClick = MnuPageMoveDownClick
         end
         object BtnPgMoveStart: TButton
-          Left = 346
+          Left = 256
           Height = 28
           Hint = 'Move to start'
           Top = 2
-          Width = 30
-          Align = alRight
+          Width = 25
+          Align = alLeft
           BorderSpacing.Around = 2
           Caption = '⏮'
           ParentShowHint = False
@@ -373,12 +363,12 @@ object frmMain: TfrmMain
           OnClick = MnuPageMoveStartClick
         end
         object BtnPgMoveEnd: TButton
-          Left = 378
+          Left = 285
           Height = 28
           Hint = 'Move to end'
           Top = 2
-          Width = 30
-          Align = alRight
+          Width = 25
+          Align = alLeft
           BorderSpacing.Around = 2
           Caption = '⏭'
           ParentShowHint = False
@@ -386,42 +376,49 @@ object frmMain: TfrmMain
           TabOrder = 6
           OnClick = MnuPageMoveEndClick
         end
-        object SepPt2: TPanel
-          Left = 410
-          Height = 28
-          Top = 2
-          Width = 4
-          Align = alRight
-          BorderSpacing.Around = 2
-          TabOrder = 7
-        end
         object BtnPgSort: TButton
-          Left = 416
+          Left = 314
           Height = 28
           Hint = 'Sort by name'
           Top = 2
-          Width = 30
-          Align = alRight
+          Width = 25
+          Align = alLeft
           BorderSpacing.Around = 2
+          BorderSpacing.Left = 8
           Caption = '▲▼'
           ParentShowHint = False
           ShowHint = True
-          TabOrder = 8
+          TabOrder = 7
           OnClick = MnuPageSortClick
         end
         object BtnPgReverse: TButton
-          Left = 448
+          Left = 343
           Height = 28
           Hint = 'Reverse order'
           Top = 2
-          Width = 30
-          Align = alRight
+          Width = 25
+          Align = alLeft
           BorderSpacing.Around = 2
           Caption = '⇆'
           ParentShowHint = False
           ShowHint = True
-          TabOrder = 9
+          TabOrder = 8
           OnClick = MnuPageReverseClick
+        end
+        object BtnPgMore: TButton
+          Left = 372
+          Height = 28
+          Hint = 'More actions'
+          Top = 2
+          Width = 28
+          Align = alLeft
+          BorderSpacing.Around = 2
+          BorderSpacing.Left = 8
+          Caption = '⋯'
+          ParentShowHint = False
+          ShowHint = True
+          TabOrder = 9
+          OnClick = BtnPgMoreClick
         end
       end
       object PanelStageBar: TPanel
@@ -603,6 +600,10 @@ object frmMain: TfrmMain
         Caption = 'Edit image...'
         OnClick = MnuPageEditClick
       end
+      object MnuBatchEdit: TMenuItem
+        Caption = 'Batch edit pages...'
+        OnClick = MnuBatchEditClick
+      end
       object MnuPageDelete: TMenuItem
         Caption = 'Delete page(s)'
         OnClick = MnuPageDeleteClick
@@ -764,6 +765,10 @@ object frmMain: TfrmMain
       Caption = 'Edit image...'
       OnClick = MnuPageEditClick
     end
+    object MnuPgBatchEdit: TMenuItem
+      Caption = 'Batch edit pages...'
+      OnClick = MnuBatchEditClick
+    end
     object MnuPgDelete: TMenuItem
       Caption = 'Delete page(s)'
       OnClick = MnuPageDeleteClick
@@ -790,6 +795,20 @@ object frmMain: TfrmMain
     object MnuPgMoveEnd: TMenuItem
       Caption = 'Move to end'
       OnClick = MnuPageMoveEndClick
+    end
+  end
+  object PMPageMore: TPopupMenu
+    object MniMoreBatchEdit: TMenuItem
+      Caption = 'Batch edit pages...'
+      OnClick = MnuBatchEditClick
+    end
+    object MniMoreDeleteRows: TMenuItem
+      Caption = 'Delete rows...'
+      OnClick = MnuDeleteRowsClick
+    end
+    object MniMoreRenumber: TMenuItem
+      Caption = 'Renumber pages'
+      OnClick = MnuPageRenumberClick
     end
   end
   object TimerDebounceZoom: TTimer

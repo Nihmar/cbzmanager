@@ -102,6 +102,9 @@ uses
   ufrmjobmonitor,
   udlgpageview,
   udlgpageeditor,
+  udlgbatchedit,
+  ubatchedit,
+  uimageedit,
   uservicebase;
 
 type
@@ -146,6 +149,7 @@ type
     MnuReload: TMenuItem;
     MnuPages: TMenuItem;
     MnuPageEdit: TMenuItem;
+    MnuBatchEdit: TMenuItem;
     MnuPageDelete: TMenuItem;
     MnuPageDeleteRows: TMenuItem;
     SepPag1: TMenuItem;
@@ -195,16 +199,15 @@ type
     BtnClosePreview: TButton;
     PanelPageTools: TPanel;
     BtnPgDelete: TButton;
-    BtnPgDeleteRows: TButton;
     BtnPgAddFront: TButton;
     BtnPgEdit: TButton;
     BtnPgMoveUp: TButton;
     BtnPgMoveDown: TButton;
     BtnPgMoveStart: TButton;
     BtnPgMoveEnd: TButton;
-    SepPt2: TPanel;
     BtnPgSort: TButton;
     BtnPgReverse: TButton;
+    BtnPgMore: TButton;
     PanelStageBar: TPanel;
     ShapeStageDot: TShape;
     LblStageMsg: TLabel;
@@ -235,6 +238,8 @@ type
     MnuCtxConvertWebP: TMenuItem;
     MnuCtxMerge: TMenuItem;
     PMPages: TPopupMenu;
+    MnuPgEdit: TMenuItem;
+    MnuPgBatchEdit: TMenuItem;
     MnuPgDelete: TMenuItem;
     MnuPgDeleteRows: TMenuItem;
     SepPg1: TMenuItem;
@@ -242,11 +247,16 @@ type
     MnuPgMoveDown: TMenuItem;
     MnuPgMoveStart: TMenuItem;
     MnuPgMoveEnd: TMenuItem;
+    PMPageMore: TPopupMenu;
+    MniMoreBatchEdit: TMenuItem;
+    MniMoreDeleteRows: TMenuItem;
+    MniMoreRenumber: TMenuItem;
     { Timers }
     TimerDebounceZoom: TTimer;
     { Event handlers }
     procedure BtnBrowseClick(Sender: TObject);
     procedure BtnClosePreviewClick(Sender: TObject);
+    procedure BtnPgMoreClick(Sender: TObject);
     procedure BtnStageRevertClick(Sender: TObject);
     procedure BtnStageSaveClick(Sender: TObject);
     procedure SaveChangesThreadTerminated(Sender: TObject);
@@ -274,6 +284,8 @@ type
     procedure DeleteRowsThreadTerminated(Sender: TObject);
     procedure MnuExitClick(Sender: TObject);
     procedure MnuPageEditClick(Sender: TObject);
+    procedure MnuBatchEditClick(Sender: TObject);
+    procedure BatchEditWorkerTerminated(Sender: TObject);
     procedure LVPagesDblClick(Sender: TObject);
 
     procedure MnuMergeClick(Sender: TObject);
@@ -310,6 +322,11 @@ type
     FLoadThread: TLoadThread;
     { Background thread that opens a single .cbz for page preview. }
     FPagesThread: TPagesThread;
+    { Session counter for the preview panes: bumped every time the
+      destination lists are cleared (ClearPreview / directory reloads).
+      Thumbnail threads carry the epoch they were created under and
+      discard stale batches in SyncAddThumbs — see uloaderthread. }
+    FPreviewEpoch: integer;
     { Full-resolution cached images for the file-list pane (one per .cbz). }
     FFirstPages: TLazIntfImageList;
     { Full-resolution cached images for the page-preview pane (all pages of one .cbz). }
@@ -615,6 +632,7 @@ procedure TfrmMain.SetPageOpsEnabled(AEnabled: boolean);
 begin
   PanelPageTools.Enabled := AEnabled;
   MnuPageEdit.Enabled := AEnabled;
+  MnuBatchEdit.Enabled := AEnabled;
   MnuPageDelete.Enabled := AEnabled;
   MnuPageDeleteRows.Enabled := AEnabled;
   MnuPageMoveUp.Enabled := AEnabled;
@@ -624,6 +642,8 @@ begin
   MnuPageSort.Enabled := AEnabled;
   MnuPageReverse.Enabled := AEnabled;
   MnuPageRenumber.Enabled := AEnabled;
+  MniMoreDeleteRows.Enabled := AEnabled;
+  MniMoreRenumber.Enabled := AEnabled;
 end;
 
 procedure TfrmMain.BeginServiceThread(AThread: TThread; const AStatus: string;
@@ -741,6 +761,9 @@ begin
       if FPages[i].Gone then Continue;
       It := LVPages.Items.Add;
       It.Caption := FPages[i].Name;
+      { Hidden full entry name, like the thumb-loader items: ItemFileName
+        relies on SubItems[0] being the archive entry name. }
+      It.SubItems.Add(FPages[i].Name);
       { Bind this visible row back to its FPages index.  LVPages is a
         compacted view (Gone entries are skipped), so row index <> FPages
         index; consumers must map through Data, never assume they are equal. }
@@ -959,6 +982,9 @@ end;
 procedure TfrmMain.ClearThumbnails;
 begin
   FreeLoadThread;
+  { New session: any thumbnail batch still queued by an earlier directory
+    scan is stale from here on. }
+  Inc(FPreviewEpoch);
   LVFiles.Clear;
   FAnchorFiles := -1;
   ILFilesFirstPages.Clear;
@@ -969,6 +995,7 @@ procedure TfrmMain.FreeLoadThread;
 begin
   if Assigned(FLoadThread) then
   begin
+    FLoadThread.OnTerminate := nil;
     FLoadThread.Terminate;
     FLoadThread := nil;
   end;
@@ -978,6 +1005,10 @@ procedure TfrmMain.FreePagesThread;
 begin
   if Assigned(FPagesThread) then
   begin
+    { A stale OnTerminate must never touch the next preview: clear it
+      before terminating.  The epoch guard additionally discards any
+      batch the thread may still have queued. }
+    FPagesThread.OnTerminate := nil;
     FPagesThread.Terminate;
     FPagesThread := nil;
   end;
@@ -1014,6 +1045,9 @@ var
   i: integer;
 begin
   FreePagesThread;
+  { New session: any thumbnail batch still queued by an earlier thread
+    (preview or directory scan) is stale from here on. }
+  Inc(FPreviewEpoch);
   FreePageImages;
   for i := 0 to High(FPages) do
     FPages[i].Data.Free;
@@ -1236,6 +1270,109 @@ begin
 end;
 
 {
+  MnuBatchEditClick
+  -----------------
+  Entry point for the batch page edit (Pages menu, preview context menu,
+  and the '...' More popup): gathers the selected pages, opens the batch
+  dialog, and runs TMultiEditWorker in the background.  The results are
+  staged into the page model by BatchEditWorkerTerminated — nothing is
+  written to disk until the user saves via the stage bar.
+}
+procedure TfrmMain.MnuBatchEditClick(Sender: TObject);
+var
+  Sel: TIntegerDynArray;
+  i: integer;
+  Inputs: TMultiEditPageInputs;
+  Dlg: TdlgBatchEdit;
+  Params: TMultiEditParams;
+  Worker: TMultiEditWorker;
+begin
+  if IsReadOnlyPreview or (FPagesThread <> nil) or (FPageFile = '') then Exit;
+  if not PanelSingleFile.Visible then Exit;
+  Sel := GetSelectedPageIndices;
+  if Length(Sel) = 0 then
+  begin
+    SetStatus('No pages selected');
+    Exit;
+  end;
+
+  { Build the input descriptors for the selected pages (skip deleted ones).
+    The page's current bytes are either its Data stream (previously edited
+    or inserted) or the archive entry named by OrigName. }
+  Inputs := nil;
+  for i := 0 to High(Sel) do
+  begin
+    if FPages[Sel[i]].Gone then Continue;
+    SetLength(Inputs, Length(Inputs) + 1);
+    Inputs[High(Inputs)].Idx := Sel[i];
+    Inputs[High(Inputs)].OrigName := FPages[Sel[i]].OrigName;
+    Inputs[High(Inputs)].Data := FPages[Sel[i]].Data;
+    Inputs[High(Inputs)].Ext := ExtractFileExt(FPages[Sel[i]].Name);
+  end;
+  if Length(Inputs) = 0 then
+  begin
+    SetStatus('No editable pages selected');
+    Exit;
+  end;
+
+  Dlg := TdlgBatchEdit.Create(Self);
+  try
+    Dlg.LoadTarget(FPageFile, Inputs[0], Length(Inputs));
+    if Dlg.ShowModal <> mrOk then Exit;
+    Params := Dlg.ExtractParams;
+  finally
+    Dlg.Free;
+  end;
+  if ParamsAreNeutral(Params) then Exit;  { belt-and-braces; dialog guards }
+
+  Worker := TMultiEditWorker.Create(FPageFile, Inputs, Params, CacheW, CacheH,
+    @UpdateProgress);
+  BeginServiceThread(Worker, 'Batch editing pages...',
+    @BatchEditWorkerTerminated, nil, MnuBatchEdit);
+end;
+
+{
+  BatchEditWorkerTerminated
+  -------------------------
+  Stages the batch results into the in-memory page model via
+  StageMultiEditResults (ubatchedit): piece 0 replaces each source page in
+  place, extra split pieces are inserted right after it in descending
+  source-index order, and the new thumbnails are registered in the preview
+  cache.  When any split occurred the whole list is renumbered and
+  previewed immediately, like the single-page editor's split.  Nothing is
+  written to disk until the user saves via the stage bar.
+}
+procedure TfrmMain.BatchEditWorkerTerminated(Sender: TObject);
+var
+  W: TMultiEditWorker;
+  Staged: integer;
+  HadSplit: boolean;
+  Thumbs: TIntfImageArray;
+  i: integer;
+begin
+  W := TMultiEditWorker(Sender);
+  FinishServiceThread(nil, MnuBatchEdit);
+  if ServiceThreadFailed(W, 'Batch edit') then Exit;
+
+  Staged := StageMultiEditResults(FPages, FChanges, W.Results, HadSplit,
+    Thumbs);
+  for i := 0 to High(Thumbs) do
+    FPagePreviews.Add(Thumbs[i]);
+
+  if HadSplit then
+  begin
+    FRenumber := True;
+    PageRenumber(FPages, FChanges);
+  end;
+
+  UpdateStageBar;
+  RenderPages;
+  Log('Batch edit: staged %d piece(s) (split=%s)',
+    [Staged, BoolToStr(HadSplit, True)]);
+  SetStatus(Format('Batch edit complete: %d piece(s)', [Staged]));
+end;
+
+{
   LVPagesDblClick
   ---------------
   Double-click on a page thumbnail opens the page editor (item resolved by
@@ -1293,6 +1430,7 @@ begin
   FPagesThread.ListView := LVPages;
   FPagesThread.Images := ILPages;
   FPagesThread.Pages := FPagePreviews;
+  FPagesThread.OwnerEpoch := @FPreviewEpoch;
   FPagesThread.FreeOnTerminate := True;
   FPagesThread.Start;
 end;
@@ -1534,6 +1672,20 @@ end;
 procedure TfrmMain.BtnClosePreviewClick(Sender: TObject);
 begin
   HidePreview;
+end;
+
+{
+  BtnPgMoreClick
+  --------------
+  Pops the secondary page-tools menu (Delete rows..., Renumber pages)
+  below the '...' overflow button.
+}
+procedure TfrmMain.BtnPgMoreClick(Sender: TObject);
+var
+  P: TPoint;
+begin
+  P := BtnPgMore.ClientToScreen(Point(0, BtnPgMore.Height));
+  PMPageMore.PopUp(P.X, P.Y);
 end;
 
 { Menu stubs }
@@ -2759,6 +2911,7 @@ begin
   FLoadThread.ListView := LVFiles;
   FLoadThread.Images := ILFilesFirstPages;
   FLoadThread.Pages := FFirstPages;
+  FLoadThread.OwnerEpoch := @FPreviewEpoch;
   FLoadThread.FreeOnTerminate := True;
   FLoadThread.Start;
   SetStatus(Format('Loading: %s', [ADir]));
@@ -2827,22 +2980,41 @@ end;
 }
 procedure TfrmMain.PagesThreadTerminated(Sender: TObject);
 var
-  i: integer;
+  i, n: integer;
+  It: TListItem;
 begin
   if Sender = FPagesThread then
   begin
     { FreeOnTerminate is True — the thread auto-frees.  We just nil
       the field so we don't keep a dangling reference. }
     FPagesThread := nil;
-    SetLength(FPages, FPagePreviews.Count);
-    SetLength(FBaseline, FPagePreviews.Count);
-    for i := 0 to FPagePreviews.Count - 1 do
+
+    { The thumbnail cache and the list view are filled together by
+      SyncAddThumbs, but a stale batch from a previous session can slip
+      in under extreme timing (rapid file switching).  Never trust the
+      two counts to be equal: clamp to the smaller one and treat a
+      mismatch as a truncated load instead of crashing on Items[i]. }
+    n := Min(FPagePreviews.Count, LVPages.Items.Count);
+    if n <> FPagePreviews.Count then
+      Log('Pages: thumbnail/item count mismatch (%d vs %d) — model truncated',
+        [FPagePreviews.Count, LVPages.Items.Count]);
+    SetLength(FPages, n);
+    SetLength(FBaseline, n);
+    for i := 0 to n - 1 do
     begin
+      It := LVPages.Items[i];
+      if It = nil then
+      begin
+        SetLength(FPages, i);
+        SetLength(FBaseline, i);
+        Log('Pages: LVPages.Items[%d] is nil — model truncated at %d', [i, i]);
+        Break;
+      end;
       { Use the real archive entry name (stored in SubItems[0]), not the
         display caption, which is a chapter-number extraction and would
         fail to match the archive on save (dropping the page) and lose the
         extension when renumbering. }
-      FPages[i].Name := ItemFileName(LVPages.Items[i]);
+      FPages[i].Name := ItemFileName(It);
       FPages[i].OrigName := FPages[i].Name;
       FPages[i].Image := FPagePreviews[i];
       FPages[i].Gone := False;
@@ -2851,7 +3023,7 @@ begin
       { Bind each freshly loaded row to its FPages index (1:1 at open, no Gone
         entries yet).  Without this the item Data is nil and the first page
         operation after opening would map every selection to model index 0. }
-      LVPages.Items[i].Data := Pointer(PtrInt(i));
+      It.Data := Pointer(PtrInt(i));
     end;
     FChanges := nil;
     FRenumber := True;

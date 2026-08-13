@@ -1,0 +1,413 @@
+object dlgBatchEdit: TdlgBatchEdit
+  Left = 400
+  Height = 520
+  Top = 100
+  Width = 720
+  Caption = 'Batch edit pages'
+  Position = poOwnerFormCenter
+  OnCreate = FormCreate
+  OnKeyDown = FormKeyDown
+  object PanelBottom: TPanel
+    Left = 0
+    Height = 46
+    Top = 474
+    Width = 720
+    Align = alBottom
+    BevelOuter = bvNone
+    ClientHeight = 46
+    ClientWidth = 720
+    TabOrder = 0
+    object BtnApply: TButton
+      Left = 544
+      Height = 30
+      Top = 8
+      Width = 80
+      Caption = '&Apply'
+      Default = True
+      TabOrder = 0
+      OnClick = BtnApplyClick
+    end
+    object BtnCancel: TButton
+      Left = 632
+      Height = 30
+      Top = 8
+      Width = 80
+      Cancel = True
+      Caption = '&Cancel'
+      ModalResult = 2
+      TabOrder = 1
+    end
+  end
+  object PanelLeft: TPanel
+    Left = 0
+    Height = 474
+    Top = 0
+    Width = 360
+    Align = alLeft
+    BevelOuter = bvNone
+    ClientHeight = 474
+    ClientWidth = 360
+    TabOrder = 1
+    object LblHeader: TLabel
+      Left = 8
+      Height = 17
+      Top = 4
+      Width = 344
+      Align = alTop
+      BorderSpacing.Around = 4
+      Caption = 'Apply to pages'
+      Font.Style = [fsBold]
+      Layout = tlCenter
+      ParentFont = False
+    end
+    object PageControl: TPageControl
+      Left = 0
+      Height = 449
+      Top = 25
+      Width = 360
+      Align = alClient
+      TabOrder = 0
+      object TabResize: TTabSheet
+        Caption = 'Resize'
+        PageIndex = 0
+        object CbResize: TCheckBox
+          Left = 8
+          Height = 22
+          Top = 10
+          Width = 200
+          Caption = 'Resize pages'
+          TabOrder = 0
+          OnChange = CbResizeChange
+        end
+        object LblPercent: TLabel
+          Left = 8
+          Height = 17
+          Top = 44
+          Width = 90
+          Caption = 'Scale:'
+        end
+        object SpinPercent: TSpinEdit
+          Left = 110
+          Height = 28
+          Top = 40
+          Width = 110
+          Enabled = False
+          MaxValue = 200
+          MinValue = 50
+          TabOrder = 1
+          Value = 100
+          OnChange = CbResizeChange
+        end
+      end
+      object TabColors: TTabSheet
+        Caption = 'Colors'
+        PageIndex = 1
+        object LblBrightness: TLabel
+          Left = 8
+          Height = 17
+          Top = 14
+          Width = 300
+          Caption = 'Brightness'
+        end
+        object TrackBrightness: TTrackBar
+          Left = 88
+          Height = 40
+          Top = 8
+          Width = 140
+          Max = 100
+          Min = -100
+          Position = 0
+          TabOrder = 0
+          OnChange = TrackColorChange
+        end
+        object LblBrightnessVal: TLabel
+          Left = 240
+          Height = 17
+          Top = 14
+          Width = 40
+          Alignment = taRightJustify
+          Caption = '0'
+        end
+        object LblContrast: TLabel
+          Left = 8
+          Height = 17
+          Top = 48
+          Width = 300
+          Caption = 'Contrast'
+        end
+        object TrackContrast: TTrackBar
+          Left = 88
+          Height = 40
+          Top = 42
+          Width = 140
+          Max = 100
+          Min = -100
+          Position = 0
+          TabOrder = 1
+          OnChange = TrackColorChange
+        end
+        object LblContrastVal: TLabel
+          Left = 240
+          Height = 17
+          Top = 48
+          Width = 40
+          Alignment = taRightJustify
+          Caption = '0'
+        end
+        object LblSaturation: TLabel
+          Left = 8
+          Height = 17
+          Top = 82
+          Width = 300
+          Caption = 'Saturation'
+        end
+        object TrackSaturation: TTrackBar
+          Left = 88
+          Height = 40
+          Top = 76
+          Width = 140
+          Max = 200
+          Min = 0
+          Position = 100
+          TabOrder = 2
+          OnChange = TrackColorChange
+        end
+        object LblSaturationVal: TLabel
+          Left = 240
+          Height = 17
+          Top = 82
+          Width = 40
+          Alignment = taRightJustify
+          Caption = '100'
+        end
+        object LblGamma: TLabel
+          Left = 8
+          Height = 17
+          Top = 116
+          Width = 300
+          Caption = 'Gamma'
+        end
+        object TrackGamma: TTrackBar
+          Left = 88
+          Height = 40
+          Top = 110
+          Width = 140
+          Max = 300
+          Min = 50
+          Position = 100
+          TabOrder = 3
+          OnChange = TrackColorChange
+        end
+        object LblGammaVal: TLabel
+          Left = 240
+          Height = 17
+          Top = 116
+          Width = 40
+          Alignment = taRightJustify
+          Caption = '100'
+        end
+        object LblRed: TLabel
+          Left = 8
+          Height = 17
+          Top = 150
+          Width = 300
+          Caption = 'Red'
+        end
+        object TrackRed: TTrackBar
+          Left = 88
+          Height = 40
+          Top = 144
+          Width = 140
+          Max = 100
+          Min = -100
+          Position = 0
+          TabOrder = 4
+          OnChange = TrackColorChange
+        end
+        object LblRedVal: TLabel
+          Left = 240
+          Height = 17
+          Top = 150
+          Width = 40
+          Alignment = taRightJustify
+          Caption = '0'
+        end
+        object LblGreen: TLabel
+          Left = 8
+          Height = 17
+          Top = 184
+          Width = 300
+          Caption = 'Green'
+        end
+        object TrackGreen: TTrackBar
+          Left = 88
+          Height = 40
+          Top = 178
+          Width = 140
+          Max = 100
+          Min = -100
+          Position = 0
+          TabOrder = 5
+          OnChange = TrackColorChange
+        end
+        object LblGreenVal: TLabel
+          Left = 240
+          Height = 17
+          Top = 184
+          Width = 40
+          Alignment = taRightJustify
+          Caption = '0'
+        end
+        object LblBlue: TLabel
+          Left = 8
+          Height = 17
+          Top = 218
+          Width = 300
+          Caption = 'Blue'
+        end
+        object TrackBlue: TTrackBar
+          Left = 88
+          Height = 40
+          Top = 212
+          Width = 140
+          Max = 100
+          Min = -100
+          Position = 0
+          TabOrder = 6
+          OnChange = TrackColorChange
+        end
+        object LblBlueVal: TLabel
+          Left = 240
+          Height = 17
+          Top = 218
+          Width = 40
+          Alignment = taRightJustify
+          Caption = '0'
+        end
+        object CbGray: TCheckBox
+          Left = 8
+          Height = 22
+          Top = 246
+          Width = 90
+          Caption = 'Grayscale'
+          TabOrder = 7
+          OnClick = CheckboxColorChange
+        end
+        object CbSepia: TCheckBox
+          Left = 100
+          Height = 22
+          Top = 246
+          Width = 80
+          Caption = 'Sepia'
+          TabOrder = 8
+          OnClick = CheckboxColorChange
+        end
+        object CbInvert: TCheckBox
+          Left = 185
+          Height = 22
+          Top = 246
+          Width = 80
+          Caption = 'Invert'
+          TabOrder = 9
+          OnClick = CheckboxColorChange
+        end
+      end
+      object TabSplit: TTabSheet
+        Caption = 'Split'
+        PageIndex = 2
+        object RgDirection: TRadioGroup
+          Left = 8
+          Height = 76
+          Top = 8
+          Width = 296
+          Caption = 'Cut direction'
+          ItemIndex = 0
+          Items.Strings = (
+            'Horizontal line (top / bottom)'
+            'Vertical line (left / right)')
+          TabOrder = 0
+          OnClick = RgDirectionClick
+        end
+        object LblLines: TLabel
+          Left = 8
+          Height = 17
+          Top = 92
+          Width = 300
+          Caption = 'Cut lines (percentage of the page):'
+        end
+        object LBLines: TListBox
+          Left = 8
+          Height = 110
+          Top = 112
+          Width = 296
+          TabOrder = 1
+        end
+        object SpinLinePos: TSpinEdit
+          Left = 8
+          Height = 28
+          Top = 232
+          Width = 70
+          MaxValue = 99
+          MinValue = 1
+          TabOrder = 2
+          Value = 50
+        end
+        object BtnAddLine: TButton
+          Left = 88
+          Height = 30
+          Top = 230
+          Width = 90
+          Caption = '&Add line'
+          TabOrder = 3
+          OnClick = BtnAddLineClick
+        end
+        object BtnRemoveLine: TButton
+          Left = 186
+          Height = 30
+          Top = 230
+          Width = 100
+          Caption = '&Remove'
+          TabOrder = 4
+          OnClick = BtnRemoveLineClick
+        end
+      end
+    end
+  end
+  object PanelPreview: TPanel
+    Left = 364
+    Height = 474
+    Top = 0
+    Width = 356
+    Align = alClient
+    BevelOuter = bvNone
+    BorderSpacing.Left = 4
+    ClientHeight = 474
+    ClientWidth = 356
+    TabOrder = 2
+    object LblPreviewInfo: TLabel
+      Left = 0
+      Height = 20
+      Top = 0
+      Width = 356
+      Align = alTop
+      Alignment = taCenter
+      BorderSpacing.Around = 4
+      Caption = 'Preview: first selected page'
+      Layout = tlCenter
+    end
+    object ImgPreview: TImage
+      Left = 0
+      Height = 454
+      Top = 20
+      Width = 356
+      Align = alClient
+      Center = True
+      Proportional = True
+      Stretch = True
+    end
+  end
+  object TimerPreview: TTimer
+    Interval = 80
+    OnTimer = TimerPreviewTimer
+  end
+end

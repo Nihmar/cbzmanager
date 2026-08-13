@@ -10,23 +10,24 @@ uses
 
 type
   TdlgWebp = class(TSettingsDialog)
-    procedure FormCreate(Sender: TObject);
-  private
-    TrackQuality: TTrackBar;
+    { Wired from the .lfm — controls must be published for RTTI lookup. }
     LabelQuality: TLabel;
+    TrackQuality: TTrackBar;
     LblQualityVal: TLabel;
-    SpinThreads: TSpinEdit;
     CbReplaceOnlySmaller: TCheckBox;
     CbSkipExistingWebP: TCheckBox;
     CbRemoveComicInfo: TCheckBox;
     CbRenumber: TCheckBox;
+    SpinThreads: TSpinEdit;
     GroupBackup: TRadioGroup;
     PanelBottom: TPanel;
     BtnConvert: TButton;
     BtnClose: TButton;
+    procedure FormCreate(Sender: TObject);
+    procedure TrackQualityChange(Sender: TObject);
+  private
     procedure LoadSettings; override;
     procedure SaveSettings; override;
-    procedure TrackQualityChange(Sender: TObject);
     function GetQuality: integer;
     function GetBackup: boolean;
     function GetReplaceOnlyIfSmaller: boolean;
@@ -50,102 +51,6 @@ implementation
 
 procedure TdlgWebp.FormCreate(Sender: TObject);
 begin
-  LabelQuality := TLabel.Create(Self);
-  LabelQuality.Parent := Self;
-  LabelQuality.Left := 12;
-  LabelQuality.Top := 12;
-  LabelQuality.Caption := 'Quality';
-  LabelQuality.Font.Height := -13;
-  LabelQuality.Font.Style := [fsBold];
-
-  LblQualityVal := TLabel.Create(Self);
-  LblQualityVal.Parent := Self;
-  LblQualityVal.Left := 400;
-  LblQualityVal.Top := 36;
-  LblQualityVal.Width := 48;
-  LblQualityVal.Alignment := taRightJustify;
-  LblQualityVal.Caption := IntToStr(DEFAULT_WEBP_QUALITY) + '%';
-
-  TrackQuality := TTrackBar.Create(Self);
-  TrackQuality.Parent := Self;
-  TrackQuality.Left := 12;
-  TrackQuality.Top := 32;
-  TrackQuality.Width := 380;
-  TrackQuality.Min := WEBP_QUALITY_MIN;
-  TrackQuality.Max := WEBP_QUALITY_MAX;
-  TrackQuality.Frequency := 5;
-  TrackQuality.Position := DEFAULT_WEBP_QUALITY;
-  TrackQuality.OnChange := @TrackQualityChange;
-
-  CbReplaceOnlySmaller := TCheckBox.Create(Self);
-  CbReplaceOnlySmaller.Parent := Self;
-  CbReplaceOnlySmaller.Left := 12;
-  CbReplaceOnlySmaller.Top := 80;
-  CbReplaceOnlySmaller.Width := 436;
-  CbReplaceOnlySmaller.Caption := 'Replace only if smaller';
-  CbReplaceOnlySmaller.Checked := True;
-
-  { 0 = automatic (one worker per CPU core, capped); 1 = sequential. }
-  with TLabel.Create(Self) do
-  begin
-    Parent := Self;
-    Left := 12;
-    Top := 214;
-    Width := 120;
-    Caption := 'Parallel threads';
-  end;
-  SpinThreads := TSpinEdit.Create(Self);
-  SpinThreads.Parent := Self;
-  SpinThreads.Left := 328;
-  SpinThreads.Top := 210;
-  SpinThreads.Width := 120;
-  SpinThreads.MinValue := 0;
-  SpinThreads.MaxValue := 32;
-  SpinThreads.Value := 0;
-
-  CbSkipExistingWebP := TCheckBox.Create(Self);
-  CbSkipExistingWebP.Parent := Self;
-  CbSkipExistingWebP.Left := 12;
-  CbSkipExistingWebP.Top := 108;
-  CbSkipExistingWebP.Width := 436;
-  CbSkipExistingWebP.Caption := 'Skip existing WebP';
-  CbSkipExistingWebP.Checked := True;
-
-  CbRemoveComicInfo := TCheckBox.Create(Self);
-  CbRemoveComicInfo.Parent := Self;
-  CbRemoveComicInfo.Left := 12;
-  CbRemoveComicInfo.Top := 136;
-  CbRemoveComicInfo.Width := 436;
-  CbRemoveComicInfo.Caption := 'Remove ComicInfo.xml';
-  CbRemoveComicInfo.Checked := True;
-
-  CbRenumber := TCheckBox.Create(Self);
-  CbRenumber.Parent := Self;
-  CbRenumber.Left := 12;
-  CbRenumber.Top := 164;
-  CbRenumber.Width := 436;
-  CbRenumber.Caption := 'Rename to page_NNNN.*';
-  CbRenumber.Checked := True;
-
-  GroupBackup := TRadioGroup.Create(Self);
-  GroupBackup.Parent := Self;
-  GroupBackup.Left := 12;
-  GroupBackup.Top := 244;
-  GroupBackup.Width := 436;
-  GroupBackup.Height := 72;
-  GroupBackup.Caption := 'Original file';
-  GroupBackup.Columns := 2;
-  GroupBackup.Items.Add('Create backup (_OLD.cbz)');
-  GroupBackup.Items.Add('Permanently delete');
-  GroupBackup.ItemIndex := 0;
-
-  PanelBottom := CreateBottomPanel(Self, 44);
-
-  BtnConvert := CreateDialogButton(PanelBottom, '&Convert', 284, 7, mrOK,
-    True, False);
-  BtnClose := CreateDialogButton(PanelBottom, '&Cancel', 372, 7, mrCancel,
-    False, True);
-
   InitSettingsPersistence;
 end;
 

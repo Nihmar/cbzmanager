@@ -35,6 +35,7 @@ type
     PanelCustomMergeTop: TPanel;
     PanelCustomMerge: TPanel;
     PanelRight: TPanel;
+    LVFiles: TListView;
     PanelBottom: TPanel;
     PanelLeft: TPanel;
     LblFolder: TLabel;
@@ -46,7 +47,6 @@ type
     procedure FormCreate(Sender: TObject);
     procedure MemoChapterSequenceChange(Sender: TObject);
   private
-    LVFiles: TListView;
     FFiles: TStringArray;
     FDir: string;
     FImages: TLazIntfImageList;
@@ -91,23 +91,7 @@ uses
   { TdlgMerge }
 
 procedure TdlgMerge.FormCreate(Sender: TObject);
-var
-  Col: TListColumn;
 begin
-  LVFiles := CreateReportListView(PanelRight, False);
-
-  Col := LVFiles.Columns.Add;
-  Col.Caption := '#';
-  Col.Width := 40;
-
-  Col := LVFiles.Columns.Add;
-  Col.Caption := 'Chapter file';
-  Col.AutoSize := True;
-
-  Col := LVFiles.Columns.Add;
-  Col.Caption := 'Volume';
-  Col.Width := 80;
-
   EditCPV.Enabled := False;
   BtnBuildSeq.Enabled := False;
 

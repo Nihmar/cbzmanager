@@ -6,4 +6,135 @@ inherited dlgWebp: TdlgWebp
   Caption = 'Convert to WebP'
   Position = poOwnerFormCenter
   OnCreate = FormCreate
+  object LabelQuality: TLabel
+    Left = 12
+    Height = 17
+    Top = 12
+    Width = 80
+    Caption = 'Quality'
+    Font.Height = -13
+    Font.Style = [fsBold]
+    ParentFont = False
+  end
+  object TrackQuality: TTrackBar
+    Left = 12
+    Height = 40
+    Top = 32
+    Width = 380
+    Frequency = 5
+    Max = 100
+    Min = 30
+    Position = 75
+    OnChange = TrackQualityChange
+    TabOrder = 0
+  end
+  object LblQualityVal: TLabel
+    Left = 400
+    Height = 17
+    Top = 36
+    Width = 48
+    Alignment = taRightJustify
+    Caption = '75%'
+  end
+  object CbReplaceOnlySmaller: TCheckBox
+    Left = 12
+    Height = 22
+    Top = 80
+    Width = 436
+    Caption = 'Replace only if smaller'
+    Checked = True
+    State = cbChecked
+    TabOrder = 1
+  end
+  object CbSkipExistingWebP: TCheckBox
+    Left = 12
+    Height = 22
+    Top = 108
+    Width = 436
+    Caption = 'Skip existing WebP'
+    Checked = True
+    State = cbChecked
+    TabOrder = 2
+  end
+  object CbRemoveComicInfo: TCheckBox
+    Left = 12
+    Height = 22
+    Top = 136
+    Width = 436
+    Caption = 'Remove ComicInfo.xml'
+    Checked = True
+    State = cbChecked
+    TabOrder = 3
+  end
+  object CbRenumber: TCheckBox
+    Left = 12
+    Height = 22
+    Top = 164
+    Width = 436
+    Caption = 'Rename to page_NNNN.*'
+    Checked = True
+    State = cbChecked
+    TabOrder = 4
+  end
+  object LblThreads: TLabel
+    Left = 12
+    Height = 17
+    Top = 214
+    Width = 120
+    Caption = 'Parallel threads'
+  end
+  object SpinThreads: TSpinEdit
+    Left = 328
+    Height = 28
+    Top = 210
+    Width = 120
+    MaxValue = 32
+    MinValue = 0
+    TabOrder = 5
+    Value = 0
+  end
+  object GroupBackup: TRadioGroup
+    Left = 12
+    Height = 72
+    Top = 244
+    Width = 436
+    Caption = 'Original file'
+    Columns = 2
+    ItemIndex = 0
+    Items.Strings = (
+      'Create backup (_OLD.cbz)'
+      'Permanently delete')
+    TabOrder = 6
+  end
+  object PanelBottom: TPanel
+    Left = 0
+    Height = 44
+    Top = 336
+    Width = 460
+    Align = alBottom
+    BevelOuter = bvNone
+    ClientHeight = 44
+    ClientWidth = 460
+    TabOrder = 7
+    object BtnConvert: TButton
+      Left = 284
+      Height = 30
+      Top = 7
+      Width = 80
+      Caption = '&Convert'
+      Default = True
+      ModalResult = 1
+      TabOrder = 0
+    end
+    object BtnClose: TButton
+      Left = 372
+      Height = 30
+      Top = 7
+      Width = 80
+      Cancel = True
+      Caption = '&Cancel'
+      ModalResult = 2
+      TabOrder = 1
+    end
+  end
 end

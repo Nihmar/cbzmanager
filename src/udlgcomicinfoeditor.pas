@@ -6,90 +6,114 @@ interface
 
 uses
   Classes, SysUtils, StrUtils, Forms, Controls, Graphics, Dialogs, StdCtrls,
-  ExtCtrls, ComCtrls, Spin, ucomicinfo, udlgbase;
+  ExtCtrls, ComCtrls, Spin, ucomicinfo;
 
 type
   TdlgComicInfoEditor = class(TForm)
-    procedure FormCreate(Sender: TObject);
-  private
+    { Wired from the .lfm — controls and event handlers must be published
+      for RTTI lookup. }
     Pages: TPageControl;
     PanelBottom: TPanel;
-    BtnSave: TButton;
-    BtnRemove: TButton;
-    BtnCancel: TButton;
     CbBackup: TCheckBox;
-    LblHeader: TLabel;
-
-    { General tab }
+    BtnRemove: TButton;
+    BtnSave: TButton;
+    BtnCancel: TButton;
+    TabGeneral: TTabSheet;
+    ScrollGeneral: TScrollBox;
+    LblSeries: TLabel;
     EdSeries: TEdit;
+    LblNumber: TLabel;
     EdNumber: TEdit;
+    LblTitle: TLabel;
     EdTitle: TEdit;
+    LblVolume: TLabel;
     SpVolume: TSpinEdit;
+    LblCount: TLabel;
     SpCount: TSpinEdit;
+    LblAltSeries: TLabel;
     EdAltSeries: TEdit;
+    LblAltNumber: TLabel;
     EdAltNumber: TEdit;
+    LblAltCount: TLabel;
     SpAltCount: TSpinEdit;
+    LblFormat: TLabel;
     EdFormat: TEdit;
+    LblPageCount: TLabel;
     SpPageCount: TSpinEdit;
-
-    { Story tab }
+    TabStory: TTabSheet;
+    ScrollStory: TScrollBox;
+    LblSummary: TLabel;
     MemoSummary: TMemo;
+    LblNotes: TLabel;
     MemoNotes: TMemo;
+    LblGenre: TLabel;
     EdGenre: TEdit;
+    LblTags: TLabel;
     EdTags: TEdit;
+    LblStoryArc: TLabel;
     EdStoryArc: TEdit;
+    LblStoryArcNumber: TLabel;
     EdStoryArcNumber: TEdit;
+    LblSeriesGroup: TLabel;
     EdSeriesGroup: TEdit;
+    LblCharacters: TLabel;
     EdCharacters: TEdit;
+    LblTeams: TLabel;
     EdTeams: TEdit;
+    LblLocations: TLabel;
     EdLocations: TEdit;
-
-    { Credits tab }
+    TabCredits: TTabSheet;
+    ScrollCredits: TScrollBox;
+    LblWriter: TLabel;
     EdWriter: TEdit;
+    LblPenciller: TLabel;
     EdPenciller: TEdit;
+    LblInker: TLabel;
     EdInker: TEdit;
+    LblColorist: TLabel;
     EdColorist: TEdit;
+    LblLetterer: TLabel;
     EdLetterer: TEdit;
+    LblCoverArtist: TLabel;
     EdCoverArtist: TEdit;
+    LblEditor: TLabel;
     EdEditor: TEdit;
-
-    { Publishing tab }
+    TabPublishing: TTabSheet;
+    ScrollPublishing: TScrollBox;
+    LblPublisher: TLabel;
     EdPublisher: TEdit;
+    LblImprint: TLabel;
     EdImprint: TEdit;
+    LblYear: TLabel;
     SpYear: TSpinEdit;
+    LblMonth: TLabel;
     SpMonth: TSpinEdit;
+    LblDay: TLabel;
     SpDay: TSpinEdit;
+    LblWeb: TLabel;
     EdWeb: TEdit;
+    LblLanguageISO: TLabel;
     EdLanguageISO: TEdit;
+    LblManga: TLabel;
     CbManga: TComboBox;
+    LblBlackAndWhite: TLabel;
     CbBlackAndWhite: TComboBox;
+    LblAgeRating: TLabel;
     CbAgeRating: TComboBox;
+    LblScanInfo: TLabel;
     EdScanInfo: TEdit;
+    LblCommunityRating: TLabel;
     SpCommunityRating: TFloatSpinEdit;
-
+    procedure BtnRemoveClick(Sender: TObject);
+  private
     FData: TComicInfo;
     FFilePath: string;
     FFileName: string;
     FExistingLoaded: boolean;
     FRemoved: boolean;
-    procedure BtnRemoveClick(Sender: TObject);
     function GetBackup: boolean;
-
-    procedure BuildGeneralTab(ATab: TTabSheet);
-    procedure BuildStoryTab(ATab: TTabSheet);
-    procedure BuildCreditsTab(ATab: TTabSheet);
-    procedure BuildPublishingTab(ATab: TTabSheet);
     procedure DataToUI;
     procedure UIToData;
-    function AddRow(AParent: TWinControl; ATop: integer;
-      const ACaption: string; AHighlight: boolean): TLabel;
-    function AddEdit(AParent: TWinControl; ALeft, ATop, AWidth: integer): TEdit;
-    function AddSpin(AParent: TWinControl; ALeft, ATop, AWidth, AMin,
-      AMax: integer): TSpinEdit;
-    function AddCombo(AParent: TWinControl; ALeft, ATop, AWidth: integer;
-      const AItems: array of string): TComboBox;
-    function AddMemo(AParent: TWinControl; ALeft, ATop, AWidth,
-      AHeight: integer): TMemo;
   public
     procedure LoadFile(const AFilePath, AFileName: string;
       const ASeriesName: string; APageCount: integer);
@@ -105,344 +129,6 @@ implementation
 
 uses
   uzipcore, uLog;
-
-const
-  LBL_LEFT = 12;
-  ED_LEFT = 140;
-  ED_WIDTH = 390;
-  ED_HALF = 100;
-  ROW_H = 28;
-
-procedure TdlgComicInfoEditor.FormCreate(Sender: TObject);
-var
-  Tab: TTabSheet;
-begin
-  PanelBottom := CreateBottomPanel(Self, 44);
-
-  CbBackup := TCheckBox.Create(Self);
-  CbBackup.Parent := PanelBottom;
-  CbBackup.Left := 12;
-  CbBackup.Top := 10;
-  CbBackup.Width := 200;
-  CbBackup.Caption := 'Backup before saving';
-  CbBackup.Checked := True;
-
-  BtnRemove := CreateDialogButton(PanelBottom, '&Remove', 272, 7, mrNone,
-    False, False);
-  BtnRemove.Enabled := False;
-  BtnRemove.OnClick := @BtnRemoveClick;
-
-  BtnSave := CreateDialogButton(PanelBottom, '&Save', 368, 7, mrOK, True, False);
-  BtnCancel := CreateDialogButton(PanelBottom, '&Cancel', 456, 7, mrCancel,
-    False, True);
-
-  Pages := TPageControl.Create(Self);
-  Pages.Parent := Self;
-  Pages.Align := alClient;
-
-  Tab := TTabSheet.Create(Pages);
-  Tab.PageControl := Pages;
-  Tab.Caption := 'General';
-  BuildGeneralTab(Tab);
-
-  Tab := TTabSheet.Create(Pages);
-  Tab.PageControl := Pages;
-  Tab.Caption := 'Story';
-  BuildStoryTab(Tab);
-
-  Tab := TTabSheet.Create(Pages);
-  Tab.PageControl := Pages;
-  Tab.Caption := 'Credits';
-  BuildCreditsTab(Tab);
-
-  Tab := TTabSheet.Create(Pages);
-  Tab.PageControl := Pages;
-  Tab.Caption := 'Publishing';
-  BuildPublishingTab(Tab);
-end;
-
-function TdlgComicInfoEditor.AddRow(AParent: TWinControl; ATop: integer;
-  const ACaption: string; AHighlight: boolean): TLabel;
-begin
-  Result := TLabel.Create(Self);
-  Result.Parent := AParent;
-  Result.Left := LBL_LEFT;
-  Result.Top := ATop + 3;
-  Result.Caption := ACaption;
-  if AHighlight then
-    Result.Font.Style := [fsBold];
-end;
-
-function TdlgComicInfoEditor.AddEdit(AParent: TWinControl;
-  ALeft, ATop, AWidth: integer): TEdit;
-begin
-  Result := TEdit.Create(Self);
-  Result.Parent := AParent;
-  Result.Left := ALeft;
-  Result.Top := ATop;
-  Result.Width := AWidth;
-end;
-
-function TdlgComicInfoEditor.AddSpin(AParent: TWinControl;
-  ALeft, ATop, AWidth, AMin, AMax: integer): TSpinEdit;
-begin
-  Result := TSpinEdit.Create(Self);
-  Result.Parent := AParent;
-  Result.Left := ALeft;
-  Result.Top := ATop;
-  Result.Width := AWidth;
-  Result.MinValue := AMin;
-  Result.MaxValue := AMax;
-  Result.Value := 0;
-end;
-
-function TdlgComicInfoEditor.AddCombo(AParent: TWinControl;
-  ALeft, ATop, AWidth: integer;
-  const AItems: array of string): TComboBox;
-var
-  i: integer;
-begin
-  Result := TComboBox.Create(Self);
-  Result.Parent := AParent;
-  Result.Left := ALeft;
-  Result.Top := ATop;
-  Result.Width := AWidth;
-  Result.Style := csDropDownList;
-  for i := 0 to High(AItems) do
-    Result.Items.Add(AItems[i]);
-  Result.ItemIndex := 0;
-end;
-
-function TdlgComicInfoEditor.AddMemo(AParent: TWinControl;
-  ALeft, ATop, AWidth, AHeight: integer): TMemo;
-begin
-  Result := TMemo.Create(Self);
-  Result.Parent := AParent;
-  Result.Left := ALeft;
-  Result.Top := ATop;
-  Result.Width := AWidth;
-  Result.Height := AHeight;
-  Result.ScrollBars := ssVertical;
-  Result.WordWrap := True;
-end;
-
-procedure TdlgComicInfoEditor.BuildGeneralTab(ATab: TTabSheet);
-var
-  Y: integer;
-  Scroll: TScrollBox;
-begin
-  Scroll := TScrollBox.Create(Self);
-  Scroll.Parent := ATab;
-  Scroll.Align := alClient;
-  Scroll.BorderStyle := bsNone;
-  Scroll.HorzScrollBar.Visible := False;
-
-  Y := 12;
-  AddRow(Scroll, Y, 'Series', True);
-  EdSeries := AddEdit(Scroll, ED_LEFT, Y, ED_WIDTH);
-  Inc(Y, ROW_H);
-
-  AddRow(Scroll, Y, 'Number', True);
-  EdNumber := AddEdit(Scroll, ED_LEFT, Y, ED_HALF);
-  Inc(Y, ROW_H);
-
-  AddRow(Scroll, Y, 'Title', False);
-  EdTitle := AddEdit(Scroll, ED_LEFT, Y, ED_WIDTH);
-  Inc(Y, ROW_H);
-
-  AddRow(Scroll, Y, 'Volume', False);
-  SpVolume := AddSpin(Scroll, ED_LEFT, Y, ED_HALF, 0, 9999);
-  Inc(Y, ROW_H);
-
-  AddRow(Scroll, Y, 'Count', False);
-  SpCount := AddSpin(Scroll, ED_LEFT, Y, ED_HALF, 0, 9999);
-  Inc(Y, ROW_H);
-
-  AddRow(Scroll, Y, 'Alternate series', False);
-  EdAltSeries := AddEdit(Scroll, ED_LEFT, Y, ED_WIDTH);
-  Inc(Y, ROW_H);
-
-  AddRow(Scroll, Y, 'Alternate number', False);
-  EdAltNumber := AddEdit(Scroll, ED_LEFT, Y, ED_HALF);
-  Inc(Y, ROW_H);
-
-  AddRow(Scroll, Y, 'Alternate count', False);
-  SpAltCount := AddSpin(Scroll, ED_LEFT, Y, ED_HALF, 0, 9999);
-  Inc(Y, ROW_H);
-
-  AddRow(Scroll, Y, 'Format', False);
-  EdFormat := AddEdit(Scroll, ED_LEFT, Y, ED_WIDTH);
-  Inc(Y, ROW_H);
-
-  AddRow(Scroll, Y, 'Page count', True);
-  SpPageCount := AddSpin(Scroll, ED_LEFT, Y, ED_HALF, 0, 99999);
-end;
-
-procedure TdlgComicInfoEditor.BuildStoryTab(ATab: TTabSheet);
-var
-  Y: integer;
-  Scroll: TScrollBox;
-begin
-  Scroll := TScrollBox.Create(Self);
-  Scroll.Parent := ATab;
-  Scroll.Align := alClient;
-  Scroll.BorderStyle := bsNone;
-  Scroll.HorzScrollBar.Visible := False;
-
-  Y := 12;
-  AddRow(Scroll, Y, 'Summary', True);
-  MemoSummary := AddMemo(Scroll, ED_LEFT, Y, ED_WIDTH, 80);
-  Inc(Y, 88);
-
-  AddRow(Scroll, Y, 'Notes', False);
-  MemoNotes := AddMemo(Scroll, ED_LEFT, Y, ED_WIDTH, 60);
-  Inc(Y, 68);
-
-  AddRow(Scroll, Y, 'Genre', False);
-  EdGenre := AddEdit(Scroll, ED_LEFT, Y, ED_WIDTH);
-  Inc(Y, ROW_H);
-
-  AddRow(Scroll, Y, 'Tags', False);
-  EdTags := AddEdit(Scroll, ED_LEFT, Y, ED_WIDTH);
-  Inc(Y, ROW_H);
-
-  AddRow(Scroll, Y, 'Story arc', False);
-  EdStoryArc := AddEdit(Scroll, ED_LEFT, Y, ED_WIDTH);
-  Inc(Y, ROW_H);
-
-  AddRow(Scroll, Y, 'Story arc number', False);
-  EdStoryArcNumber := AddEdit(Scroll, ED_LEFT, Y, ED_HALF);
-  Inc(Y, ROW_H);
-
-  AddRow(Scroll, Y, 'Series group', False);
-  EdSeriesGroup := AddEdit(Scroll, ED_LEFT, Y, ED_WIDTH);
-  Inc(Y, ROW_H);
-
-  AddRow(Scroll, Y, 'Characters', False);
-  EdCharacters := AddEdit(Scroll, ED_LEFT, Y, ED_WIDTH);
-  Inc(Y, ROW_H);
-
-  AddRow(Scroll, Y, 'Teams', False);
-  EdTeams := AddEdit(Scroll, ED_LEFT, Y, ED_WIDTH);
-  Inc(Y, ROW_H);
-
-  AddRow(Scroll, Y, 'Locations', False);
-  EdLocations := AddEdit(Scroll, ED_LEFT, Y, ED_WIDTH);
-end;
-
-procedure TdlgComicInfoEditor.BuildCreditsTab(ATab: TTabSheet);
-var
-  Y: integer;
-  Scroll: TScrollBox;
-begin
-  Scroll := TScrollBox.Create(Self);
-  Scroll.Parent := ATab;
-  Scroll.Align := alClient;
-  Scroll.BorderStyle := bsNone;
-  Scroll.HorzScrollBar.Visible := False;
-
-  Y := 12;
-  AddRow(Scroll, Y, 'Writer', True);
-  EdWriter := AddEdit(Scroll, ED_LEFT, Y, ED_WIDTH);
-  Inc(Y, ROW_H);
-
-  AddRow(Scroll, Y, 'Penciller', False);
-  EdPenciller := AddEdit(Scroll, ED_LEFT, Y, ED_WIDTH);
-  Inc(Y, ROW_H);
-
-  AddRow(Scroll, Y, 'Inker', False);
-  EdInker := AddEdit(Scroll, ED_LEFT, Y, ED_WIDTH);
-  Inc(Y, ROW_H);
-
-  AddRow(Scroll, Y, 'Colorist', False);
-  EdColorist := AddEdit(Scroll, ED_LEFT, Y, ED_WIDTH);
-  Inc(Y, ROW_H);
-
-  AddRow(Scroll, Y, 'Letterer', False);
-  EdLetterer := AddEdit(Scroll, ED_LEFT, Y, ED_WIDTH);
-  Inc(Y, ROW_H);
-
-  AddRow(Scroll, Y, 'Cover artist', False);
-  EdCoverArtist := AddEdit(Scroll, ED_LEFT, Y, ED_WIDTH);
-  Inc(Y, ROW_H);
-
-  AddRow(Scroll, Y, 'Editor', False);
-  EdEditor := AddEdit(Scroll, ED_LEFT, Y, ED_WIDTH);
-end;
-
-procedure TdlgComicInfoEditor.BuildPublishingTab(ATab: TTabSheet);
-var
-  Y: integer;
-  Scroll: TScrollBox;
-begin
-  Scroll := TScrollBox.Create(Self);
-  Scroll.Parent := ATab;
-  Scroll.Align := alClient;
-  Scroll.BorderStyle := bsNone;
-  Scroll.HorzScrollBar.Visible := False;
-
-  Y := 12;
-  AddRow(Scroll, Y, 'Publisher', True);
-  EdPublisher := AddEdit(Scroll, ED_LEFT, Y, ED_WIDTH);
-  Inc(Y, ROW_H);
-
-  AddRow(Scroll, Y, 'Imprint', False);
-  EdImprint := AddEdit(Scroll, ED_LEFT, Y, ED_WIDTH);
-  Inc(Y, ROW_H);
-
-  AddRow(Scroll, Y, 'Year', True);
-  SpYear := AddSpin(Scroll, ED_LEFT, Y, ED_HALF, 0, 2100);
-  Inc(Y, ROW_H);
-
-  AddRow(Scroll, Y, 'Month', False);
-  SpMonth := AddSpin(Scroll, ED_LEFT, Y, ED_HALF, 0, 12);
-  Inc(Y, ROW_H);
-
-  AddRow(Scroll, Y, 'Day', False);
-  SpDay := AddSpin(Scroll, ED_LEFT, Y, ED_HALF, 0, 31);
-  Inc(Y, ROW_H);
-
-  AddRow(Scroll, Y, 'Web', False);
-  EdWeb := AddEdit(Scroll, ED_LEFT, Y, ED_WIDTH);
-  Inc(Y, ROW_H);
-
-  AddRow(Scroll, Y, 'Language (ISO)', True);
-  EdLanguageISO := AddEdit(Scroll, ED_LEFT, Y, ED_HALF);
-  Inc(Y, ROW_H);
-
-  AddRow(Scroll, Y, 'Manga', True);
-  CbManga := AddCombo(Scroll, ED_LEFT, Y, 180,
-    ['', 'Unknown', 'Yes', 'No', 'YesAndRightToLeft']);
-  Inc(Y, ROW_H);
-
-  AddRow(Scroll, Y, 'Black and white', False);
-  CbBlackAndWhite := AddCombo(Scroll, ED_LEFT, Y, 180,
-    ['', 'Unknown', 'Yes', 'No']);
-  Inc(Y, ROW_H);
-
-  AddRow(Scroll, Y, 'Age rating', False);
-  CbAgeRating := AddCombo(Scroll, ED_LEFT, Y, 220,
-    ['', 'Unknown', 'Adults Only 18+', 'Early Childhood', 'Everyone',
-     'Everyone 10+', 'G', 'Kids to Adults', 'M', 'MA15+', 'Mature 17+',
-     'PG', 'R18+', 'Rating Pending', 'Teen', 'X18+']);
-  Inc(Y, ROW_H);
-
-  AddRow(Scroll, Y, 'Scan information', False);
-  EdScanInfo := AddEdit(Scroll, ED_LEFT, Y, ED_WIDTH);
-  Inc(Y, ROW_H);
-
-  AddRow(Scroll, Y, 'Community rating', False);
-  SpCommunityRating := TFloatSpinEdit.Create(Self);
-  SpCommunityRating.Parent := Scroll;
-  SpCommunityRating.Left := ED_LEFT;
-  SpCommunityRating.Top := Y;
-  SpCommunityRating.Width := ED_HALF;
-  SpCommunityRating.MinValue := 0;
-  SpCommunityRating.MaxValue := 5;
-  SpCommunityRating.DecimalPlaces := 1;
-  SpCommunityRating.Increment := 0.5;
-  SpCommunityRating.Value := 0;
-end;
 
 procedure TdlgComicInfoEditor.DataToUI;
 

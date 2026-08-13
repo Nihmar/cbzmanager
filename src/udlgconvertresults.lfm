@@ -8,7 +8,6 @@ object dlgConvertResults: TdlgConvertResults
   ClientWidth = 750
   Position = poOwnerFormCenter
   LCLVersion = '4.8.0.0'
-  OnCreate = FormCreate
   object PanelBottom: TPanel
     Left = 0
     Height = 64
@@ -53,7 +52,35 @@ object dlgConvertResults: TdlgConvertResults
     Width = 742
     Align = alClient
     BorderSpacing.Around = 4
-    Columns = <>
+    Columns = <
+      item
+        Caption = 'File'
+        Width = 220
+      end
+      item
+        Caption = 'Status'
+        Width = 100
+      end
+      item
+        Caption = 'Original'
+        Width = 90
+        Alignment = taRightJustify
+      end
+      item
+        Caption = 'New'
+        Width = 90
+        Alignment = taRightJustify
+      end
+      item
+        Caption = 'Saved'
+        Width = 90
+        Alignment = taRightJustify
+      end
+      item
+        Caption = 'Note'
+        AutoSize = True
+      end
+    >
     GridLines = True
     ReadOnly = True
     RowSelect = True

@@ -200,6 +200,27 @@
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
       </Unit>
+      <Unit>
+        <Filename Value="src\udlgvalidate.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="dlgValidate"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\udlgvalidateopts.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="dlgValidateOpts"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\udlgwebp.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="dlgWebp"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+      </Unit>
     </Units>
   </ProjectOptions>
   <CompilerOptions>

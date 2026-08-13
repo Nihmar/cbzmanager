@@ -1,69 +1,51 @@
-inherited dlgCbr: TdlgCbr
+inherited dlgValidateOpts: TdlgValidateOpts
   Left = 400
-  Height = 200
+  Height = 150
   Top = 200
   Width = 460
-  Caption = 'Convert CBR to CBZ'
-  ClientHeight = 200
+  Caption = 'Validate CBZ files'
+  ClientHeight = 150
   ClientWidth = 460
   Position = poOwnerFormCenter
   OnCreate = FormCreate
-  object CbSkipExisting: TCheckBox
-    Left = 12
-    Height = 22
-    Top = 12
-    Width = 436
-    Caption = 'Skip files whose .cbz target already exists'
-    Checked = True
-    State = cbChecked
-    TabOrder = 0
-  end
-  object CbDeleteSource: TCheckBox
-    Left = 12
-    Height = 22
-    Top = 40
-    Width = 436
-    Caption = 'Delete the .cbr source after conversion'
-    TabOrder = 1
-  end
   object LblThreads: TLabel
     Left = 12
     Height = 17
-    Top = 76
-    Width = 120
-    Caption = 'Parallel threads'
+    Top = 36
+    Width = 200
+    Caption = 'Parallel decode threads'
   end
   object SpinThreads: TSpinEdit
     Left = 328
     Height = 28
-    Top = 72
+    Top = 32
     Width = 120
     MaxValue = 32
     MinValue = 0
-    TabOrder = 2
+    TabOrder = 0
     Value = 0
   end
   object PanelBottom: TPanel
     Left = 0
     Height = 44
-    Top = 156
+    Top = 106
     Width = 460
     Align = alBottom
     BevelOuter = bvNone
     ClientHeight = 44
     ClientWidth = 460
-    TabOrder = 3
-    object BtnConvert: TButton
+    TabOrder = 1
+    object BtnValidate: TButton
       Left = 284
       Height = 30
       Top = 7
       Width = 80
-      Caption = '&Convert'
+      Caption = '&Validate'
       Default = True
       ModalResult = 1
       TabOrder = 0
     end
-    object BtnClose: TButton
+    object BtnCancel: TButton
       Left = 372
       Height = 30
       Top = 7

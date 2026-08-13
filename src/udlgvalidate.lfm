@@ -4,7 +4,61 @@ object dlgValidate: TdlgValidate
   Top = 150
   Width = 640
   Caption = 'Validation results'
+  ClientHeight = 420
+  ClientWidth = 640
   Position = poOwnerFormCenter
-  LCLVersion = '4.8.0.0'
-  OnCreate = FormCreate
+  object PanelBottom: TPanel
+    Left = 0
+    Height = 44
+    Top = 376
+    Width = 640
+    Align = alBottom
+    BevelOuter = bvNone
+    ClientHeight = 44
+    ClientWidth = 640
+    TabOrder = 0
+    object BtnClose: TButton
+      Left = 552
+      Height = 30
+      Top = 7
+      Width = 80
+      Anchors = [akTop, akRight]
+      Cancel = True
+      Caption = 'Close'
+      Default = True
+      ModalResult = 1
+      TabOrder = 0
+    end
+  end
+  object LVResult: TListView
+    Left = 8
+    Height = 368
+    Top = 8
+    Width = 624
+    Align = alClient
+    BorderSpacing.Around = 8
+    Columns = <
+      item
+        Caption = 'File'
+        AutoSize = True
+      end
+      item
+        Caption = 'Result'
+        Width = 80
+      end
+      item
+        Caption = 'Images'
+        Width = 80
+      end
+      item
+        Caption = 'Note'
+        AutoSize = True
+      end
+    >
+    GridLines = True
+    ReadOnly = True
+    RowSelect = True
+    TabOrder = 1
+    ViewStyle = vsReport
+  end
 end

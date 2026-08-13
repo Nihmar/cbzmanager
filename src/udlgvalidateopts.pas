@@ -16,10 +16,14 @@ uses
 
 type
   TdlgValidateOpts = class(TSettingsDialog)
-    procedure FormCreate(Sender: TObject);
-  private
+    { Wired from the .lfm — controls must be published for RTTI lookup. }
+    LblThreads: TLabel;
     SpinThreads: TSpinEdit;
     PanelBottom: TPanel;
+    BtnValidate: TButton;
+    BtnCancel: TButton;
+    procedure FormCreate(Sender: TObject);
+  private
     procedure LoadSettings; override;
     procedure SaveSettings; override;
     function GetThreads: integer;
@@ -29,35 +33,10 @@ type
 
 implementation
 
+{$R *.lfm}
+
 procedure TdlgValidateOpts.FormCreate(Sender: TObject);
 begin
-  Caption := 'Validate CBZ files';
-  ClientWidth := 460;
-  ClientHeight := 150;
-
-  { 0 = automatic (one worker per CPU core, capped at 8); 1 = sequential. }
-  with TLabel.Create(Self) do
-  begin
-    Parent := Self;
-    Left := 12;
-    Top := 36;
-    Width := 200;
-    Caption := 'Parallel decode threads';
-  end;
-  SpinThreads := TSpinEdit.Create(Self);
-  SpinThreads.Parent := Self;
-  SpinThreads.Left := 328;
-  SpinThreads.Top := 32;
-  SpinThreads.Width := 120;
-  SpinThreads.MinValue := 0;
-  SpinThreads.MaxValue := 32;
-  SpinThreads.Value := 0;
-
-  PanelBottom := CreateBottomPanel(Self, 44);
-
-  CreateDialogButton(PanelBottom, '&Validate', 284, 7, mrOK, True, False);
-  CreateDialogButton(PanelBottom, '&Cancel', 372, 7, mrCancel, False, True);
-
   InitSettingsPersistence;
 end;
 

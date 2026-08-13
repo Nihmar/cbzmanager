@@ -4,7 +4,746 @@ object dlgComicInfoEditor: TdlgComicInfoEditor
   Top = 80
   Width = 560
   Caption = 'Edit ComicInfo.xml'
+  ClientHeight = 520
+  ClientWidth = 560
   Position = poOwnerFormCenter
-  LCLVersion = '4.8.0.0'
-  OnCreate = FormCreate
+  object PanelBottom: TPanel
+    Left = 0
+    Height = 44
+    Top = 476
+    Width = 560
+    Align = alBottom
+    BevelOuter = bvNone
+    ClientHeight = 44
+    ClientWidth = 560
+    TabOrder = 0
+    object CbBackup: TCheckBox
+      Left = 12
+      Height = 22
+      Top = 10
+      Width = 200
+      Caption = 'Backup before saving'
+      Checked = True
+      State = cbChecked
+      TabOrder = 0
+    end
+    object BtnRemove: TButton
+      Left = 272
+      Height = 30
+      Top = 7
+      Width = 80
+      Caption = '&Remove'
+      Enabled = False
+      TabOrder = 1
+      OnClick = BtnRemoveClick
+    end
+    object BtnSave: TButton
+      Left = 368
+      Height = 30
+      Top = 7
+      Width = 80
+      Caption = '&Save'
+      Default = True
+      ModalResult = 1
+      TabOrder = 2
+    end
+    object BtnCancel: TButton
+      Left = 456
+      Height = 30
+      Top = 7
+      Width = 80
+      Cancel = True
+      Caption = '&Cancel'
+      ModalResult = 2
+      TabOrder = 3
+    end
+  end
+  object Pages: TPageControl
+    Left = 0
+    Height = 476
+    Top = 0
+    Width = 560
+    Align = alClient
+    TabOrder = 1
+    object TabGeneral: TTabSheet
+      Caption = 'General'
+      PageIndex = 0
+      object ScrollGeneral: TScrollBox
+        Left = 0
+        Height = 448
+        Top = 0
+        Width = 560
+        Align = alClient
+        BorderStyle = bsNone
+        HorzScrollBar.Visible = False
+        object LblSeries: TLabel
+          Left = 12
+          Height = 17
+          Top = 15
+          Width = 120
+          Caption = 'Series'
+          Font.Style = [fsBold]
+          ParentFont = False
+        end
+        object EdSeries: TEdit
+          Left = 140
+          Height = 28
+          Top = 12
+          Width = 390
+          TabOrder = 0
+        end
+        object LblNumber: TLabel
+          Left = 12
+          Height = 17
+          Top = 43
+          Width = 120
+          Caption = 'Number'
+          Font.Style = [fsBold]
+          ParentFont = False
+        end
+        object EdNumber: TEdit
+          Left = 140
+          Height = 28
+          Top = 40
+          Width = 100
+          TabOrder = 1
+        end
+        object LblTitle: TLabel
+          Left = 12
+          Height = 17
+          Top = 71
+          Width = 120
+          Caption = 'Title'
+        end
+        object EdTitle: TEdit
+          Left = 140
+          Height = 28
+          Top = 68
+          Width = 390
+          TabOrder = 2
+        end
+        object LblVolume: TLabel
+          Left = 12
+          Height = 17
+          Top = 99
+          Width = 120
+          Caption = 'Volume'
+        end
+        object SpVolume: TSpinEdit
+          Left = 140
+          Height = 28
+          Top = 96
+          Width = 100
+          MaxValue = 9999
+          MinValue = 0
+          TabOrder = 3
+          Value = 0
+        end
+        object LblCount: TLabel
+          Left = 12
+          Height = 17
+          Top = 127
+          Width = 120
+          Caption = 'Count'
+        end
+        object SpCount: TSpinEdit
+          Left = 140
+          Height = 28
+          Top = 124
+          Width = 100
+          MaxValue = 9999
+          MinValue = 0
+          TabOrder = 4
+          Value = 0
+        end
+        object LblAltSeries: TLabel
+          Left = 12
+          Height = 17
+          Top = 155
+          Width = 120
+          Caption = 'Alternate series'
+        end
+        object EdAltSeries: TEdit
+          Left = 140
+          Height = 28
+          Top = 152
+          Width = 390
+          TabOrder = 5
+        end
+        object LblAltNumber: TLabel
+          Left = 12
+          Height = 17
+          Top = 183
+          Width = 120
+          Caption = 'Alternate number'
+        end
+        object EdAltNumber: TEdit
+          Left = 140
+          Height = 28
+          Top = 180
+          Width = 100
+          TabOrder = 6
+        end
+        object LblAltCount: TLabel
+          Left = 12
+          Height = 17
+          Top = 211
+          Width = 120
+          Caption = 'Alternate count'
+        end
+        object SpAltCount: TSpinEdit
+          Left = 140
+          Height = 28
+          Top = 208
+          Width = 100
+          MaxValue = 9999
+          MinValue = 0
+          TabOrder = 7
+          Value = 0
+        end
+        object LblFormat: TLabel
+          Left = 12
+          Height = 17
+          Top = 239
+          Width = 120
+          Caption = 'Format'
+        end
+        object EdFormat: TEdit
+          Left = 140
+          Height = 28
+          Top = 236
+          Width = 390
+          TabOrder = 8
+        end
+        object LblPageCount: TLabel
+          Left = 12
+          Height = 17
+          Top = 267
+          Width = 120
+          Caption = 'Page count'
+          Font.Style = [fsBold]
+          ParentFont = False
+        end
+        object SpPageCount: TSpinEdit
+          Left = 140
+          Height = 28
+          Top = 264
+          Width = 100
+          MaxValue = 99999
+          MinValue = 0
+          TabOrder = 9
+          Value = 0
+        end
+      end
+    end
+    object TabStory: TTabSheet
+      Caption = 'Story'
+      PageIndex = 1
+      object ScrollStory: TScrollBox
+        Left = 0
+        Height = 448
+        Top = 0
+        Width = 560
+        Align = alClient
+        BorderStyle = bsNone
+        HorzScrollBar.Visible = False
+        object LblSummary: TLabel
+          Left = 12
+          Height = 17
+          Top = 15
+          Width = 120
+          Caption = 'Summary'
+          Font.Style = [fsBold]
+          ParentFont = False
+        end
+        object MemoSummary: TMemo
+          Left = 140
+          Height = 80
+          Top = 12
+          Width = 390
+          ScrollBars = ssVertical
+          TabOrder = 0
+          WordWrap = True
+        end
+        object LblNotes: TLabel
+          Left = 12
+          Height = 17
+          Top = 103
+          Width = 120
+          Caption = 'Notes'
+        end
+        object MemoNotes: TMemo
+          Left = 140
+          Height = 60
+          Top = 100
+          Width = 390
+          ScrollBars = ssVertical
+          TabOrder = 1
+          WordWrap = True
+        end
+        object LblGenre: TLabel
+          Left = 12
+          Height = 17
+          Top = 171
+          Width = 120
+          Caption = 'Genre'
+        end
+        object EdGenre: TEdit
+          Left = 140
+          Height = 28
+          Top = 168
+          Width = 390
+          TabOrder = 2
+        end
+        object LblTags: TLabel
+          Left = 12
+          Height = 17
+          Top = 199
+          Width = 120
+          Caption = 'Tags'
+        end
+        object EdTags: TEdit
+          Left = 140
+          Height = 28
+          Top = 196
+          Width = 390
+          TabOrder = 3
+        end
+        object LblStoryArc: TLabel
+          Left = 12
+          Height = 17
+          Top = 227
+          Width = 120
+          Caption = 'Story arc'
+        end
+        object EdStoryArc: TEdit
+          Left = 140
+          Height = 28
+          Top = 224
+          Width = 390
+          TabOrder = 4
+        end
+        object LblStoryArcNumber: TLabel
+          Left = 12
+          Height = 17
+          Top = 255
+          Width = 120
+          Caption = 'Story arc number'
+        end
+        object EdStoryArcNumber: TEdit
+          Left = 140
+          Height = 28
+          Top = 252
+          Width = 100
+          TabOrder = 5
+        end
+        object LblSeriesGroup: TLabel
+          Left = 12
+          Height = 17
+          Top = 283
+          Width = 120
+          Caption = 'Series group'
+        end
+        object EdSeriesGroup: TEdit
+          Left = 140
+          Height = 28
+          Top = 280
+          Width = 390
+          TabOrder = 6
+        end
+        object LblCharacters: TLabel
+          Left = 12
+          Height = 17
+          Top = 311
+          Width = 120
+          Caption = 'Characters'
+        end
+        object EdCharacters: TEdit
+          Left = 140
+          Height = 28
+          Top = 308
+          Width = 390
+          TabOrder = 7
+        end
+        object LblTeams: TLabel
+          Left = 12
+          Height = 17
+          Top = 339
+          Width = 120
+          Caption = 'Teams'
+        end
+        object EdTeams: TEdit
+          Left = 140
+          Height = 28
+          Top = 336
+          Width = 390
+          TabOrder = 8
+        end
+        object LblLocations: TLabel
+          Left = 12
+          Height = 17
+          Top = 367
+          Width = 120
+          Caption = 'Locations'
+        end
+        object EdLocations: TEdit
+          Left = 140
+          Height = 28
+          Top = 364
+          Width = 390
+          TabOrder = 9
+        end
+      end
+    end
+    object TabCredits: TTabSheet
+      Caption = 'Credits'
+      PageIndex = 2
+      object ScrollCredits: TScrollBox
+        Left = 0
+        Height = 448
+        Top = 0
+        Width = 560
+        Align = alClient
+        BorderStyle = bsNone
+        HorzScrollBar.Visible = False
+        object LblWriter: TLabel
+          Left = 12
+          Height = 17
+          Top = 15
+          Width = 120
+          Caption = 'Writer'
+          Font.Style = [fsBold]
+          ParentFont = False
+        end
+        object EdWriter: TEdit
+          Left = 140
+          Height = 28
+          Top = 12
+          Width = 390
+          TabOrder = 0
+        end
+        object LblPenciller: TLabel
+          Left = 12
+          Height = 17
+          Top = 43
+          Width = 120
+          Caption = 'Penciller'
+        end
+        object EdPenciller: TEdit
+          Left = 140
+          Height = 28
+          Top = 40
+          Width = 390
+          TabOrder = 1
+        end
+        object LblInker: TLabel
+          Left = 12
+          Height = 17
+          Top = 71
+          Width = 120
+          Caption = 'Inker'
+        end
+        object EdInker: TEdit
+          Left = 140
+          Height = 28
+          Top = 68
+          Width = 390
+          TabOrder = 2
+        end
+        object LblColorist: TLabel
+          Left = 12
+          Height = 17
+          Top = 99
+          Width = 120
+          Caption = 'Colorist'
+        end
+        object EdColorist: TEdit
+          Left = 140
+          Height = 28
+          Top = 96
+          Width = 390
+          TabOrder = 3
+        end
+        object LblLetterer: TLabel
+          Left = 12
+          Height = 17
+          Top = 127
+          Width = 120
+          Caption = 'Letterer'
+        end
+        object EdLetterer: TEdit
+          Left = 140
+          Height = 28
+          Top = 124
+          Width = 390
+          TabOrder = 4
+        end
+        object LblCoverArtist: TLabel
+          Left = 12
+          Height = 17
+          Top = 155
+          Width = 120
+          Caption = 'Cover artist'
+        end
+        object EdCoverArtist: TEdit
+          Left = 140
+          Height = 28
+          Top = 152
+          Width = 390
+          TabOrder = 5
+        end
+        object LblEditor: TLabel
+          Left = 12
+          Height = 17
+          Top = 183
+          Width = 120
+          Caption = 'Editor'
+        end
+        object EdEditor: TEdit
+          Left = 140
+          Height = 28
+          Top = 180
+          Width = 390
+          TabOrder = 6
+        end
+      end
+    end
+    object TabPublishing: TTabSheet
+      Caption = 'Publishing'
+      PageIndex = 3
+      object ScrollPublishing: TScrollBox
+        Left = 0
+        Height = 448
+        Top = 0
+        Width = 560
+        Align = alClient
+        BorderStyle = bsNone
+        HorzScrollBar.Visible = False
+        object LblPublisher: TLabel
+          Left = 12
+          Height = 17
+          Top = 15
+          Width = 120
+          Caption = 'Publisher'
+          Font.Style = [fsBold]
+          ParentFont = False
+        end
+        object EdPublisher: TEdit
+          Left = 140
+          Height = 28
+          Top = 12
+          Width = 390
+          TabOrder = 0
+        end
+        object LblImprint: TLabel
+          Left = 12
+          Height = 17
+          Top = 43
+          Width = 120
+          Caption = 'Imprint'
+        end
+        object EdImprint: TEdit
+          Left = 140
+          Height = 28
+          Top = 40
+          Width = 390
+          TabOrder = 1
+        end
+        object LblYear: TLabel
+          Left = 12
+          Height = 17
+          Top = 71
+          Width = 120
+          Caption = 'Year'
+          Font.Style = [fsBold]
+          ParentFont = False
+        end
+        object SpYear: TSpinEdit
+          Left = 140
+          Height = 28
+          Top = 68
+          Width = 100
+          MaxValue = 2100
+          MinValue = 0
+          TabOrder = 2
+          Value = 0
+        end
+        object LblMonth: TLabel
+          Left = 12
+          Height = 17
+          Top = 99
+          Width = 120
+          Caption = 'Month'
+        end
+        object SpMonth: TSpinEdit
+          Left = 140
+          Height = 28
+          Top = 96
+          Width = 100
+          MaxValue = 12
+          MinValue = 0
+          TabOrder = 3
+          Value = 0
+        end
+        object LblDay: TLabel
+          Left = 12
+          Height = 17
+          Top = 127
+          Width = 120
+          Caption = 'Day'
+        end
+        object SpDay: TSpinEdit
+          Left = 140
+          Height = 28
+          Top = 124
+          Width = 100
+          MaxValue = 31
+          MinValue = 0
+          TabOrder = 4
+          Value = 0
+        end
+        object LblWeb: TLabel
+          Left = 12
+          Height = 17
+          Top = 155
+          Width = 120
+          Caption = 'Web'
+        end
+        object EdWeb: TEdit
+          Left = 140
+          Height = 28
+          Top = 152
+          Width = 390
+          TabOrder = 5
+        end
+        object LblLanguageISO: TLabel
+          Left = 12
+          Height = 17
+          Top = 183
+          Width = 120
+          Caption = 'Language (ISO)'
+          Font.Style = [fsBold]
+          ParentFont = False
+        end
+        object EdLanguageISO: TEdit
+          Left = 140
+          Height = 28
+          Top = 180
+          Width = 100
+          TabOrder = 6
+        end
+        object LblManga: TLabel
+          Left = 12
+          Height = 17
+          Top = 211
+          Width = 120
+          Caption = 'Manga'
+          Font.Style = [fsBold]
+          ParentFont = False
+        end
+        object CbManga: TComboBox
+          Left = 140
+          Height = 28
+          Top = 208
+          Width = 180
+          ItemIndex = 0
+          Items.Strings = (
+            ''
+            'Unknown'
+            'Yes'
+            'No'
+            'YesAndRightToLeft')
+          Style = csDropDownList
+          TabOrder = 7
+        end
+        object LblBlackAndWhite: TLabel
+          Left = 12
+          Height = 17
+          Top = 239
+          Width = 120
+          Caption = 'Black and white'
+        end
+        object CbBlackAndWhite: TComboBox
+          Left = 140
+          Height = 28
+          Top = 236
+          Width = 180
+          ItemIndex = 0
+          Items.Strings = (
+            ''
+            'Unknown'
+            'Yes'
+            'No')
+          Style = csDropDownList
+          TabOrder = 8
+        end
+        object LblAgeRating: TLabel
+          Left = 12
+          Height = 17
+          Top = 267
+          Width = 120
+          Caption = 'Age rating'
+        end
+        object CbAgeRating: TComboBox
+          Left = 140
+          Height = 28
+          Top = 264
+          Width = 220
+          ItemIndex = 0
+          Items.Strings = (
+            ''
+            'Unknown'
+            'Adults Only 18+'
+            'Early Childhood'
+            'Everyone'
+            'Everyone 10+'
+            'G'
+            'Kids to Adults'
+            'M'
+            'MA15+'
+            'Mature 17+'
+            'PG'
+            'R18+'
+            'Rating Pending'
+            'Teen'
+            'X18+')
+          Style = csDropDownList
+          TabOrder = 9
+        end
+        object LblScanInfo: TLabel
+          Left = 12
+          Height = 17
+          Top = 295
+          Width = 120
+          Caption = 'Scan information'
+        end
+        object EdScanInfo: TEdit
+          Left = 140
+          Height = 28
+          Top = 292
+          Width = 390
+          TabOrder = 10
+        end
+        object LblCommunityRating: TLabel
+          Left = 12
+          Height = 17
+          Top = 323
+          Width = 120
+          Caption = 'Community rating'
+        end
+        object SpCommunityRating: TFloatSpinEdit
+          Left = 140
+          Height = 28
+          Top = 320
+          Width = 100
+          DecimalPlaces = 1
+          Increment = 0.5
+          MaxValue = 5
+          MinValue = 0
+          TabOrder = 11
+          Value = 0
+        end
+      end
+    end
+  end
 end

@@ -54,16 +54,7 @@ uses
 { TdlgComicInfo }
 
 procedure TdlgComicInfo.FormCreate(Sender: TObject);
-var
-  Col: TListColumn;
 begin
-  Col := LVFiles.Columns.Add;
-  Col.Caption := 'File';
-  Col.AutoSize := True;
-  Col := LVFiles.Columns.Add;
-  Col.Caption := 'ComicInfo.xml';
-  Col.Width := 120;
-
   LVFiles.Clear;
   InitSettingsPersistence;
 end;

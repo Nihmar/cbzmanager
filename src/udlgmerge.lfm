@@ -289,5 +289,32 @@ inherited dlgMerge: TdlgMerge
     BorderSpacing.Around = 2
     BevelOuter = bvNone
     TabOrder = 2
+    object LVFiles: TListView
+      Left = 8
+      Height = 474
+      Top = 8
+      Width = 340
+      Align = alClient
+      BorderSpacing.Around = 8
+      Columns = <
+        item
+          Caption = '#'
+          Width = 40
+        end
+        item
+          Caption = 'Chapter file'
+          AutoSize = True
+        end
+        item
+          Caption = 'Volume'
+          Width = 80
+        end
+      >
+      GridLines = True
+      ReadOnly = True
+      RowSelect = True
+      TabOrder = 0
+      ViewStyle = vsReport
+    end
   end
 end

@@ -89,7 +89,16 @@ inherited dlgComicInfo: TdlgComicInfo
     Align = alClient
     BorderSpacing.Around = 4
     Checkboxes = True
-    Columns = <>
+    Columns = <
+      item
+        Caption = 'File'
+        AutoSize = True
+      end
+      item
+        Caption = 'ComicInfo.xml'
+        Width = 120
+      end
+    >
     GridLines = True
     ReadOnly = True
     RowSelect = True

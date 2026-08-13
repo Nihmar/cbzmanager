@@ -26,7 +26,6 @@ type
     LblSummary: TLabel;
     LVResult: TListView;
     PanelBottom: TPanel;
-    procedure FormCreate(Sender: TObject);
   private
   public
     procedure ShowResults(const AResults: TConvertResults);
@@ -44,38 +43,6 @@ begin
     Result := Format('%.1f KB', [ABytes / 1024])
   else
     Result := Format('%d B', [ABytes]);
-end;
-
-procedure TdlgConvertResults.FormCreate(Sender: TObject);
-var
-  Col: TListColumn;
-begin
-  Col := LVResult.Columns.Add;
-  Col.Caption := 'File';
-  Col.Width := 220;
-
-  Col := LVResult.Columns.Add;
-  Col.Caption := 'Status';
-  Col.Width := 100;
-
-  Col := LVResult.Columns.Add;
-  Col.Caption := 'Original';
-  Col.Width := 90;
-  Col.Alignment := taRightJustify;
-
-  Col := LVResult.Columns.Add;
-  Col.Caption := 'New';
-  Col.Width := 90;
-  Col.Alignment := taRightJustify;
-
-  Col := LVResult.Columns.Add;
-  Col.Caption := 'Saved';
-  Col.Width := 90;
-  Col.Alignment := taRightJustify;
-
-  Col := LVResult.Columns.Add;
-  Col.Caption := 'Note';
-  Col.AutoSize := True;
 end;
 
 procedure TdlgConvertResults.ShowResults(const AResults: TConvertResults);

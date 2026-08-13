@@ -6,12 +6,11 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls,
-  ComCtrls, ExtCtrls, uservicevalidate, udlgbase;
+  ComCtrls, ExtCtrls, uservicevalidate;
 
 type
   TdlgValidate = class(TForm)
-    procedure FormCreate(Sender: TObject);
-  private
+    { Wired from the .lfm — controls must be published for RTTI lookup. }
     LVResult: TListView;
     PanelBottom: TPanel;
     BtnClose: TButton;
@@ -22,35 +21,6 @@ type
 implementation
 
 {$R *.lfm}
-
-procedure TdlgValidate.FormCreate(Sender: TObject);
-var
-  Col: TListColumn;
-begin
-  PanelBottom := CreateBottomPanel(Self, 44);
-
-  BtnClose := CreateDialogButton(PanelBottom, 'Close',
-    PanelBottom.ClientWidth - DLG_BTN_WIDTH - 8, 7, mrOK, True, True);
-  BtnClose.Anchors := [akTop, akRight];
-
-  LVResult := CreateReportListView(Self, False);
-
-  Col := LVResult.Columns.Add;
-  Col.Caption := 'File';
-  Col.AutoSize := True;
-
-  Col := LVResult.Columns.Add;
-  Col.Caption := 'Result';
-  Col.Width := 80;
-
-  Col := LVResult.Columns.Add;
-  Col.Caption := 'Images';
-  Col.Width := 80;
-
-  Col := LVResult.Columns.Add;
-  Col.Caption := 'Note';
-  Col.AutoSize := True;
-end;
 
 procedure TdlgValidate.ShowResults(const AResults: TValidationResults);
 var

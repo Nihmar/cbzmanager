@@ -13,6 +13,7 @@ uses
   test_uclimode,
   test_udlgseqbuilder,
   test_udlgpageview,
+  test_udlgpageeditor,
   test_uservicevalidate,
   test_uservicecomicinfo,
   test_ucomicinfo,

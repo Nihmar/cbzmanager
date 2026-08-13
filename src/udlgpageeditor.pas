@@ -34,7 +34,7 @@ interface
 uses
   Classes, SysUtils, Forms, Controls, Graphics, StdCtrls, ExtCtrls,
   ComCtrls, Spin, Dialogs, IntfGraphics, Math, Generics.Collections,
-  upreviewloader, uimageedit, udlgbase;
+  upreviewloader, uimageedit;
 
 type
   { One encoded split piece: the full-res image (for thumbnails, ownership
@@ -59,12 +59,12 @@ type
     Slices: array of TPageEditSlice;
   end;
 
+  { TdlgPageEditor }
+
   TdlgPageEditor = class(TForm)
   published
-    { Wired from the .lfm — must be published for RTTI lookup. }
-    procedure FormCreate(Sender: TObject);
-    procedure FormKeyDown(Sender: TObject; var Key: word; Shift: TShiftState);
-  private
+    { Wired from the .lfm — controls and event handlers must be published
+      for RTTI lookup. }
     { Control panel }
     PanelControls: TPanel;
     PageControl: TPageControl;
@@ -78,20 +78,27 @@ type
     SpinH: TSpinEdit;
     CbKeepAspect: TCheckBox;
     BtnResizeApply: TButton;
-    LblBrightnessVal: TLabel;
+    LblBrightness: TLabel;
     TrackBrightness: TTrackBar;
-    LblContrastVal: TLabel;
+    LblBrightnessVal: TLabel;
+    LblContrast: TLabel;
     TrackContrast: TTrackBar;
-    LblSaturationVal: TLabel;
+    LblContrastVal: TLabel;
+    LblSaturation: TLabel;
     TrackSaturation: TTrackBar;
-    LblGammaVal: TLabel;
+    LblSaturationVal: TLabel;
+    LblGamma: TLabel;
     TrackGamma: TTrackBar;
-    LblRedVal: TLabel;
+    LblGammaVal: TLabel;
+    LblRed: TLabel;
     TrackRed: TTrackBar;
-    LblGreenVal: TLabel;
+    LblRedVal: TLabel;
+    LblGreen: TLabel;
     TrackGreen: TTrackBar;
-    LblBlueVal: TLabel;
+    LblGreenVal: TLabel;
+    LblBlue: TLabel;
     TrackBlue: TTrackBar;
+    LblBlueVal: TLabel;
     CbGray: TCheckBox;
     CbSepia: TCheckBox;
     CbInvert: TCheckBox;
@@ -114,6 +121,31 @@ type
     ScrollBoxSlices: TScrollBox;
     SlicePanel: TPanel;
     TimerPreview: TTimer;
+    { Event handlers }
+    procedure FormCreate(Sender: TObject);
+    procedure FormKeyDown(Sender: TObject; var Key: word; Shift: TShiftState);
+    procedure BtnResetClick(Sender: TObject);
+    procedure BtnOkClick(Sender: TObject);
+    procedure BtnAddLineClick(Sender: TObject);
+    procedure BtnRemoveLineClick(Sender: TObject);
+    procedure BtnSplitApplyClick(Sender: TObject);
+    procedure BtnResizeApplyClick(Sender: TObject);
+    procedure BtnColorApplyClick(Sender: TObject);
+    procedure CbKeepAspectChange(Sender: TObject);
+    procedure SpinWChange(Sender: TObject);
+    procedure SpinHChange(Sender: TObject);
+    procedure RgDirectionClick(Sender: TObject);
+    procedure TrackColorChange(Sender: TObject);
+    procedure CheckboxColorChange(Sender: TObject);
+    procedure TimerPreviewTimer(Sender: TObject);
+    procedure PaintBoxLinesMouseDown(Sender: TObject; Button: TMouseButton;
+      Shift: TShiftState; X, Y: integer);
+    procedure PaintBoxLinesMouseMove(Sender: TObject; Shift: TShiftState;
+      X, Y: integer);
+    procedure PaintBoxLinesMouseUp(Sender: TObject; Button: TMouseButton;
+      Shift: TShiftState; X, Y: integer);
+    procedure PaintBoxLinesPaint(Sender: TObject);
+  private
     { Editor state }
     FLoader: TSingleImageLoader;
     FFile: string;
@@ -146,9 +178,6 @@ type
     FAspect: double;
     { Built and encoded by BtnOkClick; transferred out by ExtractResult. }
     FResult: TPageEditResult;
-    procedure BuildResizeTab;
-    procedure BuildColorsTab;
-    procedure BuildSplitTab;
     { Behaviour }
     procedure StopLoader;
     procedure LoaderTerminated(Sender: TObject);
@@ -170,28 +199,6 @@ type
     function PosToFrac(X, Y: integer; out AFrac: double): boolean;
     { The fitted (displayed) preview rect inside PaintBoxLines. }
     procedure FittedRect(out DW, DH, OX, OY: integer);
-    { Event handlers }
-    procedure BtnAddLineClick(Sender: TObject);
-    procedure BtnRemoveLineClick(Sender: TObject);
-    procedure BtnResetClick(Sender: TObject);
-    procedure BtnSplitApplyClick(Sender: TObject);
-    procedure BtnResizeApplyClick(Sender: TObject);
-    procedure BtnColorApplyClick(Sender: TObject);
-    procedure BtnOkClick(Sender: TObject);
-    procedure CbKeepAspectChange(Sender: TObject);
-    procedure PaintBoxLinesMouseDown(Sender: TObject; Button: TMouseButton;
-      Shift: TShiftState; X, Y: integer);
-    procedure PaintBoxLinesMouseMove(Sender: TObject; Shift: TShiftState;
-      X, Y: integer);
-    procedure PaintBoxLinesMouseUp(Sender: TObject; Button: TMouseButton;
-      Shift: TShiftState; X, Y: integer);
-    procedure PaintBoxLinesPaint(Sender: TObject);
-    procedure RgDirectionClick(Sender: TObject);
-    procedure SpinHChange(Sender: TObject);
-    procedure SpinWChange(Sender: TObject);
-    procedure TimerPreviewTimer(Sender: TObject);
-    procedure TrackColorChange(Sender: TObject);
-    procedure CheckboxColorChange(Sender: TObject);
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -219,46 +226,12 @@ const
     wide (height follows the aspect ratio), keeping slider feedback cheap. }
   PREVIEW_MAX_W = 600;
 
-{ Creates a label inside ATab. }
-function TabLabel(ATab: TWinControl; const ACaption: string;
-  ALeft, ATop: integer; AWidth: integer = 300): TLabel;
-begin
-  Result := TLabel.Create(ATab.Owner);
-  Result.Parent := ATab;
-  Result.Left := ALeft;
-  Result.Top := ATop;
-  Result.Width := AWidth;
-  Result.Caption := ACaption;
-end;
-
-{ Creates a colour slider row: caption, trackbar, value label. }
-function ColorSlider(ATab: TWinControl; const ACaption: string;
-  AMin, AMax, AValue: integer; ALeft, ATop: integer;
-  out AValLbl: TLabel): TTrackBar;
-begin
-  TabLabel(ATab, ACaption, ALeft, ATop + 6);
-  Result := TTrackBar.Create(ATab.Owner);
-  Result.Parent := ATab;
-  Result.Left := ALeft + 80;
-  Result.Top := ATop;
-  Result.Width := 140;
-  Result.Min := AMin;
-  Result.Max := AMax;
-  Result.Position := AValue;
-  AValLbl := TLabel.Create(ATab.Owner);
-  AValLbl.Parent := ATab;
-  AValLbl.Left := ALeft + 232;
-  AValLbl.Top := ATop + 6;
-  AValLbl.Width := 40;
-  AValLbl.Alignment := taRightJustify;
-  AValLbl.Caption := IntToStr(AValue);
-end;
-
 { TdlgPageEditor }
 
 constructor TdlgPageEditor.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
+  KeyPreview := True;
   FLoader := nil;
   FLoaded := False;
   FFull := nil;
@@ -292,263 +265,6 @@ begin
   FFull.Free;
   FSliceImgs.Free;
   inherited Destroy;
-end;
-
-procedure TdlgPageEditor.FormCreate(Sender: TObject);
-begin
-  KeyPreview := True;
-  Caption := 'Page editor';
-  Width := 980;
-  Height := 660;
-  Position := poOwnerFormCenter;
-
-  { Bottom button strip. }
-  PanelBottom := CreateBottomPanel(Self, 46);
-  BtnReset := CreateDialogButton(PanelBottom, '&Reset', 8, 8, mrNone, False,
-    False);
-  BtnReset.OnClick := @BtnResetClick;
-  BtnReset.Enabled := False;
-  BtnCancel := CreateDialogButton(PanelBottom, '&Cancel',
-    PanelBottom.ClientWidth - DLG_BTN_WIDTH - 8, 8, mrCancel, False, True);
-  BtnOk := CreateDialogButton(PanelBottom, '&OK',
-    PanelBottom.ClientWidth - 2 * DLG_BTN_WIDTH - 16, 8, mrNone, True, False);
-  BtnOk.OnClick := @BtnOkClick;
-  BtnOk.Enabled := False;
-
-  { Left control panel + right preview. }
-  PanelControls := TPanel.Create(Self);
-  PanelControls.Parent := Self;
-  PanelControls.Align := alLeft;
-  PanelControls.Width := 320;
-  PanelControls.BevelOuter := bvNone;
-
-  PanelPreview := TPanel.Create(Self);
-  PanelPreview.Parent := Self;
-  PanelPreview.Align := alClient;
-  PanelPreview.BevelOuter := bvNone;
-  PanelPreview.BorderSpacing.Left := 4;
-
-  ImgPreview := TImage.Create(Self);
-  ImgPreview.Parent := PanelPreview;
-  ImgPreview.Align := alClient;
-  ImgPreview.Stretch := True;
-  ImgPreview.Proportional := True;
-  ImgPreview.Center := True;
-
-  { The paintbox sits on top of the image (created last = front) and draws
-    the cut lines over the fitted picture. }
-  PaintBoxLines := TPaintBox.Create(Self);
-  PaintBoxLines.Parent := PanelPreview;
-  PaintBoxLines.Align := alClient;
-  PaintBoxLines.OnPaint := @PaintBoxLinesPaint;
-  PaintBoxLines.OnMouseDown := @PaintBoxLinesMouseDown;
-  PaintBoxLines.OnMouseMove := @PaintBoxLinesMouseMove;
-  PaintBoxLines.OnMouseUp := @PaintBoxLinesMouseUp;
-
-  ScrollBoxSlices := TScrollBox.Create(Self);
-  ScrollBoxSlices.Parent := PanelPreview;
-  ScrollBoxSlices.Align := alClient;
-  ScrollBoxSlices.Visible := False;
-  SlicePanel := TPanel.Create(Self);
-  SlicePanel.Parent := ScrollBoxSlices;
-  SlicePanel.Left := 0;
-  SlicePanel.Top := 0;
-  SlicePanel.Width := 200;
-  SlicePanel.Height := 100;
-  SlicePanel.BevelOuter := bvNone;
-
-  { Tabs }
-  PageControl := TPageControl.Create(Self);
-  PageControl.Parent := PanelControls;
-  PageControl.Align := alClient;
-  PageControl.Enabled := False;  { tools usable only after the page loads }
-  TabResize := PageControl.AddTabSheet;
-  TabResize.Caption := 'Resize';
-  TabColors := PageControl.AddTabSheet;
-  TabColors.Caption := 'Colors';
-  TabSplit := PageControl.AddTabSheet;
-  TabSplit.Caption := 'Split';
-  BuildResizeTab;
-  BuildColorsTab;
-  BuildSplitTab;
-
-  TimerPreview := TTimer.Create(Self);
-  TimerPreview.Interval := 80;
-  TimerPreview.Enabled := False;
-  TimerPreview.OnTimer := @TimerPreviewTimer;
-end;
-
-procedure TdlgPageEditor.BuildResizeTab;
-begin
-  LblResizeInfo := TabLabel(TabResize, 'Loading...', 8, 10);
-  LblResizeInfo.Font.Style := [fsBold];
-
-  LblResizeW := TabLabel(TabResize, 'Width:', 8, 44);
-  SpinW := TSpinEdit.Create(Self);
-  SpinW.Parent := TabResize;
-  SpinW.Left := 110;
-  SpinW.Top := 40;
-  SpinW.Width := 110;
-  SpinW.MaxValue := 16384;
-  SpinW.OnChange := @SpinWChange;
-
-  LblResizeH := TabLabel(TabResize, 'Height:', 8, 76);
-  SpinH := TSpinEdit.Create(Self);
-  SpinH.Parent := TabResize;
-  SpinH.Left := 110;
-  SpinH.Top := 72;
-  SpinH.Width := 110;
-  SpinH.MaxValue := 16384;
-  SpinH.OnChange := @SpinHChange;
-
-  CbKeepAspect := TCheckBox.Create(Self);
-  CbKeepAspect.Parent := TabResize;
-  CbKeepAspect.Left := 8;
-  CbKeepAspect.Top := 106;
-  CbKeepAspect.Width := 200;
-  CbKeepAspect.Caption := 'Keep aspect ratio';
-  CbKeepAspect.Checked := True;
-  CbKeepAspect.OnChange := @CbKeepAspectChange;
-
-  BtnResizeApply := TButton.Create(Self);
-  BtnResizeApply.Parent := TabResize;
-  BtnResizeApply.Left := 8;
-  BtnResizeApply.Top := 136;
-  BtnResizeApply.Width := 100;
-  BtnResizeApply.Caption := '&Apply';
-  BtnResizeApply.OnClick := @BtnResizeApplyClick;
-end;
-
-procedure TdlgPageEditor.BuildColorsTab;
-var
-  Y: integer;
-begin
-  Y := 8;
-  TrackBrightness := ColorSlider(TabColors, 'Brightness', -100, 100, 0,
-    8, Y, LblBrightnessVal);
-  TrackBrightness.OnChange := @TrackColorChange;
-  Inc(Y, 34);
-
-  TrackContrast := ColorSlider(TabColors, 'Contrast', -100, 100, 0,
-    8, Y, LblContrastVal);
-  TrackContrast.OnChange := @TrackColorChange;
-  Inc(Y, 34);
-
-  TrackSaturation := ColorSlider(TabColors, 'Saturation', 0, 200, 100,
-    8, Y, LblSaturationVal);
-  TrackSaturation.OnChange := @TrackColorChange;
-  Inc(Y, 34);
-
-  TrackGamma := ColorSlider(TabColors, 'Gamma', 50, 300, 100,
-    8, Y, LblGammaVal);
-  TrackGamma.OnChange := @TrackColorChange;
-  Inc(Y, 34);
-
-  TrackRed := ColorSlider(TabColors, 'Red', -100, 100, 0,
-    8, Y, LblRedVal);
-  TrackRed.OnChange := @TrackColorChange;
-  Inc(Y, 34);
-
-  TrackGreen := ColorSlider(TabColors, 'Green', -100, 100, 0,
-    8, Y, LblGreenVal);
-  TrackGreen.OnChange := @TrackColorChange;
-  Inc(Y, 34);
-
-  TrackBlue := ColorSlider(TabColors, 'Blue', -100, 100, 0,
-    8, Y, LblBlueVal);
-  TrackBlue.OnChange := @TrackColorChange;
-  Inc(Y, 40);
-
-  CbGray := TCheckBox.Create(Self);
-  CbGray.Parent := TabColors;
-  CbGray.Left := 8;
-  CbGray.Top := Y;
-  CbGray.Width := 90;
-  CbGray.Caption := 'Grayscale';
-  CbGray.OnClick := @CheckboxColorChange;
-
-  CbSepia := TCheckBox.Create(Self);
-  CbSepia.Parent := TabColors;
-  CbSepia.Left := 100;
-  CbSepia.Top := Y;
-  CbSepia.Width := 80;
-  CbSepia.Caption := 'Sepia';
-  CbSepia.OnClick := @CheckboxColorChange;
-
-  CbInvert := TCheckBox.Create(Self);
-  CbInvert.Parent := TabColors;
-  CbInvert.Left := 185;
-  CbInvert.Top := Y;
-  CbInvert.Width := 80;
-  CbInvert.Caption := 'Invert';
-  CbInvert.OnClick := @CheckboxColorChange;
-  Inc(Y, 30);
-
-  BtnColorApply := TButton.Create(Self);
-  BtnColorApply.Parent := TabColors;
-  BtnColorApply.Left := 8;
-  BtnColorApply.Top := Y;
-  BtnColorApply.Width := 100;
-  BtnColorApply.Caption := '&Apply';
-  BtnColorApply.OnClick := @BtnColorApplyClick;
-end;
-
-procedure TdlgPageEditor.BuildSplitTab;
-begin
-  RgDirection := TRadioGroup.Create(Self);
-  RgDirection.Parent := TabSplit;
-  RgDirection.Left := 8;
-  RgDirection.Top := 8;
-  RgDirection.Width := 296;
-  RgDirection.Height := 76;
-  RgDirection.Caption := 'Cut direction';
-  RgDirection.Items.Add('Horizontal line (top / bottom)');
-  RgDirection.Items.Add('Vertical line (left / right)');
-  RgDirection.ItemIndex := 0;
-  RgDirection.OnClick := @RgDirectionClick;
-
-  LblLines := TabLabel(TabSplit, 'Cut lines (drag them on the preview):',
-    8, 92);
-
-  LBLines := TListBox.Create(Self);
-  LBLines.Parent := TabSplit;
-  LBLines.Left := 8;
-  LBLines.Top := 112;
-  LBLines.Width := 296;
-  LBLines.Height := 110;
-
-  SpinLinePos := TSpinEdit.Create(Self);
-  SpinLinePos.Parent := TabSplit;
-  SpinLinePos.Left := 8;
-  SpinLinePos.Top := 232;
-  SpinLinePos.Width := 70;
-  SpinLinePos.MinValue := 1;
-  SpinLinePos.MaxValue := 99;
-  SpinLinePos.Value := 50;
-
-  BtnAddLine := TButton.Create(Self);
-  BtnAddLine.Parent := TabSplit;
-  BtnAddLine.Left := 88;
-  BtnAddLine.Top := 230;
-  BtnAddLine.Width := 90;
-  BtnAddLine.Caption := '&Add line';
-  BtnAddLine.OnClick := @BtnAddLineClick;
-
-  BtnRemoveLine := TButton.Create(Self);
-  BtnRemoveLine.Parent := TabSplit;
-  BtnRemoveLine.Left := 186;
-  BtnRemoveLine.Top := 230;
-  BtnRemoveLine.Width := 100;
-  BtnRemoveLine.Caption := '&Remove';
-  BtnRemoveLine.OnClick := @BtnRemoveLineClick;
-
-  BtnSplitApply := TButton.Create(Self);
-  BtnSplitApply.Parent := TabSplit;
-  BtnSplitApply.Left := 8;
-  BtnSplitApply.Top := 268;
-  BtnSplitApply.Width := 120;
-  BtnSplitApply.Caption := '&Apply split';
-  BtnSplitApply.OnClick := @BtnSplitApplyClick;
 end;
 
 procedure TdlgPageEditor.StopLoader;
@@ -1223,6 +939,11 @@ begin
     ModalResult := mrCancel;
     Key := 0;
   end;
+end;
+
+procedure TdlgPageEditor.FormCreate(Sender: TObject);
+begin
+  PageControl.ActivePage := TabResize;
 end;
 
 function TdlgPageEditor.ExtractResult: TPageEditResult;

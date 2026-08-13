@@ -88,6 +88,16 @@ type
     FListView: TListView;
     FPages: TLazIntfImageList;
     FOnBatchAdded: TNotifyEvent;
+    { Session guard: OwnerEpoch points at a caller-owned counter that is
+      bumped whenever the destination lists are cleared (a new preview or
+      directory load).  The worker captures the current value at Create;
+      SyncAddThumbs discards any batch whose epoch no longer matches, so
+      a stale batch from a previous session can never land in the freshly
+      cleared lists (Terminated alone cannot catch this: a normally
+      finished thread has Terminated = False while its last queued batch
+      may still be pending). }
+    FOwnerEpoch: PInteger;
+    FEpoch: integer;
     { Frees every image remaining in FBatch (the current accumulation
       buffer that hasn't been handed off yet).  Called from the
       finally block of Execute on abnormal termination. }
@@ -119,6 +129,9 @@ type
     property ListView: TListView read FListView write FListView;
     property Pages: TLazIntfImageList read FPages write FPages;
     property Images: TImageList read FImages write FImages;
+    { Session epoch as described above; leave nil to disable the check
+      (e.g. unit tests without a session counter). }
+    property OwnerEpoch: PInteger read FOwnerEpoch write FOwnerEpoch;
     { Fired on the main thread after each batch has been appended to the
       ListView.  Used for load-progress status updates. }
     property OnBatchAdded: TNotifyEvent read FOnBatchAdded write FOnBatchAdded;
@@ -171,6 +184,8 @@ type
     constructor Create(const ADir: string);
     { Number of .cbz files found (valid after Start). }
     property TotalFiles: integer read FTotal;
+    { Session epoch forwarded to every worker (see TThumbThread.OwnerEpoch). }
+    property OwnerEpoch: PInteger read FOwnerEpoch write FOwnerEpoch;
   end;
 
   { TPagesThread: all pages of a single .cbz }
@@ -222,12 +237,18 @@ begin
   SetLength(FBatch, 0);
   FPendingCount := 0;
   SetLength(FPendingBatch, 0);
+  FOwnerEpoch := nil;
+  FEpoch := 0;
 end;
 
 procedure TThumbThread.Execute;
 begin
   try
     try
+      { OwnerEpoch is assigned after Create: capture the session epoch
+        here, right before producing starts. }
+      if FOwnerEpoch <> nil then
+        FEpoch := FOwnerEpoch^;
       Produce;
       if not Terminated then
         Flush;
@@ -303,6 +324,17 @@ begin
   if Terminated then
   begin
     { nobody will take over the images of the batch }
+    FreePendingBatch;
+    Exit;
+  end;
+
+  { Stale session: the destination lists were cleared and reused by a new
+    preview/directory load after this batch was queued.  Discard it the
+    same way (Terminated cannot catch a normally finished thread). }
+  if (FOwnerEpoch <> nil) and (FEpoch <> FOwnerEpoch^) then
+  begin
+    Log('ThumbThread: discarding stale batch (epoch %d -> %d, %d item(s))',
+      [FEpoch, FOwnerEpoch^, FPendingCount]);
     FreePendingBatch;
     Exit;
   end;
@@ -507,6 +539,7 @@ begin
       FWorkers[i].Pages := FPages;
       FWorkers[i].Images := FImages;
       FWorkers[i].OnBatchAdded := FOnBatchAdded;
+      FWorkers[i].OwnerEpoch := FOwnerEpoch;
       FWorkers[i].FreeOnTerminate := True;
     end;
     for i := 0 to High(FWorkers) do

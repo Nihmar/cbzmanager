@@ -1,4 +1,4 @@
-# CBZ Manager — Tauri Port Plan
+| CBR support | `libarchiver-rs` | Rust bindings to libarchive; same two-pass RAR scanning, dynamic loading, graceful degradation |# CBZ Manager — Tauri Port Plan
 
 ## Architecture Decision
 
@@ -132,15 +132,20 @@ porting/tauri/
 | `ucomicinfo.pas` | `rust-core/src/comicinfo_xml.rs` | ParseComicInfoXML / GenerateComicInfoXML |
 | `uwebp.pas` | `rust-core/src/webp_decode.rs` | libwebp FFI or image crate WebP support |
 
+| `uthreadservice.pas` | `lib.rs` + per-service wrappers | Thread wrapper boilerplate: TServiceThread base with Synchronize-based progress dispatch. Converts to Rust async + event emission.
+| `ulog.pas` | `rust-core/src/logger.rs` | Minimal thread-safe logger with LogObserver pattern. Uses tokio::sync::Mutex for cross-thread logging, tracing-subscriber for output.
+
 ### GUI — Low Priority (can be rebuilt from scratch)
 
 | Lazarus File | Svelte Component | Notes |
 |-------------|-----------------|-------|
 | `main.pas`/`.lfm` | `routes/+layout.svelte` + stores | Two-pane UI, keyboard shortcuts, zoom, threading orchestration |
-| `uloaderthread.pas` | Web Worker (via Tauri commands) | Thumbnail loading — not a native thread anymore, uses Tauri's async commands |
-| `upreviewloader.pas` | (same as above) | Preview page loading via IPC |
-| `ufrmjobmonitor.pas` + `.lfm` | `components/JobMonitor.svelte` | Non-modal progress overlay |
-| `udlgvalidate.pas` + `.lfm` | `components/ValidateDialog.svelte` | Validation results table |
+| `uloaderthread.pas` + `.lfm` | Tauri event-driven batch loading | Batch size 12, sorted insertion by index, session epoch guards (discard stale batches when directory reloads). Multiple concurrent workers distribute files via interlocked cursor. ComicInfo badge painting on thumbnail.
+| `upreviewloader.pas` + `.lfm` | Tauri event-driven batch loading (same mechanism) | Single-file page loading: ForEachImage/ForEachCbrImage callback → scale to CacheW×CacheH → batch emission. Used by sequence builder preview and floating page-view dialog.
+| `ufrmjobmonitor.pas` + `.lfm` | `components/JobMonitor.svelte` | Non-modal progress: title, bar, elapsed timer (1s tick), scrolling log. Log observer registered at StartJob (thread-safe buffer flushed by timer). Prevents closing while job runs (Alt+F4 guard).
+| `udlgbase.pas` + `.lfm` | Reusable base for all dialog components | Shared dialog chrome: title bar, OK/Cancel buttons, settings panel. Maps to a Svelte BaseDialog component with slots.
+| `udlgvalidate.pas` + `.lfm` | `components/ValidateDialog.svelte` | Validation results table with per-image pass/fail detail (deep mode) |
+| `udlgvalidateopts.pas` + `.lfm` | (part of ValidateDialog as options panel) | Parallel decode threads selector dialog — inline in validate dialog.
 | `udlgwebp.pas` + `.lfm` | `components/ConvertDialog.svelte` | WebP conversion options/results |
 | `udlgmerge.pas` + `.lfm` | `components/MergeDialog.svelte` | Merge chapters dialog with sequence preview |
 | `udlgcbr.pas` + `.lfm` | `components/CbrDialog.svelte` | CBR→CBZ conversion options |
@@ -150,7 +155,7 @@ porting/tauri/
 | `udlgpageeditor.pas` + `.lfm` | `components/PageEditor.svelte` | Modal page editor (resize/colour/split) |
 | `udlgbatchedit.pas` + `.lfm` | `components/BatchEdit.svelte` | Batch edit dialog with live preview |
 | `udlgseqbuilder.pas` + `.lfm` | `components/MergeDialog.svelte` (sequence builder is part of merge) | Sequence preview within merge dialog |
-| `udlgrows.pas` + `.lfm` | (built into PagePreview or a small modal) | Delete rows by range — simple enough to inline |
+| `udlgrads.pas` + `.lfm` | Small modal (inline or standalone) | Delete rows by 1-indexed range. Simple: spin input for start/end, confirm button. Built into PagePreview toolbar or separate dialog.
 | `usettings.pas` | `stores/settings.ts` + `tauri-plugin-store` | INI → Tauri's built-in config store |
 
 ---
@@ -184,6 +189,14 @@ porting/tauri/
 4. Implement progress reporting via Tauri events (Tauri's event system replaces TThread.Queue)
 5. Settings persistence using Tauri's config store
 
+
+| `udlgrads.pas` + `.lfm` | Small modal (inline or standalone) | Delete rows by range — simple enough to inline |
+| `usettings.pas` | `stores/settings.ts` + Tauri config store | Simple TIniFile wrapper; trivial to replace |
+| `ufrmjobmonitor.pas` + `.lfm` | `components/JobMonitor.svelte` | Non-modal progress: title, bar, elapsed timer, scrolling log. Log observer with thread-safe buffer flushed by timer. Replaces ulog.pas observer pattern. |
+| `udlgseqbuilder.pas` + `.lfm` | `components/MergeDialog.svelte` (sequence builder) | Zoomable chapter grid w/ preview nav, volume addition, undo stack — most complex dialog in the app. Combines file list, thumbnail zoom, and page preview in one window. |
+| `uloaderthread.pas` + `.lfm` | Tauri event-driven batch loading | Batch size 12, sorted insertion by index, session epoch guards, ComicInfo badge painting. Multiple concurrent workers distribute files via interlocked cursor. CBR through libarchive/libarchiver-rs. |
+| `upreviewloader.pas` + `.lfm` | (same as above) | Single-file page loading: ForEachImage/ForEachCbrImage callback → scale to CacheW×CacheH → batch emission. Used by sequence builder preview and page-view dialog. |
+
 ### Phase 3: Svelte Frontend
 **Goal**: Rebuild the two-pane UI in Svelte.
 
@@ -210,22 +223,25 @@ porting/tauri/
 
 ## Key Technical Challenges & Solutions
 
-### 1. Image Decoding Performance
-**Challenge**: FPImage readers are highly optimized for their formats. Rust's `image` crate covers the formats but may not match FPC's raw speed.
-**Solution**: Use `image` crate with specific decoder backends (`jpeg-decoder`, `png`, `webp`). For WebP, use `webp` crate (libwebp bindings) which matches uwebp.pas directly. Profile and optimize if needed — the parallel worker pool already amortizes decode cost.
+### 1. Image Decoding, WebP Encoding & CBR Support
 
-### 2. CBR / libarchive Integration
-**Challenge**: Dynamic loading of native library across platforms.
-**Solution**: Same FFI pattern as Lazarus. Use `libloading` crate on Linux/macOS, `windows` crate for DLL path on Windows. Check availability at runtime and degrade gracefully (no CBR thumbnails + informative message).
+**Verdict: Trust the Rust ecosystem.** The `image` crate (with jpeg-decoder, png, webp, tiff features), the `webp` crate (libwebp bindings), and `libarchiver-rs` for CBR are sufficient. No need to benchmark FPImage parity. If performance matters later, we optimize per-format with dedicated crates (ravif, etc.).
 
-### 3. Thumbnail Generation Speed
-**Challenge**: LCL's TLazIntfImageList → TBitmap conversion is done in the main thread. Web views have no bitmap API.
-**Solution**: Generate PNG-encoded byte arrays in Rust (fast, lossless, small), send to frontend as `ArrayBuffer`, decode on the browser side with `createImageBitmap()` for GPU-accelerated rendering. This avoids any format conversion overhead in the IPC layer.
+### 2. IPC Throughput for Thumbnails — Lazy Loading
 
-### 4. Threading Model Changes
-**Challenge**: Lazarus uses OS threads + TThread.Queue. Web views use JavaScript's event loop + web workers.
-**Solution**: Tauri commands run on Rust's async runtime (Tokio), which handles parallelism naturally. The frontend receives progress updates via Tauri events (similar to TThread.Queue). No web worker needed — the Tauri backend handles all heavy I/O.
+**Strategy:** Load first-page thumbnails on-demand as the user scrolls or hovers, not all at once on folder open. This avoids megabytes of IPC traffic when browsing a directory with 100+ CBZs. For page previews, pages load in batches of ~12 via Tauri events, matching the original `TThumbThread` batch architecture (batch size = 12, flush after N items, sorted insertion by index). Full batch loading will be introduced later when needed.
 
+### 3. Threading Model Translation
+
+**Challenge:** The original app uses `Synchronize` (not Queue) for progress callbacks: the worker blocks until the main thread processes. This avoids use-after-free (FreeOnTerminate + stale queue entry) and ensures exceptions escape back to the worker rather than killing the GUI. uthreadservice.pas documents this explicitly.
+
+**Solution:** Tauri's event system provides a clean equivalent. Rust async commands emit progress events via `Emitter::emit()`. The frontend processes them as they arrive (no blocking needed). For operations that need backpressure (the original app's batched thumbnail publication), we'll use a simple counter/ack pattern: the frontend sends an ack for each processed batch, and the backend pauses when the ack backlog exceeds a threshold.
+
+### 4. Session Epoch Guards
+
+**Challenge:** The original loader thread uses an `OwnerEpoch` counter to discard stale batches when a new preview/directory load clears the destination lists. A normally-finished thread may still have a queued batch from a previous session (Terminated = False).
+
+**Solution:** Tauri commands are inherently stateless and short-lived — each command invocation gets fresh input. The "epoch" concept maps to passing a session/version token from the frontend. If the backend receives a command for a file that was already reloaded, it just returns current data; no stale batch problem exists because the Rust code doesn't queue work — it executes on-demand.
 ### 5. Deterministic Output
 **Challenge**: Parallel WebP conversion must produce byte-identical output regardless of thread count.
 **Solution**: Same architecture as Pascal: phase 1 (parallel encode) fills per-slot buffers, phase 2 (sequential compaction) reads slots in archive order. This is preserved in the Rust implementation.

@@ -40,7 +40,10 @@ units/
 bin/
 obj/
 backup/
-porting/
+# Porting references (tracked)
+!porting/cbz_manager/
+# Tauri port plan
+!porting/tauri/
 
 # ─── Lazarus IDE ─────────────────────────────────────────────────────────────
 

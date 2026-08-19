@@ -178,7 +178,9 @@ porting/tauri/
 11. **CBR conversion** (`cbr_convert.rs`): Batch CBR→CBZ service
 12. **CLI binary** (`cbzmanager`): Same CLI interface as current Pascal CLI
 
-**Milestones**: After Phase 1, the Rust `cbzmanager` binary can do everything the Lazarus CLI does (validate, convert-webp, merge, cbr-to-cbz) with the same exit codes and argument parsing.
+**Milestones**: After Phase 1, the Rust `cbzmanager` binary can do everything the Lazarus CLI does
+
+**Regression testing for merge service:** The merge logic (chapter detection, CPV calculation, batching) is the most intricate part of the original code. Write property-based tests in Rust that compare outputs against the Pascal CLI for a large corpus of CBZ files. Use `cargo insta` for snapshot testing of XML/JSON outputs. Clearly document heuristics to avoid regressions. (validate, convert-webp, merge, cbr-to-cbz) with the same exit codes and argument parsing.
 
 ### Phase 2: Tauri Shell + Services
 **Goal**: Frontend communicates with Rust backend via Tauri commands.
@@ -223,32 +225,49 @@ porting/tauri/
 
 ## Key Technical Challenges & Solutions
 
-### 1. Image Decoding, WebP Encoding & CBR Support
+### 1. Image Decoding, WebP Encoding & CBR — Extended Notes
+
+**Verdict: Trust the Rust ecosystem.** The `image` crate (with jpeg-decoder, png, webp, tiff features), the `webp` crate (libwebp bindings), and `libarchiver-rs` for CBR are sufficient. No need to benchmark FPImage parity. If performance matters later, we optimize per-format with dedicated crates (ravif, etc.).
+
+**Color spaces:** FPImage may handle CMYK/ICC profiles differently than `image`. Test color-accurate workflows early — if profile fidelity matters, pass through raw bytes for unhandled cases rather than decode/re-encode.
+
+**CBR RAR5 & Unicode:** libarchive supports RAR5, but older library versions may not. Use `libarchiver-rs`'s `archive_read_set_options` to enforce UTF-8 conversion on entry names; fall back to raw bytes if the filename is invalid UTF-8. Test with a variety of real-world RAR samples early. Provide a `--no-cbr` compile-time feature flag for minimal builds without libarchive.
 
 **Verdict: Trust the Rust ecosystem.** The `image` crate (with jpeg-decoder, png, webp, tiff features), the `webp` crate (libwebp bindings), and `libarchiver-rs` for CBR are sufficient. No need to benchmark FPImage parity. If performance matters later, we optimize per-format with dedicated crates (ravif, etc.).
 
 ### 2. IPC Throughput for Thumbnails — Lazy Loading
 
-**Strategy:** Load first-page thumbnails on-demand as the user scrolls or hovers, not all at once on folder open. This avoids megabytes of IPC traffic when browsing a directory with 100+ CBZs. For page previews, pages load in batches of ~12 via Tauri events, matching the original `TThumbThread` batch architecture (batch size = 12, flush after N items, sorted insertion by index). Full batch loading will be introduced later when needed.
+**Strategy:** Load first-page thumbnails on-demand as the user scrolls or hovers, not all at once on folder open. This avoids megabytes of IPC traffic when browsing a directory with 100+ CBZs. For page previews, pages load in batches of ~12 via Tauri events with a sliding-window backpressure mechanism: the backend sends a batch and waits for an ack from the frontend before sending the next one (same as Pascal's `while FPendingCount > 0 do Sleep(1)`). This avoids over-buffering. Full batch loading will be introduced later when needed.
 
 ### 3. Threading Model Translation
 
 **Challenge:** The original app uses `Synchronize` (not Queue) for progress callbacks: the worker blocks until the main thread processes. This avoids use-after-free (FreeOnTerminate + stale queue entry) and ensures exceptions escape back to the worker rather than killing the GUI. uthreadservice.pas documents this explicitly.
 
-**Solution:** Tauri's event system provides a clean equivalent. Rust async commands emit progress events via `Emitter::emit()`. The frontend processes them as they arrive (no blocking needed). For operations that need backpressure (the original app's batched thumbnail publication), we'll use a simple counter/ack pattern: the frontend sends an ack for each processed batch, and the backend pauses when the ack backlog exceeds a threshold.
+**Solution:** Tauri's event system provides a clean equivalent. Rust async commands emit progress events via `Emitter::emit()`. The frontend processes them as they arrive (no blocking needed). For operations that need backpressure (batched thumbnail publication), we use the same sliding-window ack pattern: backend sends batch → frontend processes + sends ack → backend resumes on next batch. This matches Pascal's `while FPendingCount > 0 do Sleep(1)` but without busy-waiting on the worker side. For error propagation, Tauri commands return `Result<T, E>` — failures are explicit rather than exception-based (which is actually cleaner than Pascal's approach where exceptions can escape event loops).
 
 ### 4. Session Epoch Guards
 
 **Challenge:** The original loader thread uses an `OwnerEpoch` counter to discard stale batches when a new preview/directory load clears the destination lists. A normally-finished thread may still have a queued batch from a previous session (Terminated = False).
 
 **Solution:** Tauri commands are inherently stateless and short-lived — each command invocation gets fresh input. The "epoch" concept maps to passing a session/version token from the frontend. If the backend receives a command for a file that was already reloaded, it just returns current data; no stale batch problem exists because the Rust code doesn't queue work — it executes on-demand.
-### 5. Deterministic Output
+
+### 5. Error Handling & Logging
+
+**Challenge:** Pascal uses exceptions (`try/except` blocks in service methods) for error propagation through multiple layers. Tauri's Rust commands use `Result<T, E>` which is cleaner but requires explicit mapping between low-level I/O errors and user-facing messages.
+
+**Solution:** Use `thiserror` for domain-specific error types (`ArchiveError`, `DecodeError`, `ValidationError`) with the `Display` impl for user messages. Wrap with `anyhow` at Tauri command boundaries for stack traces in dev mode. For logging, use `tracing` (structured) with `tracing-subscriber` for the CLI; the GUI gets a log panel via Svelte store subscription. The original `ulog.pas` minimal logger maps to a simple async channel publishing to the job monitor window.
+
+### 6. Deterministic Output
 **Challenge**: Parallel WebP conversion must produce byte-identical output regardless of thread count.
 **Solution**: Same architecture as Pascal: phase 1 (parallel encode) fills per-slot buffers, phase 2 (sequential compaction) reads slots in archive order. This is preserved in the Rust implementation.
 
----
+### 7. Dialog UI Complexity
 
-## Non-Goals (Out of Scope)
+**Challenge:** The undo stack, zoomable grid, and page preview make this the most complex dialog. Svelte's reactivity is great, but managing a local undo history inside a modal can become tangled.
+
+**Solution:** Use a dedicated `writable` store with an undo middleware (record operations as serializable commands; undo/redo replay). Keep preview logic in a separate component that receives chapter list + selected index as props. Mock the backend early so you can iterate on UI without full Rust integration.
+
+### 8. Build & Distribution
 
 The following Lazarus-specific concerns are explicitly out of scope:
 - LCL widgetset migration (we're replacing it entirely)
@@ -284,15 +303,43 @@ The current Lazarus build remains the source of truth during development. The st
 
 ---
 
-## Estimated Effort
+
+---
+
+## Testing Strategy
+
+| Test Type | Tool | Scope |
+|-----------|------|-------|
+| **Unit tests** | `cargo test` | Every service module: ZIP ops, image decode/encode, page model, merge classification, validation logic |
+| **Snapshot tests** | `cargo insta` | ComicInfo.xml parse/generate round-trip, CLI argument parsing output |
+| **Property-based tests** | `proptest` (for merge) | Chapter detection heuristics, CPV calculation, batching edge cases vs. Pascal reference outputs |
+| **Integration tests** | `cargo test` with `.cbz` fixtures | End-to-end convert-webp/merge/validate on sample archives |
+| **E2E tests** | `tauri-driver` (official WebDriver) or Playwright + Tauri API | Full UI workflows: open folder, select file, edit pages, save; merge dialog sequence builder |
+
+## Incremental Delivery
+
+Use Cargo feature flags to ship the CLI while the GUI is still WIP:
+- `default = ["gui"]` — full build with both CLI and Tauri shell
+- `--no-default-features --features cli-only` — minimal CLI binary (smaller, no Tauri deps)
+- This lets you publish a Rust-native CLI while the Svelte UI is under development.
+
+## Hot-reload & Dev Experience
+
+Tauri v2 with Vite supports HMR out of the box. The frontend rebuilds on save and hot-reloads in the webview without restart. Ensure `dev` script chains `vite` + `tauri dev` for rapid UI iteration.
+
+## Settings Store Preference
+
+Prefer `tauri-plugin-store` over `confy`. It's more integrated with Tauri, provides automatic persistence and type-safe reading, and works across the IPC boundary without extra serialization.## Estimated Effort
 
 | Phase | Estimated Time | Key Deliverable |
 |-------|---------------|-----------------|
-| Phase 1: Rust Core | 60-80 hours | CLI binary with full parity to current Pascal CLI |
-| Phase 2: Tauri Shell | 20-30 hours | Working IPC layer, services callable from frontend |
-| Phase 3: Svelte Frontend | 50-70 hours | Complete two-pane UI with all dialogs and interactions |
-| Phase 4: Polish & Testing | 20-30 hours | Cross-platform builds, E2E tests, packaging |
-| **Total** | **150-210 hours** | Feature-complete Tauri + Svelte application |
+| Phase 1: Rust Core | 70-95 hours | CLI binary with full parity to current Pascal CLI. Includes merge regression testing (property-based tests vs Pascal outputs, ~15h extra). |
+| Phase 2: Tauri Shell | 25-35 hours | Working IPC layer, services callable from frontend, backpressure mechanism |
+| Phase 3: Svelte Frontend | 60-85 hours | Complete two-pane UI with all dialogs and interactions. Includes sequence builder (most complex dialog, ~20h extra) and undo store middleware |
+| Phase 4: Polish & Testing | 25-40 hours | Cross-platform builds, E2E tests (tauri-driver/Playwright), packaging |
+| **Total** | **180-255 hours** | Feature-complete Tauri + Svelte application (includes 20-30% buffer) |
+
+> **Buffer rationale:** The merge service and sequence builder alone could take 30+ hours of careful design and testing. Additional padding for researching Rust equivalents of obscure Pascal patterns, debugging libarchive bindings across platforms, and polishing the Svelte UI to match the original's responsiveness.
 
 ---
 

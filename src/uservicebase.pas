@@ -388,7 +388,9 @@ begin
   Result := RenameFile(AFilePath, OldFile);
   if not Result then
   begin
-    { Cannot back up — leave .new for manual recovery, abort. }
+    { Cannot back up — clean up the temp file and abort. }
+    DeleteFile(NewFile);
+    Result := False;
     Exit;
   end;
 
@@ -396,8 +398,10 @@ begin
   Result := RenameFile(NewFile, AFilePath);
   if not Result then
   begin
-    { Rollback: restore original from _OLD, leave .new as recovery file. }
+    { Rollback: restore original from _OLD and clean up temp files. }
     RenameFile(OldFile, AFilePath);
+    DeleteFile(NewFile);
+    Result := False;
   end;
 end;
 

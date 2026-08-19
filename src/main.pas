@@ -2721,6 +2721,13 @@ begin
   for i := 0 to High(FPages) do
     FreeAndNil(FPages[i].Data);
 
+  { Remove stale thumbnails added by edits/splits — the first N_baseline
+    entries are still shared with FPages/FBaseline and must not be freed.
+    TLazIntfImageList = TObjectList<TLazIntfImage> (OwnsObjects=True),
+    so Delete() frees each removed thumbnail automatically. }
+  while FPagePreviews.Count > Length(FBaseline) do
+    FPagePreviews.Delete(Pred(FPagePreviews.Count));
+
   { Restore from baseline }
   SetLength(FPages, Length(FBaseline));
   for i := 0 to High(FBaseline) do

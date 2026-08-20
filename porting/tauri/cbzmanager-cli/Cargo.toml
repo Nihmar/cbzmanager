@@ -1,0 +1,17 @@
+[package]
+name = "cbzmanager-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "cbzmanager"
+path = "src/main.rs"
+
+[dependencies]
+rust-core = { path = "../rust-core", features = ["cli"] }
+clap = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+dirs = { workspace = true }

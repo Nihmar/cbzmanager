@@ -1,0 +1,27 @@
+[workspace]
+members = [
+    "rust-core",
+    "cbzmanager-cli",
+    "cbzmanager-tauri",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["CBZ Manager Contributors"]
+
+[workspace.dependencies]
+zip = { version = "0.6", default-features = false, features = ["deflate"] }
+flate2 = "1"
+image = { version = "0.25", default-features = false, features = ["jpeg", "webp", "png", "bmp", "gif", "tiff"] }
+quick-xml = "0.37"
+libloading = "0.8"
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+thiserror = "2"
+dirs = "6"
+rayon = "1"
+anyhow = "1"

@@ -1,0 +1,27 @@
+[package]
+name = "rust-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+zip = { workspace = true }
+flate2 = { workspace = true }
+image = { workspace = true }
+quick-xml = { workspace = true, optional = true }
+libloading = { workspace = true, optional = true }
+clap = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, optional = true }
+thiserror = { workspace = true }
+dirs = { workspace = true }
+rayon = { workspace = true }
+anyhow = { workspace = true }
+
+[features]
+default = []
+comicinfo = ["quick-xml"]
+cbr = ["libloading"]
+cli = ["clap", "tracing-subscriber"]
+gui = ["tokio"]

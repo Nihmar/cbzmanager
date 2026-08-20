@@ -44,6 +44,7 @@ backup/
 !porting/cbz_manager/
 # Tauri port plan
 !porting/tauri/
+porting/tauri/target/
 
 # ─── Lazarus IDE ─────────────────────────────────────────────────────────────
 

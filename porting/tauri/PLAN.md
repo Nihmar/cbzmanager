@@ -13,23 +13,53 @@
 
 ---
 
+## Checkpoints — where to resume (start each session here)
+
+| # | Checkpoint | What's done | Next step |
+|---|-----------|-------------|-----------|
+| 0 | **Scaffolding** | Workspace, 3 crates compile | Types |
+| 1 | **Shared types + helpers** | Types, constants, backup/rename utilities | ZIP ops |
+| 2 | **ZIP operations** | CollectZipEntries, WriteZipFromEntries, FormatPageName, ComicInfo filtering | Image util |
+| 3 | **Image utilities** | Magic-byte detection, decode/encode/scale, center-anchor scroll math | Services |
+| 4 | **All services** | validate, convert-webp, merge, comicinfo, cbr-reader, cbr-convert, image-edit, batch-edit, page-model | CLI binary |
+| 5 | **CLI binary** | `cbzmanager` headless with all commands, matching Pascal exit codes | Tauri shell |
+| 6 | **Tauri shell + IPC** | Commands wrap rust-core, progress events, settings, logging | Frontend stores + API |
+| 7 | **Frontend — stores + API + types** | Svelte store wiring, `api.ts`, TypeScript types | Core UI components |
+| 8 | **Frontend — core UI** | Two-pane layout, file browser, page preview, stage bar, job monitor, main layout | Dialogs |
+| 9 | **Frontend — all dialogs** | Validate, convert, merge, CBR, comicinfo, viewer, editor, batch-edit, results | Polish & tests |
+| 10 | **Polish & tests** | Rust unit/integration tests, E2E, cross-platform builds, packaging | Done |
+
+> **Legend**: `[ ]` not started · `[~]` in progress · `[x]` done
+> Scroll to the first `[ ]` in your current checkpoint and start there.
+
+---
+
 ## Phase 1: Rust Core Library (no GUI) — ~70-95h
 
-### 1A. Project scaffolding (`Cargo.toml`, workspace, feature flags)
+### Checkpoint 0 — Scaffolding
 
-**Files to create:**
-- `porting/tauri/Cargo.toml` — Workspace with three members: `rust-core/`, `cbzmanager-cli/`, `cbzmanager-tauri/`
-- `porting/tauri/rust-core/Cargo.toml` — Core library crate
-- `porting/tauri/cbzmanager-cli/Cargo.toml` — CLI binary crate
-- `porting/tauri/cbzmanager-tauri/Cargo.toml` — Tauri app crate
-- `--no-default-features --features cli-only` for minimal CLI build; `default = ["gui"]` includes Tauri
+**Files to create:** `Cargo.toml` (workspace), `rust-core/`, `cbzmanager-cli/`, `cbzmanager-tauri/`
+
+- [ ] **0A.** Create workspace `porting/tauri/Cargo.toml` with three members: `rust-core/`, `cbzmanager-cli/`, `cbzmanager-tauri/`
+- [ ] **0B.** Create `porting/tauri/rust-core/Cargo.toml` — core library crate
+- [ ] **0C.** Create `porting/tauri/cbzmanager-cli/Cargo.toml` — CLI binary crate (`--no-default-features --features cli-only`)
+- [ ] **0D.** Create `porting/tauri/cbzmanager-tauri/Cargo.toml` — Tauri app crate (default = `"gui"` includes Tauri)
+- [ ] **0E.** Verify workspace compiles: `cargo check --workspace`
+- [ ] **0F.** Set up feature flags in root:
+  ```toml
+  [features]
+  default = ["gui"]
+  gui = ["tauri"]
+  cli-only = []  # implies no tauri dep, just binary crate
+  ```
 
 **Dependency decisions (from TARGET.md):**
+
 | Crate | Version | Use |
 |-------|---------|-----|
 | `zip` | 0.6 | ZIP read/write, deflate compression |
 | `flate2` | — | Deflate backend for zip crate |
-| `image` | 0.25 with `default,jpeg,webp,png,bmp,gif,tiff` feature flags | Multi-format decode/encode; GIF encoding requires explicit `gif` flag |
+| `image` | 0.25 with `default,jpeg,webp,png,bmp,gif,tiff` features | Multi-format decode/encode; GIF encoding requires explicit `gif` flag |
 | `webp` | latest | WebP encoding (bundles libwebp, no runtime dependency) |
 | `quick-xml` | 0.37 | ComicInfo.xml parse/generate |
 | `libloading` | latest | Dynamic libarchive loading |
@@ -38,16 +68,11 @@
 | `tracing` / `tracing-subscriber` | latest | Structured logging |
 | `thiserror` | latest | Domain error types |
 | `dirs` | latest | App config directory |
+| `rayon` | latest | CPU-parallel worker pools |
 
-**Feature flag design:**
-```toml
-[features]
-default = ["gui"]
-gui = ["tauri"]
-cli-only = []  # implies no tauri dep, just binary crate
-```
+---
 
-### 1B. Shared types (`rust-core/src/types.rs`)
+### Checkpoint 1 — Shared types + helpers
 
 **Replaces:** `uservicebase.pas` — `TZipEntry`, `TImageCheck`, progress callback types, constants
 
@@ -67,11 +92,18 @@ pub const MAX_CBR_THREADS: usize = 4;
 // CLI mode uses no progress callback (stdout/stderr). Tauri commands emit events.
 ```
 
-### 1C. ZIP operations (`rust-core/src/zip_ops.rs`)
+- [ ] **1A.** Create `rust-core/src/types.rs` with all public types above
+- [ ] **1B.** Create helper functions in same file or a separate `helpers.rs`:
+  - [ ] `backup_file(path: &Path) -> Result<PathBuf>` — rename to `._OLD.cbz`
+  - [ ] `replace_cbz(original: &Path, replacement: &Path) -> Result<()>` — atomic replace
+  - [ ] `collect_cbz_files(dir: &Path) -> Vec<PathBuf>` — glob `.cbz` / `.CBZ` (case-insensitive)
+  - [ ] `collect_cbr_files(dir: &Path) -> Vec<PathBuf>` — glob `.cbr` / `.CBR` (case-insensitive)
+
+---
+
+### Checkpoint 2 — ZIP operations
 
 **Replaces:** `uzipcore.pas` + `uzipeditor.pas` (collection/writing parts)
-
-**Functions to implement (Pascal → Rust):**
 
 | Pascal | Rust | Details |
 |--------|------|---------|
@@ -80,12 +112,20 @@ pub const MAX_CBR_THREADS: usize = 4;
 | `FreeZipEntries` | — | Rust owns Vec, dropped naturally |
 | `StripComicInfo` | Inline in collect | Filter during collection; no separate pass needed |
 | `FindComicInfoIndex` | `find_comicinfo_index(entries: &[String]) -> Option<usize>` | Search for ComicInfo.xml by name |
-| `FormatPageName` | `format_page_name(index: usize) -> String` | `page_0001.ext` (4-digit zero-padded) |
+| `FormatPageName` | `format_page_name(index: usize, padding: usize) -> String` | `page_0001.ext` (zero-padded) |
 | `PagePaddingFor` | `page_padding_for(count: usize) -> usize` | Padding = count digits |
 
 **Key invariant:** All operations are RAM-only. `collect_zip_entries` opens the ZIP and reads each entry via compression reader into Vec<u8>. `write_zip_from_entries` creates a fresh ZIP writer (deflate level defaults to 6/ZIP_DEFAULT_COMPRESSION, matching Pascal).
 
-### 1D. Image utilities (`rust-core/src/image_util.rs` + `webp_decode.rs`)
+- [ ] **2A.** Create `rust-core/src/zip_ops.rs`
+- [ ] **2B.** Implement `collect_zip_entries(path: &Path) -> Result<Vec<ZipEntry>>` — open ZIP, read entries into Vec<u8>, skip ComicInfo.xml during collection
+- [ ] **2C.** Implement `write_zip_from_entries(path: &Path, entries: &[ZipEntry]) -> Result<()>` — create ZIP with deflate compression, write entries in order
+- [ ] **2D.** Implement `find_comicinfo_index(entries: &[String]) -> Option<usize>` — search for ComicInfo.xml by name
+- [ ] **2E.** Implement `format_page_name(index: usize, padding: usize) -> String` and `page_padding_for(count: usize) -> usize`
+
+---
+
+### Checkpoint 3 — Image utilities
 
 **Replaces:** `uimgutil.pas` + `uwebp.pas`
 
@@ -110,8 +150,21 @@ pub fn center_anchor(delta: f64, current_zoom: f64, new_zoom: f64, img_w: u32, v
 
 **WebP decode:** The `image` crate already supports WebP via the `webp` feature flag. However, Pascal's `uwebp.pas` uses libwebp FFI for raw decoding. Use `image` crate first — if pixel-exact parity is needed later, add a separate `webp_decode.rs` with libwebp FFI matching Pascal's approach.
 
-### 1E. Validation service (`rust-core/src/validate.rs`)
+- [ ] **3A.** Create `rust-core/src/image_util.rs`
+- [ ] **3B.** Implement magic-byte format detection: `detect_format(bytes: &[u8]) -> ImageFormat { Jpeg, Png, Webp, Bmp, Gif, Tiff }`
+- [ ] **3C.** Implement `decode_image(bytes: &[u8]) -> Result<DynamicImage>` via image crate
+- [ ] **3D.** Implement `encode_image(img: &DynamicImage, format: ImageFormat, quality: u32) -> Result<Vec<u8>>` — JPEG q92, WebP q75, PNG/BMP lossless; GIF/TIFF → PNG
+- [ ] **3E.** Implement `scale_image(img: &DynamicImage, width: u32, height: u32) -> DynamicImage` — box filter (`FilterType::Box`)
+- [ ] **3F.** Implement `center_anchor(delta, current_zoom, new_zoom, img_w, view_w, pos_x) -> f64` — same algorithm as Pascal
+- [ ] **3G.** Implement thumbnail generation pipeline: `generate_thumbnail(bytes: &[u8], cache_width: u32) -> Result<Vec<u8>>` (decode → scale → JPEG encode as base64 for frontend)
 
+---
+
+### Checkpoint 4 — All services (core modules)
+
+Each service is a separate module. They can be built in any order but depend on checkpoints 0-3.
+
+#### 4A. Validation (`rust-core/src/validate.rs`)
 **Replaces:** `uservicevalidate.pas`
 
 ```rust
@@ -121,10 +174,12 @@ pub fn validate_deep(path: &Path, threads: usize) -> Result<Vec<FileValidationRe
 // ImageCheck: { filename: String, depth: usize, ok: bool, errors: Vec<String> }
 ```
 
-**Parallel pool:** Use `rayon` (not tokio threads) for CPU-bound work — same model as Pascal `TValidateWorker`. Rayon's thread pool is more efficient for parallel decode. Worker claims file index under lock → decodes each image → result goes to per-index slot → join assembles in archive order.
+- [ ] **4A.1.** Implement `validate()` — quick mode (just open + read image headers)
+- [ ] **4A.2.** Implement `validate_deep()` — full decode + re-encode test
+- [ ] **4A.3.** Parallel pool via rayon (same phase-then-gather pattern as Pascal `TValidateWorker`)
+- [ ] **4A.4.** Determinism: threads=1 vs rayon → identical results per slot
 
-### 1F. Convert-webp service (`rust-core/src/convert_webp.rs`)
-
+#### 4B. Convert-webp (`rust-core/src/convert_webp.rs`)
 **Replaces:** `userviceconvert.pas`
 
 ```rust
@@ -132,498 +187,284 @@ pub fn convert(path: &Path, threads: usize, delete_source: bool) -> Result<Conve
 // ConversionResult: { converted: Vec<PathBuf>, skipped: Vec<PathBuf> }
 ```
 
-**Architecture (same as Pascal — deterministic):**
-1. Collect all entries into RAM (`collect_zip_entries`)
-2. Parallel phase: each worker in rayon pool claims a convertible entry → decodes → encodes to WebP at q75 → checks if smaller than original → stores result in per-slot buffer (None or Vec<u8>)
-3. Sequential phase: iterate entries in archive order, compact slots into output entries (filter ComicInfo.xml, renumber as page_NNNN.webp)
-4. Write ZIP (`write_zip_from_entries`)
-5. Backup or delete source if `delete_source`
+Architecture (same as Pascal — deterministic): 1. Collect entries into RAM → 2. Parallel phase (claim convertible entry → decode → encode WebP q75 → check size → store in per-slot buffer) → 3. Sequential phase (iterate archive order, compact slots, filter ComicInfo.xml, renumber as `page_NNNN.webp`) → 4. Write ZIP → 5. Backup or delete source.
 
-### 1G. Merge service (`rust-core/src/merge.rs`)
+- [ ] **4B.1.** Implement `convert()` with parallel rayon worker pool
+- [ ] **4B.2.** Phase 1 (parallel) + Phase 2 (sequential compaction) for deterministic output
+- [ ] **4B.3.** Write ZIP and handle backup/deletion
+- [ ] **4B.4.** Determinism: threads=1 vs 4 → byte-identical archives
 
-**Replaces:** `uservicemerge.pas` — the most intricate business logic.
+#### 4C. Merge (`rust-core/src/merge.rs`) — most intricate business logic
+**Replaces:** `uservicemerge.pas`
 
 ```rust
-pub enum MergeConfig {
-    Chapters(Vec<usize>),           // --chapters N1,N2,...
-    ChaptersPerVolume(usize),       // --chapters-per-volume N
-}
-pub fn merge(
-    dir: &Path,
-    force: bool,
-    config: MergeConfig,
-    chapter_start: u32,
-    chapter_end: u32,
-    generate_comicinfo: bool,
-    threads: usize,
-) -> Result<Vec<MergeVolume>>;
+pub enum MergeConfig { Chapters(Vec<usize>), ChaptersPerVolume(usize) }
+pub fn merge(dir, force, config, chapter_start, chapter_end, generate_comicinfo, threads) -> Result<Vec<MergeVolume>>;
 
-pub struct MergeVolume {
-    title: String,     // "Title VNNN.cbz"
-    output_path: PathBuf,
-    chapters: Vec<PathBuf>,  // source chapter paths merged into this volume
-    comicinfo_xml: Option<Vec<u8>>, // optional generated ComicInfo.xml
-}
+pub struct MergeVolume { title: String, output_path: PathBuf, chapters: Vec<PathBuf>, comicinfo_xml: Option<Vec<u8>> }
 ```
 
-**Key algorithm decisions (all from TARGET.md — intentional divergences):**
-- **Non-image entries dropped**, not renumbered as pages
-- **Force below CPV creates single volume** (not skipped)
-- **CPV < 1 with volumes present falls back to 7**
-- **`.CBZ` glob is case-insensitive** (`*.cbz` + `*.CBZ`)
-- **Empty batches produce no volume file** (not empty CBZ)
-- **`GenerateComicInfo.xml` per volume** is GUI-only option
-- **Multi-series folders merged per series** (one run per series)
-- **CPV = `(lowest_chapter - 1) / num_volumes`**, real division, integer result. If == 0, use default 7.
+**Intentional divergences (all from TARGET.md):** non-image entries dropped; force below CPV creates single volume; CPV < 1 with volumes present falls back to 7; `.CBZ` glob case-insensitive; empty batches produce no volume file; `GenerateComicInfo.xml` per volume is GUI-only option; multi-series folders merged per series; CPV = `(lowest_chapter - 1) / num_volumes` real division, integer result.
 
-### 1H. ComicInfo XML (`rust-core/src/comicinfo_xml.rs`)
+- [ ] **4C.1.** Implement chapter classification: detect series name and chapter numbers from filenames
+- [ ] **4C.2.** Implement CPV calculation: `(lowest_chapter - 1) / num_volumes`, fallback to 7 if 0 or empty
+- [ ] **4C.3.** Implement batching into volumes with `Series VNNN.cbz` naming
+- [ ] **4C.4.** Implement per-file merge: collect entries from each chapter CBZ → write volume ZIP
+- [ ] **4C.5.** Optional ComicInfo.xml generation per volume
+- [ ] **4C.6.** All intentional divergences documented and tested
 
+#### 4D. ComicInfo XML (`rust-core/src/comicinfo_xml.rs`)
 **Replaces:** `ucomicinfo.pas`
 
 ```rust
-pub struct ComicInfo {
-    pub series: Option<String>,
-    pub number: Option<String>,
-    pub volume: Option<String>,
-    pub count: Option<String>,
-    pub genre: Option<String>,
-    pub summary: Option<String>,
-    pub publisher: Option<String>,
-    pub imprint: Option<String>,
-    pub year: Option<String>,
-    pub month: Option<String>,
-    pub day: Option<String>,
-    pub writers: Vec<String>,
-    pub inkers: Vec<String>,
-    pub colorists: Vec<String>,
-    pub letterers: Vec<String>,
-    pub cover_artists: Vec<String>,
-    pub tags: Vec<String>,
-    pub groups: Vec<String>,
-    pub launch_date: Option<String>,
-}
-
+pub struct ComicInfo { series, number, volume, count, genre, summary, publisher, imprint, year, month, day, writers[], inkers[], colorists[], letterers[], cover_artists[], tags[], groups[], launch_date }
 pub fn parse_comicinfo_xml(xml: &[u8]) -> Result<ComicInfo>;
-pub fn generate_comicinfo_xml(ci: &ComicInfo) -> Vec<u8>;
-// Output matches Pascal XML structure exactly for round-trip testing.
+pub fn generate_comicinfo_xml(ci: &ComicInfo) -> Vec<u8>; // sorted element order matching Pascal for round-trip
 ```
 
-Use `quick-xml` with a read-write (serialization) approach. Generate sorted element order matching Pascal output for snapshot tests.
+- [ ] **4D.1.** Define `ComicInfo` struct with all fields
+- [ ] **4D.2.** Implement `parse_comicinfo_xml()` via `quick-xml`
+- [ ] **4D.3.** Implement `generate_comicinfo_xml()` — sorted element order matching Pascal for snapshot testing
 
-### 1I. ComicInfo service (`rust-core/src/comicinfo.rs`)
-
+#### 4E. ComicInfo service (`rust-core/src/comicinfo.rs`)
 **Replaces:** `uservicecomicinfo.pas`
 
 ```rust
 pub enum ComicInfoAction { Scan, Remove }
-pub struct ComicInfoResult {
-    pub file: PathBuf,
-    pub found: bool,
-    pub info: Option<ComicInfo>,   // for scan
-}
-pub fn scan_or_remove(
-    dir: &Path,
-    action: ComicInfoAction,
-    threads: usize,
-    backup: bool,
-) -> Result<Vec<ComicInfoResult>>;
+pub fn scan_or_remove(dir, action, threads, backup) -> Result<Vec<ComicInfoResult>>;
 ```
 
-Parallel pool (rayon): each worker claims a `.cbz` index → scans/removes ComicInfo.xml → writes result slot → join assembles. Backup file created before batch starts (same pattern as Pascal).
+- [ ] **4E.1.** Implement scan and remove actions with parallel rayon pool
+- [ ] **4E.2.** Backup file created before batch starts (same pattern as Pascal)
 
-### 1J. CBR reader (`rust-core/src/cbr_reader.rs`)
-
+#### 4F. CBR reader (`rust-core/src/cbr_reader.rs`)
 **Replaces:** `uarchive.pas`
 
 ```rust
-// Two-pass scanning (no central directory in RAR):
 pub fn cbr_entry_names(path: &Path) -> Result<Vec<String>>;     // names pass
-pub fn foreach_cbr_image<F>(path: &Path, callback: F) -> Result<()> where F: FnMut(&str, &[u8]) -> ();
-// Collects entries as Vec<u8> (like CollectZipEntries but via libarchive FFI)
-
-// Dynamic loading pattern:
+pub fn foreach_cbr_image<F>(path: &Path, callback: F) -> Result<()> where F: FnMut(&str, &[u8]);
 fn load_libarchive() -> Option<LibarchiveHandle>;
 ```
 
-Same dynamic loading as Pascal's `uarchive.pas`: attempt to load `libarchive.so` on Linux, `libarchive.dll` on Windows. If unavailable, functions return `Err("libarchive not found")`. Two-pass RAR scanning: first pass collects names for alphabetical ranking, second pass reads data.
+- [ ] **4F.1.** Implement dynamic loading: `load_libarchive()` — attempt `.so` on Linux, `.dll` on Windows; return `Err("libarchive not found")` if unavailable
+- [ ] **4F.2.** Two-pass RAR scanning: first pass collects names for alphabetical ranking, second pass reads data
 
-### 1K. CBR conversion (`rust-core/src/cbr_convert.rs`)
-
+#### 4G. CBR conversion (`rust-core/src/cbr_convert.rs`)
 **Replaces:** `uservicecbr.pas`
 
 ```rust
-pub fn convert_cbr_to_cbz(dir: &Path, threads: usize, delete_source: bool) -> Result<Vec<CbrConversionResult>>;
+pub fn convert_cbr_to_cbz(dir, threads, delete_source) -> Result<Vec<CbrConversionResult>>;
 // CbrConversionResult: { input: PathBuf, output: PathBuf, ok: bool, error: Option<String> }
 ```
 
-**Parallel unit:** whole file (not per-image), because RAR decompression inside libarchive is single-threaded. Each worker in rayon pool claims a `.cbr` index → reads via `cbr_reader.rs` → writes CBZ → optional source delete. Cap at 4 workers (each holds a full decompressed archive in RAM).
+**Parallel unit:** whole file (not per-image), because RAR decompression inside libarchive is single-threaded. Cap at 4 workers (each holds a full decompressed archive in RAM).
 
-### 1L. Image editing (`rust-core/src/image_edit.rs`)
+- [ ] **4G.1.** Implement batch CBR→CBZ conversion with rayon pool (one worker per `.cbr` index)
+- [ ] **4G.2.** Optional source delete support
 
+#### 4H. Image editing (`rust-core/src/image_edit.rs`)
 **Replaces:** `uimageedit.pas`
 
 ```rust
-pub fn resample_image(img: &DynamicImage, width: u32, height: u32) -> DynamicImage;
-  // Box filter, both directions (downscale and upscale). Same as Pascal.
-
-pub fn adjust_colors(img: &DynamicImage, params: &ColorParams) -> DynamicImage;
-  // Pipeline: invert → grayscale → sepia → RGB gains → saturation → contrast → brightness → gamma
-  // All operations applied sequentially to pixel data.
-
-pub struct CutLine { x1: f64, y1: f64, x2: f64, y2: f64 };  // normalized 0-1 coords
-pub fn split_image(img: &DynamicImage, cuts: &[CutLine]) -> Vec<DynamicImage>;
-  // N parallel cut lines → N+1 pieces. Same rasterization as Pascal (scanline intersection).
+pub fn resample_image(img, width, height) -> DynamicImage;        // Box filter, both directions
+pub fn adjust_colors(img, params: ColorParams) -> DynamicImage;    // invert → grayscale → sepia → RGB gains → saturation → contrast → brightness → gamma (sequential)
+pub struct CutLine { x1: f64, y1: f64, x2: f64, y2: f64 };       // normalized 0-1 coords
+pub fn split_image(img, cuts: &[CutLine]) -> Vec<DynamicImage>;   // N parallel cut lines → N+1 pieces (scanline intersection rasterization)
 ```
 
-**Important:** Image editing operates on decoded `DynamicImage` objects. The pipeline is: decode current state → apply edits → encode back to bytes → store in `PageState::Data`. This matches Pascal's page model.
+- [ ] **4H.1.** Implement `resample_image()` — box filter, both directions (downscale and upscale)
+- [ ] **4H.2.** Implement `adjust_colors()` — full pipeline applied sequentially to pixel data
+- [ ] **4H.3.** Implement `split_image()` with scanline intersection rasterization
 
-### 1M. Batch edit (`rust-core/src/batch_edit.rs`)
-
+#### 4I. Batch edit (`rust-core/src/batch_edit.rs`)
 **Replaces:** `ubatchedit.pas`
 
 ```rust
-pub struct MultiEditParams {
-    pub resize_percent: Option<f64>,
-    pub color_adjust: ColorParams,
-    pub cut_lines: Vec<CutLine>,  // normalized coords
-}
-pub fn apply_multi_edit(
-    pages: &[PageState],      // current page model state
-    params: &MultiEditParams,
-) -> Result<Vec<PageState>>;  // edited pages with Data streams
+pub struct MultiEditParams { resize_percent, color_adjust, cut_lines }
+pub fn apply_multi_edit(pages: &[PageState], params) -> Result<Vec<PageState>>;
 ```
 
-Sequential RAM-only pipeline per page. Progress tracking via callback. Same as Pascal `ApplyMultiEditToImage`.
+- [ ] **4I.1.** Implement sequential RAM-only pipeline per page: decode → resize → colours → split → encode
+- [ ] **4I.2.** Progress tracking via callback
 
-### 1N. Page model (`rust-core/src/page_model.rs`)
-
+#### 4J. Page model (`rust-core/src/page_model.rs`)
 **Replaces:** `upageeditmodel.pas`
 
 ```rust
-pub struct PageState {
-    pub orig_name: String,     // original entry name
-    pub name: String,          // current/renumbered name (page_NNNN.ext)
-    pub data: Option<Vec<u8>>, // edited bytes (if Some, preferred over archive entry)
-    pub deleted: bool,         // ckDeleted flag
-}
-
-pub struct PageModel {
-    pub pages: Vec<PageState>,
-    pub baseline: Vec<PageState>,   // open-time snapshot for revert
-    pub changes: Vec<Change>,       // linear undo log: ckDeleted | ckMoved | ckEdited
-}
-
-impl PageModel {
-    pub fn delete_at(index: usize) -> Change;
-    pub fn move_up(index: usize) -> Option<Change>;
-    pub fn move_down(index: usize) -> Option<Change>;
-    pub fn sort_asc() -> Change;
-    pub fn sort_desc() -> Change;
-    pub fn reverse() -> Change;
-    pub fn renumber(&mut self);    // rename all visible pages page_NNNN.ext
-    pub fn insert_at(index: usize, pieces: Vec<PageState>) -> Change;  // split result
-    pub fn has_changes(&self) -> bool;
-    pub fn revert(&mut self);      // reload from baseline
-}
-
-// Save logic (TSaveChangesThread replacement):
-pub fn save_changes(
-    pages: &[PageState],
-    output_path: &Path,
-    backup_path: &Path,
-) -> Result<()>;
-  // Encode each page: Data (if Some) wins over archive entry → bytes → ZIP write.
-  // Renumbered names applied before writing. Backup created first.
+pub struct PageState { orig_name, name, data: Option<Vec<u8>>, deleted }
+pub struct PageModel { pages, baseline: Vec<PageState>, changes: Vec<Change> }
+impl PageModel { delete_at, move_up, move_down, sort_asc, sort_desc, reverse, renumber, insert_at, has_changes, revert; }
+pub fn save_changes(pages, output_path, backup_path) -> Result<()>;
 ```
 
-**Key behaviors preserved:**
-- `ckDeleted` pages excluded from output
-- `ckEdited`/`ckMoved` change entries recorded for undo
-- Save thread writes ZIP entirely in RAM (no temp files)
-- `Data` stream wins over archive entry content (for edited/split pages)
-- `OrigName` kept for replace mode; updated only on renumber
+**Key behaviors:** `ckDeleted` excluded from output; changes recorded for undo; ZIP write entirely in RAM; `Data` stream wins over archive entry content; `OrigName` kept for replace mode.
 
-### 1O. CLI binary (`cbzmanager/src/main.rs`)
+- [ ] **4J.1.** Define `PageState` and `PageModel` structs
+- [ ] **4J.2.** Implement page operations: delete_at, move_up, move_down, sort_asc, sort_desc, reverse, renumber, insert_at
+- [ ] **4J.3.** Implement `has_changes()`, `revert()`, and `save_changes()` — Data wins over archive entry
+
+---
+
+### Checkpoint 5 — CLI binary
 
 **Replaces:** `uclimode.pas`
 
 ```rust
-#[derive(clap::Parser)]
-#[command(name = "cbzmanager", version, about)]
-struct Cli {
-    #[command(subcommand)]
-    command: Command,
-}
-
-enum Command {
-    Validate { dir: PathBuf, threads: Option<usize> },
-    ConvertWebp { dir: PathBuf, delete: bool, threads: Option<usize> },
-    Merge { 
-        dir: PathBuf, delete: bool, force: bool,
-        chapters: Option<String>, chapters_per_volume: Option<usize>,
-    },
-    CbrToCbz { dir: PathBuf, delete: bool, threads: Option<usize> },
-}
+#[derive(clap::Parser)] #[command(name = "cbzmanager", version, about)]
+struct Cli { #[command(subcommand)] command: Command }
+enum Command { Validate, ConvertWebp, Merge, CbrToCbz }
 ```
 
-Same argument structure as Pascal CLI. Flags may precede or follow directory (clap's flexibility). Exit codes: 0 success/benign-no-op, 1 runtime error, 2 usage error. Mutual exclusion of `--chapters` and `--chapters-per-volume` returns 1.
+Exit codes: 0 success/benign-no-op, 1 runtime error, 2 usage error. Flags may precede or follow directory (clap's flexibility). Mutual exclusion of `--chapters` and `--chapters-per-volume` returns 1.
+
+- [ ] **5A.** Create `cbzmanager-cli/src/main.rs`
+- [ ] **5B.** Implement clap CLI with subcommands: `validate <dir> [--threads N]`, `convert-webp <dir> [--delete] [--threads N]`, `merge <dir> [--delete] [--force] [--chapters N1,N2] [--chapters-per-volume N]`, `cbr-to-cbz <dir> [--delete] [--threads N]`
+- [ ] **5C.** Dispatch each command to corresponding rust-core function
+- [ ] **5D.** Implement exit codes: 0, 1, 2 (mutual exclusion of `--chapters` / `--chapters-per-volume` → exit 1)
+- [ ] **5E.** Verify CLI argument parsing matches Pascal behavior (flags tolerate preceding or following directory)
 
 ---
 
 ## Phase 2: Tauri Shell + IPC — ~25-35h
 
-### 2A. Tauri commands (`cbzmanager-tauri/src/commands/*.rs`)
+### Checkpoint 6 — Tauri commands + progress + settings + logging
 
-**Each command wraps a rust-core function:**
-
-```rust
-// archive_ops.rs
-#[tauri::command]
-async fn list_entries(file: String) -> Result<Vec<String>>;
-#[tauri::command]
-async fn read_entry(file: String, name: String) -> Result<Vec<u8>>;
-#[tauri::command]
-async fn first_image(file: String) -> Result<Option<Vec<u8>>>;
-
-// validate.rs — delegate to rust-core::validate::validate()
-#[tauri::command]
-async fn cmd_validate(dir: String, threads: usize, progress: TauriProgress) -> Result<Vec<FileValidationResult>>;
-
-// convert_webp.rs
-#[tauri::command]
-async fn cmd_convert_webp(dir: String, delete_source: bool, threads: usize, progress: TauriProgress) -> Result<ConversionResult>;
-
-// merge.rs
-#[tauri::command]
-async fn cmd_merge(dir: String, force: bool, chapters: Option<String>, 
-                   chapters_per_volume: Option<usize>, progress: TauriProgress) -> Result<Vec<MergeVolume>>;
-
-// cbr_to_cbz.rs
-#[tauri::command]
-async fn cmd_cbr_to_cbz(dir: String, delete_source: bool, threads: usize, progress: TauriProgress) -> Result<Vec<CbrConversionResult>>;
-
-// comicinfo.rs
-#[tauri::command]
-async fn cmd_scan_comicinfo(dir: String, threads: usize) -> Result<Vec<ComicInfoResult>>;
-#[tauri::command]
-async fn cmd_remove_comicinfo(dir: String, backup: bool, threads: usize) -> Result<()>;
-
-// page_edit.rs (in-memory model + save)
-#[tauri::command]
-async fn page_delete_at(file: String, index: usize) -> Result<PageChange>;
-#[tauri::command]
-async fn page_move_up(file: String, index: usize) -> Result<Option<PageChange>>;
-#[tauri::command]
-async fn page_move_down(file: String, index: usize) -> Result<Option<PageChange>>;
-#[tauri::command]
-async fn page_sort_asc(file: String) -> Result<PageChange>;
-#[tauri::command]
-async fn page_sort_desc(file: String) -> Result<PageChange>;
-#[tauri::command]
-async fn page_reverse(file: String) -> Result<PageChange>;
-#[tauri::command]
-async fn page_renumber(file: String) -> Result<()>;
-#[tauri::command]
-async fn page_save(file: String, backup_path: Option<String>) -> Result<()>;
-#[tauri::command]
-async fn page_revert(file: String) -> Result<()>;
-#[tauri::command]
-async fn page_insert_at(file: String, index: usize, pieces: Vec<PageState>) -> Result<PageChange>;
-#[tauri::command]
-async fn page_undo(file: String) -> Result<Option<Change>>;
-
-// directory_ops.rs (file browser)
-#[tauri::command]
-async fn list_directory(dir: String, filter: Option<String>) -> Result<Vec<DirEntry>>;
-
-// batch_edit.rs
-#[tauri::command]
-async fn cmd_apply_batch_edit(file: String, params: BatchEditParams) -> Result<Vec<PageState>>;
-```
-
-### 2B. Progress reporting via Tauri events
+Each command wraps a rust-core function. Frontend communicates via `invoke<...>()`.
 
 **TauriProgress replacement:** Pascal uses `TThread.Queue` / `Synchronize`. Tauri uses its event system.
 
 ```rust
-// Define progress events:
-#[derive(Serialize)]
-pub struct ProgressEvent {
-    pub percent: u8,
-    pub message: String,
-    pub phase: String,  // "collecting", "processing", "saving", etc.
-}
-
-// In command implementation:
-state.emit("progress", ProgressEvent { percent, message, phase })?;
+#[derive(Serialize)] pub struct ProgressEvent { percent: u8, message: String, phase: String }
+// In command implementation: state.emit("progress", ProgressEvent { ... })?;
+// Frontend subscribes via listen("progress", ...) and updates JobMonitor store.
+// Thumbnail loading: sliding-window ack — frontend sends ack after each batch of 12; backend awaits before next batch.
 ```
 
-Frontend subscribes via `listen("progress", ...)` and updates the JobMonitor store. For backpressure in the **thumbnail loading path specifically**, use a sliding-window ack pattern: frontend sends ack after processing each batch of 12 thumbnails; backend awaits ack before sending next batch. Other operations stream progress events without flow control (they're informational, not data transfer).
-
-### 2C. Settings persistence (`cbzmanager-tauri/src/settings.rs`)
-
-**Replaces:** `usettings.pas`
-
-Use `tauri-plugin-store` for typed INI-style config:
-```rust
-#[derive(Serialize, Deserialize)]
-pub struct AppSettings {
-    pub window_width: u32,
-    pub window_height: u32,
-    pub thumbnail_cache_size: u32,  // default 128MB equivalent
-    pub max_webp_threads: usize,
-    pub max_cbr_threads: usize,
-    pub validate_threads: usize,
-}
-
-pub fn load_settings() -> Result<AppSettings>;
-pub fn save_settings(settings: &AppSettings) -> Result<()>;
-```
-
-### 2D. Logging (`rust-core/src/logger.rs`)
-
-**Replaces:** `ulog.pas`
-
-```rust
-// Structured logging via tracing
-#[derive(Serialize)]
-pub struct LogEntry { timestamp: String, level: String, message: String };
-
-// Thread-safe buffer published to frontend store.
-pub struct LogObserver { entries: Mutex<Vec<LogEntry>>, max_entries: usize };
-impl LogObserver {
-    pub fn log(&self, entry: LogEntry) { /* push with mutex lock */ }
-    pub fn take_entries(&self) -> Vec<LogEntry> { /* drain */ }
-}
-```
-
-CLI mode uses `tracing-subscriber` to stdout. Tauri mode routes through `LogObserver` → Tauri event → Svelte store.
+- [ ] **6A.** Set up Tauri v2 project (`cbzmanager-tauri/tauri.conf.json`, main.rs entry point, window creation)
+- [ ] **6B. Archive operations commands:**
+  - [ ] `list_entries(file: String) -> Result<Vec<String>>`
+  - [ ] `read_entry(file: String, name: String) -> Result<Vec<u8>>`
+  - [ ] `first_image(file: String) -> Result<Option<Vec<u8>>>`
+- [ ] **6C. Service commands** (each wraps rust-core):
+  - [ ] `cmd_validate(dir, threads, progress_event)`
+  - [ ] `cmd_convert_webp(dir, delete_source, threads, progress_event)`
+  - [ ] `cmd_merge(dir, force, chapters?, chapters_per_volume?, progress_event)`
+  - [ ] `cmd_cbr_to_cbz(dir, delete_source, threads, progress_event)`
+  - [ ] `cmd_scan_comicinfo(dir, threads)`
+  - [ ] `cmd_remove_comicinfo(dir, backup, threads)`
+- [ ] **6D. Page edit commands** (stateless — frontend store owns model lifecycle):
+  - [ ] `page_delete_at`, `page_insert_at`, `page_undo`, `page_save`, `page_revert`
+  - [ ] `page_move_up`, `page_move_down`, `page_sort_asc`, `page_sort_desc`, `page_reverse`, `page_renumber`
+- [ ] **6E. Directory operations:** `list_directory(dir, filter?) -> Result<Vec<DirEntry>>`
+- [ ] **6F. Batch edit command:** `cmd_apply_batch_edit(file, params) -> Result<Vec<PageState>>`
+- [ ] **6G. Progress events** — emit from all service commands via `state.emit("progress", event)?`; frontend listens with `listen("progress", ...)`; sliding-window ack for thumbnail batches (batch size 12)
+- [ ] **6H. Settings persistence:** `tauri-plugin-store` with `AppSettings { window_width, window_height, max_webp_threads, max_cbr_threads, validate_threads }`; `load_settings()` / `save_settings()` commands
+- [ ] **6I. Logging:** `LogObserver` thread-safe buffer published to frontend via Tauri event; CLI mode uses `tracing-subscriber` to stdout
 
 ---
 
 ## Phase 3: Svelte Frontend — ~60-85h
 
-### 3A. Data stores (`web/src/stores/*.ts`)
+### Checkpoint 7 — Stores + API layer + types
+
+**Phase 3A.** Data stores (`web/src/stores/*.ts`)
 
 ```typescript
-// stores/files.ts — file list, selection, thumbnails
-export const files = writable<FileItem[]>([]);
-export const selectedFile = writable<SelectedFile | null>(null);
-export const fileThumbs = Map<number, string>();  // index → dataURL/base64
-export const reloadFiles(dir: string): Promise<void>;
-
-// stores/pages.ts — current file's page list + edits (mirrors PageModel)
-export const pages = writable<PageState[]>([]);
-export const baselinePages = writable<PageState[]>([]);
-export const pendingChanges = writable<boolean>(false);
-
-// stores/progress.ts — job monitor state
-export const jobStatus = writable<JobStatus>({ active: false, percent: 0, message: '', log: [] });
-export const jobIdCounter = writable(0);  // epoch guard for stale-result filtering
-
-// stores/settings.ts — app settings via Tauri store plugin
-export const settings = writable<AppSettings>(...);
+// files.ts — file list, selection, thumbnails (Map<number, string> index→dataURL)
+// pages.ts — current file's page list + edits (mirrors PageModel)
+// progress.ts — job status (active/percent/message/log), epoch counter for stale-result filtering
+// settings.ts — app settings via Tauri store plugin
 ```
 
-### 3B. Components (`web/src/components/*.svelte`)
-
-**Priority order (most complex first, highest risk):**
-
-1. **`MergeDialog.svelte`** (~20h) — Chapter-to-volume merge with sequence builder: zoomable thumbnail grid, chapter navigation, volume addition, undo stack. Uses a dedicated writable store with undo middleware.
-2. **`PagePreview.svelte`** (~15h) — Page grid with thumbnails, selection, stage bar integration, context menu. Handles renumbered page state display.
-3. **`PageEditor.svelte`** (~12h) — Modal dialog: resize sliders (aspect lock), colour adjust (live preview on first page), split lines (draggable, N lines → N+1 pieces). Encodes via Tauri command.
-4. **`BatchEdit.svelte`** (~8h) — Uniform parameters for multiple pages: percent resize, colour sliders, split line list + spin controls. Header shows "N pages → M pieces" estimate.
-5. **`FileBrowser.svelte`** (~10h) — Left pane: directory with thumbnail list. Lazy load first-page images on hover/scroll. ComicInfo.xml badge painting. Batch-selection toolbar (validate, convert, merge, etc.).
-6. **`JobMonitor.svelte`** (~5h) — Non-modal floating window: title bar, progress bar, elapsed timer (1s tick), scrolling log panel. Alt+F4 guard while job runs.
-7. **`ValidateDialog.svelte`** (~3h) — Results table with per-image pass/fail detail. Options panel inline for thread count selector.
-8. **`ConvertDialog.svelte`** (~3h) — WebP conversion options + results summary.
-9. **`CbrDialog.svelte`** (~3h) — CBR→CBZ options + progress/results.
-10. **`ComicInfoEditor.svelte`** (~4h) — Form with all ComicInfo fields, parse existing or generate new.
-11. **`PageViewer.svelte`** (~4h) — Full-res page viewer (Space key): center-anchored zoom + wheel pan, same math as Pascal `CenterAnchorScrollPos`.
-12. **`StageBar.svelte`** (~3h) — Unsaved changes bar: Save/Revert buttons, appears when model has pending changes.
-
-### 3C. Tauri IPC wrapper (`web/src/lib/api.ts`)
+**Phase 3C.** Tauri IPC wrapper (`web/src/lib/api.ts`)
 
 ```typescript
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-
-export const api = {
-  // Directory operations
-  listDirectory: (dir: string, filter?: string) => 
-    invoke<DirEntry[]>('list_directory', { dir, filter }),
-
-  // Archive operations
-  listEntries: (file: string) => invoke<string[]>('list_entries', { file }),
-  readEntry: (file: string, name: string) => invoke<Uint8Array>('read_entry', { file, name }),
-  firstImage: (file: string) => invoke<string | null>('first_image', { file }),
-  
-  // Services
-  validate: (dir: string, threads: number) => 
-    invoke<ValidationResult[]>('cmd_validate', { dir, threads }),
-  convertWebp: (dir: string, deleteSource: boolean, threads: number) =>
-    invoke<ConversionResult>('cmd_convert_webp', { dir, deleteSource, threads }),
-  merge: (dir: string, force: boolean, chapters?: string, chaptersPerVolume?: number) =>
-    invoke<MergeVolume[]>('cmd_merge', { dir, force, chapters, chapters_per_volume: chaptersPerVolume }),
-  cbrToCbz: (dir: string, deleteSource: boolean, threads: number) =>
-    invoke<CbrConversionResult[]>('cmd_cbr_to_cbz', { dir, deleteSource, threads }),
-  
-  // Page editing (stateless — frontend store owns model lifecycle)
-  pageDeleteAt: (file: string, index: number) => invoke<PageChange>('page_delete_at', { file, index }),
-  pageInsertAt: (file: string, index: number, pieces: PageState[]) => 
-    invoke<PageChange>('page_insert_at', { file, index, pieces }),
-  pageUndo: (file: string) => invoke<PageChange | null>('page_undo', { file }),
-  pageSave: (file: string, backupPath?: string) => invoke<void>('page_save', { file, backup_path: backupPath }),
-  
-  // Settings
-  loadSettings: () => invoke<AppSettings>('load_settings'),
-  saveSettings: (settings: AppSettings) => invoke<void>('save_settings', { settings }),
-};
-
-// Progress listener — shared across all operations
-export function onProgress(callback: (event: ProgressEvent) => void): () => void {
-  return listen('progress', (msg) => callback(msg.payload as ProgressEvent));
-}
+export const api = { listDirectory, listEntries, readEntry, firstImage, validate, convertWebp, merge, cbrToCbz, pageDeleteAt, pageInsertAt, pageUndo, pageSave, loadSettings, saveSettings };
+export function onProgress(callback) { return listen('progress', ...) }
 ```
 
-### 3D. Types (`web/src/lib/types.ts`)
+**Phase 3D.** Types (`web/src/lib/types.ts`) — mirror Rust structs: `PageState`, `PageChange`, `DirEntry`, `FileValidationResult`, `ConversionResult`, `MergeVolume`, `ProgressEvent`
 
-Mirror the Rust structs with TypeScript interfaces:
-```typescript
-export interface PageState { origName: string; name: string; data: Uint8Array | null; deleted: boolean }
-export interface PageChange { pages: PageState[] }
-export interface DirEntry { name: string; isDirectory: boolean }
-export interface FileValidationResult { path: string; ok: boolean; errors: ImageCheck[] }
-export interface ConversionResult { converted: string[]; skipped: string[] }
-export interface MergeVolume { title: string; outputPath: string; chapters: string[] }
-export interface ProgressEvent { percent: number; message: string; phase: string }
-```
+- [ ] **7A.** Define TypeScript interfaces matching all Rust structs (`types.ts`)
+- [ ] **7B.** Create `api.ts` — all invoke() calls matching backend command signatures; progress listener setup/teardown
+- [ ] **7C.** Create Svelte stores: `files.ts`, `pages.ts`, `progress.ts`, `settings.ts` with appropriate writable types and helpers
+
+---
+
+### Checkpoint 8 — Core UI components
+
+**Priority order (most complex first, highest risk):**
+
+1. **`MergeDialog.svelte`** (~20h) — Chapter-to-volume merge with sequence builder: zoomable thumbnail grid, chapter navigation, volume addition, undo stack (dedicated writable store with undo middleware)
+2. **`PagePreview.svelte`** (~15h) — Page grid with thumbnails, selection, stage bar integration, context menu; handles renumbered page state display
+3. **`FileBrowser.svelte`** (~10h) — Left pane: directory with thumbnail list; lazy-load first-page images on hover/scroll; ComicInfo.xml badge painting; batch-selection toolbar
+4. **`PageEditor.svelte`** (~12h) — Modal dialog: resize sliders (aspect lock), colour adjust (live preview on first page), split lines (draggable, N→N+1 pieces); encodes via Tauri command
+5. **`BatchEdit.svelte`** (~8h) — Uniform parameters for multiple pages: percent resize, colour sliders, split line list + spin controls; header shows "N pages → M pieces"
+6. **`JobMonitor.svelte`** (~5h) — Non-modal floating window: title bar, progress bar, elapsed timer (1s tick), scrolling log panel; Alt+F4 guard while job runs
+7. **Main layout `routes/+layout.svelte`** (~8h) — Two-pane UI: left `FileBrowser`, right `PagePreview`; keyboard shortcuts (F4, F5, F8, Ctrl+S, Ctrl+A, Space, Del); zoom slider; context menus; toolbar
+
+- [ ] **8A.** Implement `MergeDialog.svelte` with sequence builder and undo middleware
+- [ ] **8B.** Implement `PagePreview.svelte` with grid, selection, stage bar integration
+- [ ] **8C.** Implement `FileBrowser.svelte` with lazy thumbnail loading and ComicInfo badges
+- [ ] **8D.** Implement `PageEditor.svelte` modal (resize + colour + split)
+- [ ] **8E.** Implement `BatchEdit.svelte` dialog
+- [ ] **8F.** Implement `JobMonitor.svelte` non-modal window
+- [ ] **8G.** Implement main layout with two-pane UI, keyboard shortcuts, zoom slider, context menus
+
+---
+
+### Checkpoint 9 — Dialog components
+
+7. **`ValidateDialog.svelte`** (~3h) — Results table with per-image pass/fail detail; options panel inline for thread count
+8. **`ConvertDialog.svelte`** (~3h) — WebP conversion options + results summary
+9. **`CbrDialog.svelte`** (~3h) — CBR→CBZ options + progress/results
+10. **`ComicInfoEditor.svelte`** (~4h) — Form with all ComicInfo fields, parse existing or generate new
+11. **`PageViewer.svelte`** (~4h) — Full-res page viewer (Space key): center-anchored zoom + wheel pan
+12. **`StageBar.svelte`** (~3h) — Unsaved changes bar: Save/Revert buttons; appears when model has pending changes
+
+- [ ] **9A.** Implement `ValidateDialog.svelte` with options panel
+- [ ] **9B.** Implement `ConvertDialog.svelte`
+- [ ] **9C.** Implement `CbrDialog.svelte`
+- [ ] **9D.** Implement `ComicInfoEditor.svelte`
+- [ ] **9E.** Implement `PageViewer.svelte` with center-anchored zoom/pan (same math as Pascal)
+- [ ] **9F.** Implement `StageBar.svelte`
 
 ---
 
 ## Phase 4: Polish & Testing — ~25-40h
 
-### 4A. Rust tests (replacing FPCUnit)
+### Checkpoint 10 — Rust tests + E2E + packaging
+
+#### Rust tests (replacing FPCUnit)
 
 | Pascal test | Rust equivalent | Test type |
 |------------|-----------------|-----------|
-| `test_uzipeditor.pas` | `rust-core/tests/zip_ops.rs` + `tests/integration/zip_read_write.rs` | ZIP round-trip, entry filtering, image counting |
-| `test_uservicevalidate.pas` | `rust-core/tests/validate.rs` (threads=1 vs rayon → identical results) | Unit + property test |
-| `test_userviceconvert.pas` | `rust-core/tests/convert_webp.rs` (threads=1 vs 4 → byte-identical archives by content) | Determinism test |
-| `test_uservicemerge.pas` | `rust-core/tests/merge.rs` with `proptest` — chapter classification, CPV calc, batching | Property-based tests vs Pascal reference outputs |
-| `test_uservicecomicinfo.pas` | `rust-core/tests/comicinfo.rs` (threads=1 vs 4 → identical archives) + `cargo insta` snapshot for XML round-trip | Determinism + snapshot |
-| `test_ucomicinfo.pas` | `rust-core/tests/comicinfo_xml.rs` — parse/generate round-trip | Snapshot test |
-| `test_upageeditmodel.pas` | `rust-core/tests/page_model.rs` — delete, reorder, renumber, insert-at, Data precedence | Unit tests |
-| `test_uimageedit.pas` | `rust-core/tests/image_edit.rs` — colour pipeline, resample, split, encode round-trips | Unit tests |
-| `test_ubatchedit.pas` | `rust-core/tests/batch_edit.rs` — param neutrality, resize, colours, split pieces, ext mapping | Unit + worker test |
-| `test_uzipeditor.cbr_*` | `rust-core/tests/cbr_reader.rs` (guarded on libarchive availability) | Integration test |
+| `test_uzipeditor.pas` | `rust-core/tests/zip_ops.rs` + integration | ZIP round-trip, entry filtering, image counting |
+| `test_uservicevalidate.pas` | `rust-core/tests/validate.rs` | threads=1 vs rayon → identical results |
+| `test_userviceconvert.pas` | `rust-core/tests/convert_webp.rs` | threads=1 vs 4 → byte-identical archives |
+| `test_uservicemerge.pas` | `rust-core/tests/merge.rs` with `proptest` | Chapter classification, CPV calc, batching vs Pascal outputs |
+| `test_uservicecomicinfo.pas` | `rust-core/tests/comicinfo.rs` | threads=1 vs 4 → identical; `cargo insta` XML round-trip snapshot |
+| `test_ucomicinfo.pas` | `rust-core/tests/comicinfo_xml.rs` | Parse/generate round-trip (snapshot) |
+| `test_upageeditmodel.pas` | `rust-core/tests/page_model.rs` | Delete, reorder, renumber, insert-at, Data precedence |
+| `test_uimageedit.pas` | `rust-core/tests/image_edit.rs` | Colour pipeline, resample, split, encode round-trips |
+| `test_ubatchedit.pas` | `rust-core/tests/batch_edit.rs` | Param neutrality, resize, colours, split pieces, ext mapping |
+| `test_uzipeditor.cbr_*` | `rust-core/tests/cbr_reader.rs` (guarded on libarchive) | Integration test |
 
-**Key Rust test patterns:**
-- **Determinism**: Run same operation with 1 thread vs N threads → byte-identical output ZIPs (compare entry contents, not timestamps).
-- **Property-based merge testing**: Generate random chapter sets → compare classification/batching against known-correct Pascal outputs for the same inputs.
-- **Snapshot tests** (`cargo insta`): ComicInfo XML round-trip, CLI help text.
+**Key patterns:** Determinism (1 thread vs N → byte-identical ZIPs by content); property-based merge testing with random chapter sets; snapshot tests for ComicInfo XML and CLI help text.
 
-### 4B. E2E tests (Playwright or tauri-driver)
+- [ ] **10A.** Write `rust-core/tests/zip_ops.rs` — ZIP round-trip, entry filtering, image counting
+- [ ] **10B.** Write `rust-core/tests/validate.rs` — threads=1 vs rayon determinism
+- [ ] **10C.** Write `rust-core/tests/convert_webp.rs` — threads=1 vs 4 byte-identical archives
+- [ ] **10D.** Write `rust-core/tests/merge.rs` with `proptest` — random chapter sets vs Pascal reference outputs
+- [ ] **10E.** Write `rust-core/tests/comicinfo.rs` + `cargo insta` snapshots for XML round-trip
+- [ ] **10F.** Write `rust-core/tests/image_edit.rs` — colour pipeline, resample, split, encode round-trips
+- [ ] **10G.** Write `rust-core/tests/page_model.rs` — delete, reorder, renumber, insert-at, Data precedence
+- [ ] **10H.** Write `rust-core/tests/batch_edit.rs` — param neutrality, resize, colours, split pieces
+- [ ] **10I.** Write `rust-core/tests/cbr_reader.rs` (guarded on libarchive availability)
+
+#### E2E tests (Playwright or tauri-driver)
 
 ```
 tests/e2e/
@@ -635,6 +476,33 @@ tests/e2e/
 ├── batch_edit.cy.ts     # Select multiple pages → batch edit → apply
 └── settings.cy.ts       # Change settings → restart → verify persistence
 ```
+
+- [ ] **10J.** Set up Playwright / `tauri-driver` E2E test harness
+- [ ] **10K.** Write and pass all 7 E2E scenarios above
+- [ ] **10L.** Cross-platform build verification (Linux, Windows, macOS)
+- [ ] **10M.** Distribution packaging: deb, rpm, AppImage (Linux); MSI/DMG (Windows/macOS)
+
+---
+
+## Feature Parity Checklist
+
+| Operation | CLI | Tauri GUI | Status |
+|-----------|-----|-----------|--------|
+| validate [--threads N] | [ ] | [ ] | |
+| convert-webp [--delete] [--threads N] | [ ] | [ ] | |
+| merge [--delete] [--force] [--chapters] [--chapters-per-volume] | [ ] | [ ] | |
+| cbr-to-cbz [--delete] [--threads N] | [ ] | [ ] | |
+| remove-comicinfo [--backup] | [ ] | [ ] | |
+| Preview pane (CBZ + CBR thumbnails) | — | [ ] | |
+| Page editing (delete, reorder, sort, reverse, renumber) | — | [ ] | |
+| Stage bar with save/revert | — | [ ] | |
+| Page editor modal (resize, colour adjust, split) | — | [ ] | |
+| Batch edit dialog | — | [ ] | |
+| Job monitor overlay | — | [ ] | |
+| Full-res page viewer (Space key) | — | [ ] | |
+| ComicInfo.xml view/edit | — | [ ] | |
+| Keyboard shortcuts | — | [ ] | |
+| Settings persistence | — | [ ] | |
 
 ---
 
@@ -651,7 +519,7 @@ tests/e2e/
 | **ComicInfo.xml rename collision** | Handled by strip-then-collect sequence | Strip in `collect_zip_entries` during collection. No collision possible. | Built into design |
 | **Split produces empty piece** | Not possible (cut lines validated) | Validate cut lines don't produce degenerate pieces. If detected → error. | UI should validate before sending to backend |
 | **WebP encode fails** | Pascal: reports as invalid image | `Result::Err` → reported per-image in validation or conversion results | Non-fatal; other pages continue processing |
-| **Merge creates zero-volume CPV** | Fallback to 7 (intentional divergence) | Same logic; document the fallback explicitly. | Test case needed |
+| **Merge creates zero-volume CPV** | Fallback to 7 (intentional divergence) | Same logic; document the fallback explicitly. Test case needed. | |
 
 ---
 
@@ -695,18 +563,22 @@ tests/e2e/
 
 ---
 
-## Phase Execution Order & Dependencies
+## Dependency Graph
 
 ```
-Phase 1A (scaffolding) ──→ Phase 1B (types) ──→ Phase 1C-1N (core modules, can parallelize)
-                                                    │
-                                            Phase 1O (CLI binary, depends on all services)
-                                                    │
-                                    Phase 2 (Tauri shell — depends on Phase 1 complete)
-                                                    │
-                                    Phase 3 (Svelte frontend — mock commands possible early)
-                                                    │
-                                    Phase 4 (Polish + E2E tests — depends on Phase 3)
+chk 0 (scaffolding) ──→ chk 1 (types) ──→ chk 2 (ZIP ops) ──→ chk 3 (image util)
+                                                                 │
+                                                   All services (chk 4A-4J)
+                                                                 │
+                                          chk 5 (CLI binary, needs all of 4)
+                                                                 │
+                                 chk 6 (Tauri shell — needs 4 complete)
+                                                                 │
+                    chk 7 (stores + API — can start early with mocks)
+                                                                 │
+                                    chk 8 ──→ chk 9 (dialogs)
+                                                                 │
+                                            chk 10 (polish + tests)
 ```
 
-Phase 3 can start in parallel with Phase 1 using mocked Tauri commands. The TypeScript API layer (`web/src/lib/api.ts`) is the contract — once defined, frontend and backend teams work independently.
+Phase 3A (chk 7) can start in parallel with Phase 1 using mocked Tauri commands. The TypeScript API layer (`web/src/lib/api.ts`) is the contract — once defined, frontend and backend teams work independently.

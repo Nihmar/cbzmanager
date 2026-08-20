@@ -190,9 +190,21 @@ pub fn encode_jpeg(img: &DynamicImage) -> Result<Vec<u8>> {
     encode_image(img, ImageFormat::Jpeg, 0)
 }
 
+/// Encode to PNG (lossless). Convenience wrapper.
+pub fn encode_png(img: &DynamicImage) -> Result<Vec<u8>> {
+    encode_image(img, ImageFormat::Png, 0)
+}
+
 /// Encode to WebP at default quality (75 via image crate's built-in encoder).
 pub fn encode_webp_default(img: &DynamicImage) -> Result<Vec<u8>> {
     encode_image(img, ImageFormat::Webp, 0)
+}
+
+/// Convert raw image bytes to WebP. Attempts to decode first, then encodes as WebP.
+/// Returns the WebP data if successful, otherwise returns the original data.
+pub fn convert_bytes_to_webp(data: &[u8], quality: u32) -> Result<Vec<u8>> {
+    let img = decode_image(data)?;
+    encode_image(&img, ImageFormat::Webp, quality * 256 / 100) // image crate uses 0-255 for quality
 }
 
 // ---------------------------------------------------------------------------

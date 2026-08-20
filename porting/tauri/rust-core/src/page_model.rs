@@ -27,13 +27,14 @@ pub struct PageState {
 /// Type of change recorded in the undo log.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChangeType {
+    Edited,
     Deleted(usize),
     MovedUp(usize),
     MovedDown(usize),
     SortedAsc,
     SortedDesc,
     Reversed,
-    Inserted(Vec<PageState>),
+    Inserted(usize),
 }
 
 /// A single change entry in the linear undo log.
@@ -232,8 +233,7 @@ impl PageModel {
                 self.pages.insert(index + i, p);
             }
         }
-        let new_page_snapshot = new_pages.clone();
-        let change_type = ChangeType::Inserted(new_page_snapshot);
+        let change_type = ChangeType::Inserted(new_pages.len());
         self.changes.push(Change {
             change_type: change_type.clone(),
             snapshot,

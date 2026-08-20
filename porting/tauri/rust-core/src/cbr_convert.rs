@@ -7,7 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 use crate::helpers::*;
 use crate::zip_ops;
@@ -39,40 +39,38 @@ fn process_cbr(
     cbr_path: &Path,
     delete_source: bool,
 ) -> Result<(bool, u64, u64), String> {
-    // Collect image entries from the CBR (only names for now — data extraction
-    // requires libarchive). For files we can't read, return an error.
-    if !cbr_reader::cbr_supported() {
-        return Err("libarchive not available — CBR conversion unavailable".to_string());
-    }
-
-    // Try to collect entries. In a real implementation this would use libarchive
-    // to decompress entries into memory streams. For now, we report that CBR reading
-    // isn't fully implemented.
-    let entries = zip_ops::collect_zip_entries_all(cbr_path);
-
-    // If the file is actually a ZIP (some "CBR" files are renamed ZIPs), handle it.
-    // Otherwise fall through to the libarchive path.
     let mut new_entries: Vec<zip_ops::ZipEntry> = Vec::new();
-    let mut image_count = 0usize;
 
-    match entries {
-        Ok(all_entries) => {
-            // It's actually a ZIP file — process normally.
-            for entry in all_entries {
-                if !is_comicinfo_xml(&entry.name) {
-                    new_entries.push(zip_ops::ZipEntry {
-                        name: entry.name.clone(),
-                        data: entry.data,
-                    });
+    // Try CBR reader first (for actual RAR archives).
+    if cbr_reader::cbr_supported() {
+        match cbr_reader::collect_cbr_entries(cbr_path) {
+            Ok(cbr_entries) => {
+                for (name, data) in cbr_entries {
+                    if !is_comicinfo_xml(&name) {
+                        new_entries.push(zip_ops::ZipEntry { name, data });
+                    }
                 }
             }
+            Err(e) => {
+                // Not a RAR archive or read error — try treating as ZIP.
+                eprintln!("CBR reader failed for {}: {} — trying ZIP fallback", cbr_path.display(), e);
+            }
         }
-        Err(_) => {
-            // Real RAR archive — cannot process without libarchive data extraction.
-            return Err(format!(
-                "Cannot read CBR {}: requires libarchive.so with full data extraction support",
-                cbr_path.display()
-            ));
+    }
+
+    // If CBR reader didn't yield entries, try treating file as ZIP.
+    if new_entries.is_empty() {
+        let zip_entries = match zip_ops::collect_zip_entries_all(cbr_path) {
+            Ok(entries) => entries,
+            Err(e) => return Err(format!("Cannot read {}: {}", cbr_path.display(), e)),
+        };
+        for entry in zip_entries {
+            if !is_comicinfo_xml(&entry.name) {
+                new_entries.push(zip_ops::ZipEntry {
+                    name: entry.name.clone(),
+                    data: entry.data,
+                });
+            }
         }
     }
 
@@ -84,8 +82,7 @@ fn process_cbr(
     let mut sorted_entries: Vec<zip_ops::ZipEntry> = new_entries;
     sorted_entries.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
-    image_count = sorted_entries.len();
-    let padding = page_padding_for(image_count);
+    let padding = page_padding_for(sorted_entries.len());
 
     let mut renamed_entries: Vec<zip_ops::ZipEntry> = Vec::new();
     for (i, entry) in sorted_entries.iter().enumerate() {
@@ -142,8 +139,8 @@ fn to_upper_ext(ext: &str) -> String {
 /// Collect CBR files from a directory (case-insensitive .cbr).
 pub fn collect_cbr_files(dir: &Path) -> Vec<String> {
     let mut files: Vec<String> = Vec::new();
-    for entry in dir.read_dir().map(|e| e.ok()) {
-        if let Some(entry) = entry {
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
             if let (Some(filename), Some(ext)) = (
                 entry.file_name().to_str().map(|s| s.to_string()),
                 entry.path().extension().and_then(|e| e.to_str()),
@@ -165,7 +162,7 @@ pub fn collect_cbr_files(dir: &Path) -> Vec<String> {
 /// Parallel per-file conversion pool, capped at MAX_CBR_CONVERT_THREADS = 4.
 pub fn convert_cbr_to_cbz(
     dir: &Path,
-    files: &[&str],
+    files: &[PathBuf],
     threads: usize,
     _skip_existing: bool,
 ) -> CbrConvertResults {
@@ -173,14 +170,13 @@ pub fn convert_cbr_to_cbz(
 
     report_service_start(progress, "Converting CBR", files.len());
 
-    let full_paths: Vec<PathBuf> = files.iter().map(|&f| dir.join(f)).collect();
-
-    let results: Vec<CbrConvertResult> = if threads > 1 {
-        full_paths.par_iter().zip(files.iter()).enumerate()
-            .map(|(i, (full_path, &name))| {
-                report_service_progress(progress, "Converting CBR", name, i, files.len());
+    let results: Vec<Result<CbrConvertResult, String>> = if threads > 1 {
+        files.par_iter().enumerate()
+            .map(|(i, full_path)| {
+                let name = full_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                report_service_progress(progress, "Converting CBR", &name, i, files.len());
                 process_cbr(full_path, false).map(|(changed, orig, new)| CbrConvertResult {
-                    file_name: name.to_string(),
+                    file_name: name.clone(),
                     converted: changed,
                     original_size: orig,
                     new_size: new,
@@ -188,13 +184,12 @@ pub fn convert_cbr_to_cbz(
                 })
             }).collect::<Vec<_>>()
     } else {
-        (0..files.len())
-            .map(|i| {
-                let name = files[i];
-                let full_path = &full_paths[i];
-                report_service_progress(progress, "Converting CBR", name, i, files.len());
+        files.iter().enumerate()
+            .map(|(i, full_path)| {
+                let name = full_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                report_service_progress(progress, "Converting CBR", &name, i, files.len());
                 process_cbr(full_path, false).map(|(changed, orig, new)| CbrConvertResult {
-                    file_name: name.to_string(),
+                    file_name: name.clone(),
                     converted: changed,
                     original_size: orig,
                     new_size: new,
@@ -210,8 +205,7 @@ pub fn convert_cbr_to_cbz(
     results.into_iter().map(|r| match r {
         Ok(result) => result,
         Err(e) => CbrConvertResult {
-            file_name: files.get(r.map(|_| 0).unwrap_or_default()).cloned()
-                .unwrap_or_default(),
+            file_name: String::new(),
             converted: false,
             original_size: 0,
             new_size: 0,

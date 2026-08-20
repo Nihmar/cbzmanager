@@ -134,15 +134,14 @@ const VOLUME_RE: &str = r"^(.+)\s(V\d+)\.cbz$";
          special_map.entry(series).or_default().push((tag, path));
      }
 
-     for (series, mut sp_list) in special_map {
-         let next_num = max_by_series.get(&series).copied().unwrap_or(0) + 1;
-         // Sort specials by tag.
-         sp_list.sort_by(|a, b| a.0.cmp(&b.0));
-         for _ in next_num..next_num + sp_list.len() as i32 {
-             let (tag, path) = sp_list.get_mut((next_num - next_num) as usize).unwrap();
-             chapters.push((series.clone(), next_num, path.clone()));
-         }
-     }
+    for (series, mut sp_list) in special_map {
+        let next_num = max_by_series.get(&series).copied().unwrap_or(0) + 1;
+        sp_list.sort_by(|a, b| a.0.cmp(&b.0));
+        for (j, (tag, path)) in sp_list.iter().enumerate() {
+            let ch_num = next_num + j as i32;
+            chapters.push((series.clone(), ch_num, path.clone()));
+        }
+    }
 
      // Sort chapters by series then number.
      chapters.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
@@ -280,123 +279,88 @@ pub fn merge_chapters(
         .cloned().collect();
     all_series.sort();
 
-    let mut results: Vec<SeriesMergeResult> = Vec::new();
-    let total_series = all_series.len();
+    // Build plans per series (reuse logic above but keep volumes).
+    let mut all_series_names: Vec<String> = Vec::new();
+    for s in series_map.keys() {
+        if !all_series_names.contains(s) { all_series_names.push(s.clone()); }
+    }
+    for v in volume_map.keys() {
+        if !all_series_names.contains(v) { all_series_names.push(v.clone()); }
+    }
+    all_series_names.sort();
 
-    for (series_idx, series_name) in all_series.iter().enumerate() {
-        report_service_progress(progress, "Merging", series_name.as_str(), series_idx, total_series);
-
+    // Collect series plans for execution.
+    let mut series_plans: Vec<(String, f64, i32, usize, Vec<VolumeSpec>)> = Vec::new();
+    for series_name in &all_series_names {
         let ch_list = series_map.get(series_name).cloned().unwrap_or_default();
+        if ch_list.is_empty() { continue; }
+
         let vo_list = volume_map.get(series_name).cloned().unwrap_or_default();
-
-        let mut plan = SeriesPlan {
-            series_name: series_name.clone(),
-            ch_list,
-            ..Default::default()
+        let chapters_per_volume = if vo_list.is_empty() { 7.0 } else {
+            let lowest_chapter = ch_list.first().map(|c| c.chapter_num).unwrap_or(1);
+            (lowest_chapter - 1) as f64 / vo_list.len() as f64
         };
 
-        if plan.ch_list.is_empty() {
-            results.push(SeriesMergeResult {
-                series_name: series_name.clone(),
-                volumes_created: 0,
-                total_pages: 0,
-                error_msg: String::new(),
-            });
-            continue;
-        }
+        if chapters_per_volume < 1.0 { continue; }
 
-        // Calculate CPV.
-        let chapters_per_volume = if vo_list.is_empty() {
-            7.0
-        } else {
-            let lowest_chapter = plan.ch_list.first().map(|c| c.chapter_num).unwrap_or(1);
-            let chapters_already_in_volumes = (lowest_chapter - 1) as f64;
-            let num_volumes = vo_list.len() as f64;
-            chapters_already_in_volumes / num_volumes
-        };
+        let next_vol = if vo_list.is_empty() { 1i32 } else { max_volume_number(&vo_list) + 1 };
+        let num_new_volumes = (ch_list.len() as f64 / chapters_per_volume) as usize;
+        if num_new_volumes == 0 { continue; }
 
-        let next_vol = if vo_list.is_empty() {
-            1i32
-        } else {
-            max_volume_number(&vo_list) + 1
-        };
-
-        if chapters_per_volume < 1.0 {
-            results.push(SeriesMergeResult {
-                series_name: series_name.clone(),
-                volumes_created: 0,
-                total_pages: 0,
-                error_msg: "Not enough chapters".to_string(),
-            });
-            continue;
-        }
-
-        let num_new_volumes = (plan.ch_list.len() as f64 / chapters_per_volume) as usize;
-        if num_new_volumes == 0 {
-            results.push(SeriesMergeResult {
-                series_name: series_name.clone(),
-                volumes_created: 0,
-                total_pages: 0,
-                error_msg: "Not enough chapters".to_string(),
-            });
-            continue;
-        }
-
-        // Create volume specs.
+        let mut volumes: Vec<VolumeSpec> = Vec::new();
+        let mut ch_index = 0usize;
         for vol_idx in 0..num_new_volumes {
             let vol_num = next_vol + vol_idx as i32;
             let output_path = dir.join(format!("{} V{:03}.cbz", series_name, vol_num));
-
-            let start = plan.ch_index;
-            let end = std::cmp::min(plan.ch_index + chapters_per_volume as usize, plan.ch_list.len());
-            if start >= end {
-                break;
-            }
-
-            let batch: Vec<PathBuf> = plan.ch_list[start..end].iter().map(|ch| ch.path.clone()).collect();
-            plan.volumes.push(VolumeSpec {
-                output_path,
-                chapter_paths: batch,
-                num_pages: 0, // Will be set after merge.
-            });
-            plan.ch_index = end;
+            let start = ch_index;
+            let end = cmp::min(ch_index + chapters_per_volume as usize, ch_list.len());
+            if start >= end { break; }
+            let batch: Vec<PathBuf> = ch_list[start..end].iter().map(|ch| ch.path.clone()).collect();
+            volumes.push(VolumeSpec { output_path, chapter_paths: batch, num_pages: 0 });
+            ch_index = end;
         }
 
-        plan.remaining = plan.ch_list.len() - plan.ch_index;
+        if !volumes.is_empty() {
+            series_plans.push((series_name.clone(), chapters_per_volume, next_vol, num_new_volumes, volumes));
+        }
+    }
+
+    // Execute merges.
+    let mut results: Vec<SeriesMergeResult> = Vec::new();
+    let total_series = series_plans.len();
+    for (s_idx, (series_name, _cpv, _next_vol, num_volumes, volumes)) in series_plans.iter().enumerate() {
+        report_service_progress(progress, "Merging", series_name.as_str(), s_idx, total_series);
+
+        let mut total_pages = 0usize;
+        for vol in volumes {
+            match merge_cbz_files(&vol.chapter_paths, &vol.output_path) {
+                Ok(page_count) => {
+                    total_pages += page_count;
+                    // Delete source chapters after successful merge.
+                    if delete {
+                        for ch_path in &vol.chapter_paths {
+                            std::fs::remove_file(ch_path).ok();
+                        }
+                    }
+                }
+                Err(e) => {
+                    results.push(SeriesMergeResult {
+                        series_name: series_name.clone(),
+                        volumes_created: 0,
+                        total_pages: 0,
+                        error_msg: format!("{}: {}", series_name, e),
+                    });
+                    continue;
+                }
+            }
+        }
 
         results.push(SeriesMergeResult {
             series_name: series_name.clone(),
-            volumes_created: plan.volumes.len(),
-            total_pages: 0, // Will be updated after merge.
+            volumes_created: *num_volumes,
+            total_pages,
             error_msg: String::new(),
         });
-    }
-
-    // Now perform the actual merges (sequential to handle errors properly).
-    let mut created_paths: Vec<PathBuf> = Vec::new();
-    for plan in &results {
-        if plan.volumes_created > 0 {
-            // Find the corresponding plan from all_series.
-            for (series_name, _) in all_series.iter().zip(results.iter()) {
-                let vo_list = volume_map.get(series_name).cloned().unwrap_or_default();
-                let ch_list = series_map.get(series_name).cloned().unwrap_or_default();
-
-                let mut plan_inner = SeriesPlan {
-                    series_name: series_name.clone(),
-                    ch_list,
-                    ..Default::default()
-                };
-
-                // Recalculate and merge.
-                let num_volumes = if vo_list.is_empty() { 1 } else { max_volume_number(&vo_list) + 1 };
-                let lowest_chapter = plan_inner.ch_list.first().map(|c| c.chapter_num).unwrap_or(1);
-                let cpv = if vo_list.is_empty() { 7.0 } else {
-                    (lowest_chapter - 1) as f64 / vo_list.len() as f64
-                };
-
-                // Skip — this is getting complex. Let me simplify by doing the merge inline.
-            }
-        }
     }
 
     if let Some(ref cb) = progress {

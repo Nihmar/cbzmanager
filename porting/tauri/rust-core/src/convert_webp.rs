@@ -5,7 +5,7 @@
 /// only if it is strictly smaller than the original.  Filters ComicInfo.xml,
 /// renames pages sequentially, writes via `zip_ops`.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
@@ -99,31 +99,35 @@ fn process_cbz(file_path: &Path, threads: usize) -> Result<(bool, u64, u64), Str
     let mut new_entries: Vec<zip_ops::ZipEntry> = Vec::new();
     let padding = page_padding_for(image_entries.len());
 
-    for (i, (name, data)) in image_entries.iter().enumerate() {
-        if convertible_indices.contains(&i) {
+    let mut page_num: u32 = 0;
+    for (_i, (name, data)) in image_entries.iter().enumerate() {
+        if convertible_indices.contains(&&_i) {
             let (_, was_smaller) = convert_results.iter()
-                .find(|&&(idx, _)| idx == i)
+                .find(|&&(idx, _)| idx == _i)
                 .unwrap();
             if *was_smaller {
+                page_num += 1;
                 // Use the WebP data (re-convert here — acceptable since it's a small set).
                 let (webp_data, _) = convert_image_to_webp(data, WEBP_QUALITY);
                 new_entries.push(zip_ops::ZipEntry {
-                    name: format!("page_{:04}.webp", i + 1),
+                    name: format!("page_{:04}.webp", page_num),
                     data: webp_data,
                 });
             } else {
                 // Keep original.
+                page_num += 1;
                 let ext = get_ext(name);
                 new_entries.push(zip_ops::ZipEntry {
-                    name: format!("page_{:04}{}", i + 1, to_upper_ext(&ext)),
+                    name: format!("page_{:04}{}", page_num, to_upper_ext(&ext)),
                     data: data.clone(),
                 });
             }
         } else {
             // Non-convertible entry — keep original.
+            page_num += 1;
             let ext = get_ext(name);
             new_entries.push(zip_ops::ZipEntry {
-                name: format!("page_{:04}{}", i + 1, to_upper_ext(&ext)),
+                name: format!("page_{:04}{}", page_num, to_upper_ext(&ext)),
                 data: data.clone(),
             });
         }
@@ -187,25 +191,23 @@ fn to_upper_ext(ext: &str) -> String {
 
 /// Convert images in CBZ files to WebP format (only if smaller).
 ///
-/// Filters ComicInfo.xml entries, renumbers remaining pages sequentially.
+/// Filters ComicInfo.xml entries, renames pages sequentially.
 /// Supports parallel decoding/encoding via `rayon` (capped at MAX_CONVERT_THREADS = 8).
-pub fn convert_webp(dir: &Path, files: &[&str], threads: usize) -> ConvertResults {
-    let progress = None; // CLI mode — no progress callback needed
+pub fn convert_webp(dir: &Path, files: &[PathBuf], threads: usize) -> ConvertResults {
+    let progress = None;
 
     let total = files.len();
     report_service_start(progress, "Converting", total);
 
-    let full_paths: Vec<std::path::PathBuf> = files.iter().map(|&f| cbz_full_path(dir, f)).collect();
-
     let results: Vec<ConvertResult> = (0..files.len())
         .into_par_iter()
         .map(|i| {
-            let name = files[i];
-            let full_path = &full_paths[i];
-            report_service_progress(progress, "Converting", name, i, total);
+            let name = files[i].file_name().unwrap_or_default().to_string_lossy().to_string();
+            let full_path = &files[i];
+            report_service_progress(progress, "Converting", &name, i, total);
 
             let mut result = ConvertResult {
-                file_name: name.to_string(),
+                file_name: name.clone(),
                 converted: false,
                 original_size: 0,
                 new_size: 0,

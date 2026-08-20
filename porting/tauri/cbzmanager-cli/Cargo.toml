@@ -9,7 +9,7 @@ name = "cbzmanager"
 path = "src/main.rs"
 
 [dependencies]
-rust-core = { path = "../rust-core", features = ["cli"] }
+rust-core = { path = "../rust-core", features = ["cli", "cbr"] }
 clap = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

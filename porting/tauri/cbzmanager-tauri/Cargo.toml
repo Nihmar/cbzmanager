@@ -4,10 +4,9 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 
-# Placeholder - full Tauri v2 setup in Checkpoint 6
-# Requires: cargo install tauri-cli, tauri.conf.json, web/ frontend
 [lib]
 name = "cbzmanager_tauri"
+crate-type = ["staticlib", "cdylib", "rlib"]
 path = "src/lib.rs"
 
 [[bin]]
@@ -16,8 +15,17 @@ path = "src/main.rs"
 
 [dependencies]
 rust-core = { path = "../rust-core" }
-serde = { version = "1", features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
 serde_json = "1"
+tauri = { workspace = true, features = [] }
+tauri-plugin-shell = { workspace = true }
+tracing = { workspace = true }
 
 [build-dependencies]
-# tauri build placeholder - to be configured in Checkpoint 6
+tauri-build = { version = "2", features = [] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-core-graphics = "0.2"
+
+[lints]
+workspace = true

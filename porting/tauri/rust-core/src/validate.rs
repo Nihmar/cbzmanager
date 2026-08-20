@@ -154,7 +154,7 @@ fn validate_one_deep(path: &std::path::Path, threads: usize) -> Result<(usize, V
 /// Deep validate: decode every image and report per-image errors.
 pub fn validate_deep(
     dir: &std::path::Path,
-    files: &[&str],
+    files: &[std::path::PathBuf],
     threads: usize,
 ) -> FileValidationResults {
     let progress = None; // CLI mode — no progress callback needed for validation service
@@ -162,19 +162,19 @@ pub fn validate_deep(
     files
         .iter()
         .enumerate()
-        .map(|(i, &name)| {
-            let full_path = cbz_full_path(dir, name);
-            report_service_progress(progress, "Validating", name, i, files.len());
+        .map(|(i, full_path)| {
+            let name = full_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+            report_service_progress(progress, "Validating", &name, i, files.len());
 
             let mut result = FileValidationResult {
-                file_name: name.to_string(),
+                file_name: name.clone(),
                 valid: false,
                 image_count: 0,
                 error_msg: String::new(),
                 image_checks: Vec::new(),
             };
 
-            match validate_one_deep(&full_path, threads) {
+            match validate_one_deep(full_path, threads) {
                 Ok((total_valid, checks)) => {
                     result.image_checks = checks;
                     result.image_count = total_valid;

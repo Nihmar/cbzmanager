@@ -89,6 +89,15 @@ impl PageModel {
         }
     }
 
+    /// Create a model from a list of PageState entries (used by Tauri for save).
+    pub fn from_pages(pages: Vec<PageState>) -> Self {
+        Self {
+            pages: pages.clone(),
+            baseline: pages,
+            changes: Vec::new(),
+        }
+    }
+
     /// Return a reference to the current page list.
     pub fn pages(&self) -> &[PageState] {
         &self.pages

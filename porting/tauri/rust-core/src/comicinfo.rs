@@ -17,6 +17,7 @@ use crate::zip_ops;
 
 /// Per-file ComicInfo scan/remove result.
 #[derive(Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct ComicInfoResult {
     pub file_name: String,
     pub has_comicinfo: bool,

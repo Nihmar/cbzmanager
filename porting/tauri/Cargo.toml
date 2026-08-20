@@ -2,11 +2,10 @@
 members = [
     "rust-core",
     "cbzmanager-cli",
-    # "cbzmanager-tauri",  # Checkpoint 6 — requires `cargo tauri init` (Node.js)
+    "src-tauri",
+    # "cbzmanager-tauri",  # library for command implementations (optional)
 ]
 resolver = "2"
-
-# TODO: Uncomment cbzmanager-tauri member after running `cargo tauri init`
 
 [workspace.package]
 version = "0.1.0"

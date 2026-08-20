@@ -48,7 +48,7 @@ pub type ServiceProgressFn = dyn Fn(i32, &str) + Send + Sync;
 /// ---------------------------------------------------------------------------
 
 /// Per-image validation result.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ImageCheck {
     /// Entry name inside the archive.
     pub entry_name: String,
@@ -62,7 +62,7 @@ pub struct ImageCheck {
 pub type ImageChecks = Vec<ImageCheck>;
 
 /// Validation result for a single CBZ file.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FileValidationResult {
     /// Base name of the checked file (no path).
     pub file_name: String,
@@ -84,7 +84,7 @@ pub type FileValidationResults = Vec<FileValidationResult>;
 /// ---------------------------------------------------------------------------
 
 /// Result for a single WebP conversion operation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ConversionResult {
     /// Files that were converted to WebP.
     pub converted: Vec<std::path::PathBuf>,
@@ -97,7 +97,7 @@ pub struct ConversionResult {
 /// ---------------------------------------------------------------------------
 
 /// A chapter file and its numeric sort key.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ChapterInfo {
     /// File name (bare, no directory).
     pub file_name: String,
@@ -111,7 +111,7 @@ pub struct ChapterInfo {
 pub type ChapterArray = Vec<ChapterInfo>;
 
 /// Merge configuration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum MergeConfig {
     /// Specific chapters to merge (e.g. 1,3,5).
     Chapters(Vec<usize>),
@@ -120,7 +120,7 @@ pub enum MergeConfig {
 }
 
 /// A single output volume produced by a merge operation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MergeVolume {
     /// Title of the resulting volume (e.g. "Series Name V01").
     pub title: String,
@@ -140,14 +140,14 @@ pub type MergeResults = Vec<MergeVolume>;
 /// ---------------------------------------------------------------------------
 
 /// Whether to scan for or remove ComicInfo.xml entries.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ComicInfoAction {
     Scan,
     Remove,
 }
 
 /// Result for a single file in a ComicInfo operation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ComicInfoResult {
     /// Base name of the checked file.
     pub file_name: String,
@@ -165,7 +165,7 @@ pub type ComicInfoResults = Vec<ComicInfoResult>;
 /// ---------------------------------------------------------------------------
 
 /// Result for a single CBR→CBZ conversion.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CbrConversionResult {
     /// Input .cbr file path.
     pub input: std::path::PathBuf,
@@ -185,7 +185,7 @@ pub type CbrConversionResults = Vec<CbrConversionResult>;
 /// ---------------------------------------------------------------------------
 
 /// Types of changes tracked for undo.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ChangeKind {
     /// The page was removed from the list.
     Deleted,
@@ -196,7 +196,7 @@ pub enum ChangeKind {
 }
 
 /// A single undo/redo change record.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Change {
     /// The type of change.
     pub kind: ChangeKind,
@@ -205,7 +205,7 @@ pub struct Change {
 }
 
 /// In-memory state for a single page in the editing model.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PageState {
     /// Current entry name inside the CBZ (may differ from orig_name after rename).
     pub name: String,
@@ -226,7 +226,7 @@ pub type PageStates = Vec<PageState>;
 pub type Changes = Vec<Change>;
 
 /// Outcome of a background save operation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SaveChangesResult {
     /// Whether the CBZ was rewritten without error.
     pub success: bool,
@@ -239,7 +239,7 @@ pub struct SaveChangesResult {
 /// ---------------------------------------------------------------------------
 
 /// An entry in a directory listing (file or subdirectory).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DirEntry {
     /// Base name of the entry.
     pub name: String,

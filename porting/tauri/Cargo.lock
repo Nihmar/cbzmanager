@@ -649,7 +649,6 @@ dependencies = [
  "rayon",
  "thiserror",
  "tokio",
- "tracing",
  "tracing-subscriber",
  "zip",
 ]

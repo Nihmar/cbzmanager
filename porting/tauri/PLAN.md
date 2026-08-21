@@ -458,7 +458,7 @@ export function onProgress(callback) { return listen('progress', ...) }
 - [ ] **10A.** Write `rust-core/tests/zip_ops.rs` — ZIP round-trip, entry filtering, image counting
 - [ ] **10B.** Write `rust-core/tests/validate.rs` — threads=1 vs rayon determinism
 - [ ] **10C.** Write `rust-core/tests/convert_webp.rs` — threads=1 vs 4 byte-identical archives
-- [ ] **10D.** Write `rust-core/tests/merge.rs` with `proptest` — random chapter sets vs Pascal reference outputs
+- [x] **10D.** Write `rust-core/tests/merge.rs` with `proptest` — random chapter sets vs Pascal reference outputs
 - [ ] **10E.** Write `rust-core/tests/comicinfo.rs` + `cargo insta` snapshots for XML round-trip
 - [ ] **10F.** Write `rust-core/tests/image_edit.rs` — colour pipeline, resample, split, encode round-trips
 - [ ] **10G.** Write `rust-core/tests/page_model.rs` — delete, reorder, renumber, insert-at, Data precedence

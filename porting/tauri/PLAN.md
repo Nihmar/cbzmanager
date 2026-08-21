@@ -455,15 +455,15 @@ export function onProgress(callback) { return listen('progress', ...) }
 
 **Key patterns:** Determinism (1 thread vs N → byte-identical ZIPs by content); property-based merge testing with random chapter sets; snapshot tests for ComicInfo XML and CLI help text.
 
-- [ ] **10A.** Write `rust-core/tests/zip_ops.rs` — ZIP round-trip, entry filtering, image counting
-- [ ] **10B.** Write `rust-core/tests/validate.rs` — threads=1 vs rayon determinism
-- [ ] **10C.** Write `rust-core/tests/convert_webp.rs` — threads=1 vs 4 byte-identical archives
+- [x] **10A.** Write `rust-core/tests/zip_ops.rs` — ZIP round-trip, entry filtering, image counting (tests/zip_ops.rs; 8 passing)
+- [x] **10B.** Validate thread-count determinism — threads=1 vs rayon identical per-image checks (tests/uservicevalidate.rs; 2 passing). Original `tests/validate.rs` name is superseded by `uservicevalidate.rs`.
+- [x] **10C.** Verify WebP conversion thread-count determinism — threads=1 vs 4 byte-identical archives (tests/convert_webp.rs; 4 passing)
 - [x] **10D.** Write `rust-core/tests/merge.rs` with `proptest` — random chapter sets vs Pascal reference outputs
-- [ ] **10E.** Write `rust-core/tests/comicinfo.rs` + `cargo insta` snapshots for XML round-trip
-- [ ] **10F.** Write `rust-core/tests/image_edit.rs` — colour pipeline, resample, split, encode round-trips
-- [ ] **10G.** Write `rust-core/tests/page_model.rs` — delete, reorder, renumber, insert-at, Data precedence
-- [ ] **10H.** Write `rust-core/tests/batch_edit.rs` — param neutrality, resize, colours, split pieces
-- [ ] **10I.** Write `rust-core/tests/cbr_reader.rs` (guarded on libarchive availability)
+- [x] **10E.** ComicInfo XML round-trip (tests/comicinfo_xml.rs; assert_eq! based). Uses conventional assertions, not `cargo insta` snapshots — no `insta` dependency wired up.
+- [x] **10F.** Page-editor operations: colour pipeline, resample, split, encode round-trips (tests/image_edit.rs; 9 passing)
+- [x] **10G.** Page model: delete, reorder, renumber, insert-at, Data precedence (tests/page_model.rs; 9 passing)
+- [x] **10H.** Batch-edit pipeline: param neutrality, resize, colours, split pieces (tests/batch_edit.rs; 7 passing)
+- [x] **10I.** Write `rust-core/tests/cbr_reader.rs` (guarded on libarchive availability). Tests exercise the reader end-to-end against a real ZIP-format fixture saved with `.cbr`, via explicit `archive_read_support_format_zip`. Fixed two latent bugs surfaced only now that it's tested: wrong `ARCHIVE_OK` (`0`/`-1`) per this build's `archive.h`, and format readers never being registered.
 
 #### E2E tests (Playwright or tauri-driver)
 

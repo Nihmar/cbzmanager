@@ -376,3 +376,142 @@ fn max_volume_number(volumes: &[VolumeFile]) -> i32 {
         v.volume_tag.strip_prefix('V')?.parse::<i32>().ok()
     }).max().unwrap_or(0)
 }
+
+/// Merge chapter CBZ files into volumes with progress callback.
+pub fn merge_chapters_with_progress(
+    dir: &Path,
+    delete: bool,
+    _force: bool,
+    _chapters_list: Option<Vec<usize>>,
+    _chapters_per_volume: Option<usize>,
+    on_progress: Option<Box<dyn Fn(i32, &str) + Send + Sync>>,
+) -> MergeResults {
+    let progress = on_progress;
+
+    if let Some(ref cb) = progress {
+        cb(0, "Merging 0/0 files");
+    }
+
+    if progress.is_none() {
+        return merge_chapters(dir, delete, _force, _chapters_list, _chapters_per_volume);
+    }
+
+    let cb = progress.as_ref().unwrap();
+
+    let (chapters, volumes) = parse_cbz_files(dir);
+
+    if chapters.is_empty() {
+        cb(0, "No chapter files found");
+        return vec![SeriesMergeResult {
+            series_name: String::new(),
+            volumes_created: 0,
+            total_pages: 0,
+            error_msg: "No chapter files found".to_string(),
+        }];
+    }
+
+    // Group by series.
+    let mut series_map: std::collections::HashMap<String, Vec<ChapterFile>> = std::collections::HashMap::new();
+    for ch in &chapters {
+        series_map.entry(ch.series.clone()).or_default().push(ch.clone());
+    }
+
+    let mut volume_map: std::collections::HashMap<String, Vec<VolumeFile>> = std::collections::HashMap::new();
+    for vo in &volumes {
+        volume_map.entry(vo.series.clone()).or_default().push(vo.clone());
+    }
+
+    // Collect all series names and sort.
+    let mut all_series_names: Vec<String> = Vec::new();
+    for s in series_map.keys() {
+        if !all_series_names.contains(s) { all_series_names.push(s.clone()); }
+    }
+    for v in volume_map.keys() {
+        if !all_series_names.contains(v) { all_series_names.push(v.clone()); }
+    }
+    all_series_names.sort();
+
+    // Build plans per series.
+    let mut series_plans: Vec<(String, f64, i32, usize, Vec<VolumeSpec>)> = Vec::new();
+    for series_name in &all_series_names {
+        let ch_list = series_map.get(series_name).cloned().unwrap_or_default();
+        if ch_list.is_empty() { continue; }
+
+        let vo_list = volume_map.get(series_name).cloned().unwrap_or_default();
+        let chapters_per_volume = if vo_list.is_empty() { 7.0 } else {
+            let lowest_chapter = ch_list.first().map(|c| c.chapter_num).unwrap_or(1);
+            (lowest_chapter - 1) as f64 / vo_list.len() as f64
+        };
+
+        if chapters_per_volume < 1.0 { continue; }
+
+        let next_vol = if vo_list.is_empty() { 1i32 } else { max_volume_number(&vo_list) + 1 };
+        let num_new_volumes = (ch_list.len() as f64 / chapters_per_volume) as usize;
+        if num_new_volumes == 0 { continue; }
+
+        let mut volumes: Vec<VolumeSpec> = Vec::new();
+        let mut ch_index = 0usize;
+        for vol_idx in 0..num_new_volumes {
+            let vol_num = next_vol + vol_idx as i32;
+            let output_path = dir.join(format!("{} V{:03}.cbz", series_name, vol_num));
+            let start = ch_index;
+            let end = std::cmp::min(ch_index + chapters_per_volume as usize, ch_list.len());
+            if start >= end { break; }
+            let batch: Vec<PathBuf> = ch_list[start..end].iter().map(|ch| ch.path.clone()).collect();
+            volumes.push(VolumeSpec { output_path, chapter_paths: batch, num_pages: 0 });
+            ch_index = end;
+        }
+
+        if !volumes.is_empty() {
+            series_plans.push((series_name.clone(), chapters_per_volume, next_vol, num_new_volumes, volumes));
+        }
+    }
+
+    // Execute merges with progress.
+    let mut results: Vec<SeriesMergeResult> = Vec::new();
+    let total_series = series_plans.len();
+
+    if total_series == 0 {
+        cb(100, "Complete");
+        return results;
+    }
+
+    for (s_idx, (series_name, _cpv, _next_vol, num_volumes, volumes)) in series_plans.iter().enumerate() {
+        let pct = ((s_idx as i32) * 100) / total_series as i32;
+        cb(pct, &format!("Merging {} ({}/{})", series_name, s_idx + 1, total_series));
+
+        let mut total_pages = 0usize;
+        for vol in volumes {
+            match merge_cbz_files(&vol.chapter_paths, &vol.output_path) {
+                Ok(page_count) => {
+                    total_pages += page_count;
+                    if delete {
+                        for ch_path in &vol.chapter_paths {
+                            std::fs::remove_file(ch_path).ok();
+                        }
+                    }
+                }
+                Err(e) => {
+                    results.push(SeriesMergeResult {
+                        series_name: series_name.clone(),
+                        volumes_created: 0,
+                        total_pages: 0,
+                        error_msg: format!("{}: {}", series_name, e),
+                    });
+                    continue;
+                }
+            }
+        }
+
+        results.push(SeriesMergeResult {
+            series_name: series_name.clone(),
+            volumes_created: *num_volumes,
+            total_pages,
+            error_msg: String::new(),
+        });
+    }
+
+    cb(100, "Complete");
+
+    results
+}

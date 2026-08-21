@@ -21,6 +21,9 @@ pub fn run() {
             commands::archive::first_image,
             // Directory
             commands::directory::list_directory,
+            // Settings
+            commands::settings::load_settings,
+            commands::settings::save_settings,
             // Services
             commands::validate::cmd_validate,
             commands::validate::cmd_validate_deep,
@@ -32,6 +35,8 @@ pub fn run() {
             // Page editing
             commands::page_edit::page_load,
             commands::page_edit::page_save,
+            // Batch editing
+            commands::batch_edit::apply_batch_edit,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

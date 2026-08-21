@@ -229,6 +229,68 @@ pub fn convert_webp(dir: &Path, files: &[PathBuf], threads: usize) -> ConvertRes
         })
         .collect();
 
+    results
+}
+
+/// Convert images in CBZ files to WebP format with progress reporting.
+///
+/// Accepts an optional boxed callback that can be cloned into rayon workers.
+pub fn convert_webp_with_progress(
+    dir: &Path,
+    files: &[PathBuf],
+    threads: usize,
+    on_progress: Option<Box<dyn Fn(i32, &str) + Send + Sync>>,
+) -> ConvertResults {
+    let progress = on_progress;
+
+    let total = files.len();
+    if let Some(ref cb) = progress {
+        if total > 0 {
+            cb(0, &format!("Converting 0/{} files", total));
+        }
+    }
+
+    // If no callback provided, use the standard non-progress path
+    if progress.is_none() {
+        return convert_webp(dir, files, threads);
+    }
+
+    let results: Vec<ConvertResult> = (0..files.len())
+        .into_par_iter()
+        .map(|i| {
+            let name = files[i].file_name().unwrap_or_default().to_string_lossy().to_string();
+            let full_path = &files[i];
+
+            if let Some(ref cb) = progress {
+                if total > 0 {
+                    let pct = (i as i32 * 100) / total as i32;
+                    cb(pct, &format!("Converting {} ({}/{})", name, i + 1, total));
+                }
+            }
+
+            let mut result = ConvertResult {
+                file_name: name.clone(),
+                converted: false,
+                original_size: 0,
+                new_size: 0,
+                error_msg: String::new(),
+            };
+
+            match process_cbz(full_path, threads) {
+                Ok((changed, orig, new)) => {
+                    result.converted = changed;
+                    result.original_size = orig;
+                    result.new_size = new;
+                }
+                Err(e) => {
+                    result.error_msg = e;
+                }
+            }
+
+            result
+        })
+        .collect();
+
     if let Some(ref cb) = progress {
         cb(100, "Complete");
     }

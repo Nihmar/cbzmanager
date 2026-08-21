@@ -17,12 +17,14 @@ tauri-build = { version = "2" }
 rust-core = { path = "../rust-core", features = ["cbr"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = "1"
-tauri = { workspace = true }
-tauri-plugin-shell = { workspace = true }
-tracing = { workspace = true }
-anyhow = { workspace = true }
-dirs = { workspace = true }
-thiserror = { workspace = true }
+    tauri = { workspace = true }
+    tauri-plugin-shell = { workspace = true }
+    tauri-plugin-store = { workspace = true }
+    tracing = { workspace = true }
+    anyhow = { workspace = true }
+    dirs = { workspace = true }
+    thiserror = { workspace = true }
+    crossbeam-channel = "0.5"
 
 [lints]
 workspace = true

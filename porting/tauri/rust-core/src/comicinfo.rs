@@ -5,6 +5,7 @@
 /// parallel removal (capped at MAX_CBR_CONVERT_THREADS = 4).
 
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
@@ -58,6 +59,71 @@ pub fn scan(dir: &Path, files: &[&str]) -> ComicInfoResults {
             result
         })
         .collect()
+}
+
+/// Determine which CBZ files contain a ComicInfo.xml entry, with progress callback.
+pub fn scan_with_progress(
+    dir: &Path,
+    files: &[&str],
+    on_progress: Option<Box<dyn Fn(i32, &str) + Send + Sync>>,
+) -> ComicInfoResults {
+    let progress = on_progress;
+
+    if let Some(ref cb) = progress {
+        report_scan_start(cb, "Scanning", files.len());
+    }
+
+    if progress.is_none() {
+        return scan(dir, files);
+    }
+
+    let mut results: ComicInfoResults = Vec::new();
+
+    for (i, &name) in files.iter().enumerate() {
+        let full_path = cbz_full_path(dir, name);
+
+        if let Some(ref cb) = progress {
+            report_scan_progress(cb, "Scanning", name, i, files.len());
+        }
+
+        let mut result = ComicInfoResult {
+            file_name: name.to_string(),
+            has_comicinfo: false,
+            removed: false,
+            error_msg: String::new(),
+        };
+
+        match zip_ops::collect_zip_entries_all(&full_path) {
+            Ok(entries) => {
+                let names: Vec<String> = entries.iter().map(|e| e.name.clone()).collect();
+                result.has_comicinfo = strip_comicinfo_names(&names).len() < names.len();
+            }
+            Err(e) => {
+                result.error_msg = e.to_string();
+            }
+        }
+
+        results.push(result);
+    }
+
+    if let Some(ref cb) = progress {
+        cb(100, "Complete");
+    }
+
+    results
+}
+
+fn report_scan_start(cb: &Box<dyn Fn(i32, &str) + Send + Sync>, verb: &str, total: usize) {
+    if total > 0 {
+        cb(0, &format!("{} 0/{} files", verb, total));
+    }
+}
+
+fn report_scan_progress(cb: &Box<dyn Fn(i32, &str) + Send + Sync>, verb: &str, file_name: &str, index: usize, total: usize) {
+    if total > 0 {
+        let pct = (index as i32 * 100) / total as i32;
+        cb(pct, &format!("{} {} ({}/{})", verb, file_name, index + 1, total));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -156,6 +222,61 @@ pub fn remove(
     if let Some(ref cb) = progress {
         cb(100, "Complete");
     }
+
+    results
+}
+
+/// Strip ComicInfo.xml from CBZ files with progress callback.
+pub fn remove_with_progress(
+    dir: &Path,
+    files: &[&str],
+    backup: bool,
+    threads: usize,
+    on_progress: Option<Box<dyn Fn(i32, &str) + Send + Sync>>,
+) -> ComicInfoResults {
+    if on_progress.is_none() {
+        return remove(dir, files, backup, threads);
+    }
+
+    let cb = Arc::new(std::sync::Mutex::new(on_progress.unwrap()));
+    let total = files.len();
+
+    // Emit start.
+    cb.lock().unwrap()(0, &format!("Removing from 0/{} files", total));
+
+    let full_paths: Vec<PathBuf> = files.iter().map(|&f| cbz_full_path(dir, f)).collect();
+
+    let results: Vec<ComicInfoResult> = if threads > 1 {
+        (0..files.len())
+            .into_par_iter()
+            .map({
+                let cb = Arc::clone(&cb);
+                move |i| {
+                    let name = files[i];
+                    let full_path = &full_paths[i];
+
+                    let pct = (i as i32 * 100) / total as i32;
+                    cb.lock().unwrap()(pct, &format!("Removing from {} ({}/{})", name, i + 1, total));
+
+                    remove_one(name, full_path, backup)
+                }
+            })
+            .collect()
+    } else {
+        (0..files.len())
+            .map(|i| {
+                let name = files[i];
+                let full_path = &full_paths[i];
+
+                let pct = (i as i32 * 100) / total as i32;
+                cb.lock().unwrap()(pct, &format!("Removing from {} ({}/{})", name, i + 1, total));
+
+                remove_one(name, full_path, backup)
+            })
+            .collect()
+    };
+
+    cb.lock().unwrap()(100, "Complete");
 
     results
 }

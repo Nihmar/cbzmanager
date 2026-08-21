@@ -203,3 +203,87 @@ pub fn validate_deep(
         })
         .collect()
 }
+
+/// Deep validate with progress callback.
+pub fn validate_deep_with_progress(
+    dir: &std::path::Path,
+    files: &[std::path::PathBuf],
+    threads: usize,
+    on_progress: Option<Box<dyn Fn(i32, &str) + Send + Sync>>,
+) -> FileValidationResults {
+    let progress = on_progress;
+
+    if let Some(ref cb) = progress {
+        report_service_progress_start(cb, "Validating", files.len());
+    }
+
+    if progress.is_none() {
+        return validate_deep(dir, files, threads);
+    }
+
+    let mut results: FileValidationResults = Vec::new();
+
+    for (i, full_path) in files.iter().enumerate() {
+        let name = full_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+
+        if let Some(ref cb) = progress {
+            report_service_progress_inline(cb, "Validating", &name, i, files.len());
+        }
+
+        let mut result = FileValidationResult {
+            file_name: name.clone(),
+            valid: false,
+            image_count: 0,
+            error_msg: String::new(),
+            image_checks: Vec::new(),
+        };
+
+        match validate_one_deep(full_path, threads) {
+            Ok((total_valid, checks)) => {
+                result.image_checks = checks;
+                result.image_count = total_valid;
+                result.valid = total_valid > 0;
+
+                if total_valid == 0 && result.image_checks.is_empty() {
+                    result.error_msg = "No images found".to_string();
+                } else if total_valid == 0 {
+                    result.error_msg = "All images failed to decode".to_string();
+                } else if result.image_checks.iter().any(|c| !c.ok) {
+                    result.error_msg = format!(
+                        "{}/{} images valid",
+                        total_valid,
+                        result.image_checks.len()
+                    );
+                }
+            }
+            Err(e) => {
+                result.valid = false;
+                result.image_count = 0;
+                result.error_msg = e.to_string();
+            }
+        }
+
+        results.push(result);
+    }
+
+    if let Some(ref cb) = progress {
+        cb(100, "Complete");
+    }
+
+    results
+}
+
+/// Emit start progress message for validation.
+fn report_service_progress_start(cb: &Box<dyn Fn(i32, &str) + Send + Sync>, verb: &str, total: usize) {
+    if total > 0 {
+        cb(0, &format!("{} 0/{} files", verb, total));
+    }
+}
+
+/// Emit per-file progress inline.
+fn report_service_progress_inline(cb: &Box<dyn Fn(i32, &str) + Send + Sync>, verb: &str, file_name: &str, index: usize, total: usize) {
+    if total > 0 {
+        let pct = (index as i32 * 100) / total as i32;
+        cb(pct, &format!("{} {} ({}/{})", verb, file_name, index + 1, total));
+    }
+}

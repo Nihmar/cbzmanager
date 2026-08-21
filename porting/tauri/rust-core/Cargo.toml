@@ -19,6 +19,7 @@ rayon = { workspace = true }
 regex = "1"
 anyhow = { workspace = true }
 serde = { version = "1", features = ["derive"] }
+crossbeam-channel = "0.5"
 
 [features]
 default = []

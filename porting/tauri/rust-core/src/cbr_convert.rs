@@ -6,6 +6,7 @@
 /// Supports skip-existing and delete-source options.
 
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
@@ -201,6 +202,75 @@ pub fn convert_cbr_to_cbz(
     if let Some(ref cb) = progress {
         cb(100, "Complete");
     }
+
+    results.into_iter().map(|r| match r {
+        Ok(result) => result,
+        Err(e) => CbrConvertResult {
+            file_name: String::new(),
+            converted: false,
+            original_size: 0,
+            new_size: 0,
+            error_msg: e,
+        },
+    }).collect()
+}
+
+/// Convert CBR archives to CBZ format with progress callback.
+pub fn convert_cbr_to_cbz_with_progress(
+    _dir: &Path,
+    files: &[PathBuf],
+    threads: usize,
+    _skip_existing: bool,
+    on_progress: Option<Box<dyn Fn(i32, &str) + Send + Sync>>,
+) -> CbrConvertResults {
+    if on_progress.is_none() {
+        return convert_cbr_to_cbz(_dir, files, threads, _skip_existing);
+    }
+
+    let cb = Arc::new(std::sync::Mutex::new(on_progress.unwrap()));
+    let total = files.len();
+
+    // Emit start.
+    cb.lock().unwrap()(0, &format!("Converting CBR 0/{} files", total));
+
+    let results: Vec<Result<CbrConvertResult, String>> = if threads > 1 {
+        files.par_iter().enumerate()
+            .map({
+                let cb = Arc::clone(&cb);
+                move |(i, full_path)| {
+                    let name = full_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+
+                    let pct = (i as i32 * 100) / total as i32;
+                    cb.lock().unwrap()(pct, &format!("Converting CBR {} ({}/{})", name, i + 1, total));
+
+                    process_cbr(full_path, false).map(|(changed, orig, new)| CbrConvertResult {
+                        file_name: name.clone(),
+                        converted: changed,
+                        original_size: orig,
+                        new_size: new,
+                        error_msg: String::new(),
+                    })
+                }
+            }).collect::<Vec<_>>()
+    } else {
+        files.iter().enumerate()
+            .map(|(i, full_path)| {
+                let name = full_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+
+                let pct = (i as i32 * 100) / total as i32;
+                cb.lock().unwrap()(pct, &format!("Converting CBR {} ({}/{})", name, i + 1, total));
+
+                process_cbr(full_path, false).map(|(changed, orig, new)| CbrConvertResult {
+                    file_name: name.clone(),
+                    converted: changed,
+                    original_size: orig,
+                    new_size: new,
+                    error_msg: String::new(),
+                })
+            }).collect::<Vec<_>>()
+    };
+
+    cb.lock().unwrap()(100, "Complete");
 
     results.into_iter().map(|r| match r {
         Ok(result) => result,

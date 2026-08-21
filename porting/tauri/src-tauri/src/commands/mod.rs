@@ -9,8 +9,6 @@ pub mod page_edit;
 pub mod settings;
 pub mod batch_edit;
 
-use tauri::Emitter;
-
 #[derive(serde::Serialize, Clone)]
 pub struct ProgressEvent {
     pub percent: u8,
@@ -18,7 +16,3 @@ pub struct ProgressEvent {
     pub phase: String,
 }
 
-#[tauri::command]
-pub fn emit_progress(app: tauri::AppHandle, percent: u8, message: String, phase: String) {
-    let _ = app.emit("progress", ProgressEvent { percent, message, phase });
-}

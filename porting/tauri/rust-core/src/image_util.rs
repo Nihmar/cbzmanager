@@ -147,13 +147,16 @@ pub fn encode_image(img: &DynamicImage, format: ImageFormat, quality: u32) -> Re
 
     match format {
         ImageFormat::Jpeg => {
+            // JPEG has no alpha channel — encode from the RGB buffer with an
+            // Rgb8 color type (Rgba8 is rejected by the encoder).
+            let rgb = img.to_rgb8();
             let q = if quality > 0 { quality as u8 } else { DEFAULT_JPEG_QUALITY };
             let mut buf: Vec<u8> = Vec::new();
             JpegEncoder::new_with_quality(&mut buf, q).write_image(
-                buffer.as_raw(),
+                rgb.as_raw(),
                 img.width(),
                 img.height(),
-                ExtendedColorType::Rgba8,
+                ExtendedColorType::Rgb8,
             ).map_err(|e| Error::Encode(e.to_string()))?;
             Ok(buf)
         }

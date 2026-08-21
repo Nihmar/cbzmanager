@@ -79,9 +79,9 @@ pub type MergeResults = Vec<SeriesMergeResult>;
 // ---------------------------------------------------------------------------
 
 /// Pattern for chapter files: `Series - NNNN.cbz` or `Series - SP01.cbz`.
-const CHAPTER_RE: &str = r"^(.+)\s-\s(\d+)(?:_\d+)*\.cbz$";
-const SPECIAL_RE: &str = r"^(.+)\s- ([A-Za-z][A-Za-z0-9]*)(?:_\d+)*\.cbz$";
-const VOLUME_RE: &str = r"^(.+)\s(V\d+)\.cbz$";
+const CHAPTER_RE: &str = r"^(.+)\s-\s(\d+)(?:_\d+)*(?i:\.cbz)$";
+const SPECIAL_RE: &str = r"^(.+)\s- ([A-Za-z][A-Za-z0-9]*)(?:_\d+)*(?i:\.cbz)$";
+const VOLUME_RE: &str = r"^(.+)\s(V\d+)(?i:\.cbz)$";
 
 /// Parse CBZ files in a directory into chapters and volumes.
  pub fn parse_cbz_files(dir: &Path) -> (Vec<ChapterFile>, Vec<VolumeFile>) {
@@ -100,10 +100,10 @@ const VOLUME_RE: &str = r"^(.+)\s(V\d+)\.cbz$";
                  continue;
              }
 
-             let path = entry.path();
-             let name = path.file_stem()
-                 .and_then(|s| s.to_str())
-                 .unwrap_or("");
+              let path = entry.path();
+              let name = path.file_name()
+                  .and_then(|s| s.to_str())
+                  .unwrap_or("");
 
              // Try chapter pattern.
              if let Some(caps) = extract_captures(CHAPTER_RE, &name) {

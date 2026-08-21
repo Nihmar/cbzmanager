@@ -7,8 +7,6 @@
 use std::cmp;
 use std::path::{Path, PathBuf};
 
-use rayon::prelude::*;
-
 use crate::helpers::*;
 
 use crate::zip_ops;
@@ -150,8 +148,8 @@ const VOLUME_RE: &str = r"^(.+)\s(V\d+)\.cbz$";
     for (series, mut sp_list) in special_map {
         let next_num = max_by_series.get(&series).copied().unwrap_or(0) + 1;
         sp_list.sort_by(|a, b| a.0.cmp(&b.0));
-        for (j, (tag, path)) in sp_list.iter().enumerate() {
-            let ch_num = next_num + j as i32;
+        for (_j, (_tag, path)) in sp_list.iter().enumerate() {
+            let ch_num = next_num + _j as i32;
             chapters.push((series.clone(), ch_num, path.clone()));
         }
     }
@@ -173,7 +171,7 @@ fn extract_captures(pattern: &str, name: &str) -> Option<Vec<String>> {
     // Match filename patterns like "Series - NNNN" or "Series - NNNN Chapter".
     if let Ok(re) = Regex::new(pattern) {
         if let Some(caps) = re.captures(name) {
-            let mut captures: Vec<String> = caps.iter()
+            let captures: Vec<String> = caps.iter()
                 .filter_map(|m| m.map(|s| s.as_str().to_string()))
                 .collect();
             return Some(captures);

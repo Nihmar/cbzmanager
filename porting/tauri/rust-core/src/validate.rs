@@ -153,7 +153,7 @@ fn validate_one_deep(path: &std::path::Path, threads: usize) -> Result<(usize, V
 
 /// Deep validate: decode every image and report per-image errors.
 pub fn validate_deep(
-    dir: &std::path::Path,
+    _dir: &std::path::Path,
     files: &[std::path::PathBuf],
     threads: usize,
 ) -> FileValidationResults {

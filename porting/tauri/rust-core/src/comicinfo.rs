@@ -5,7 +5,7 @@
 /// parallel removal (capped at MAX_CBR_CONVERT_THREADS = 4).
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 

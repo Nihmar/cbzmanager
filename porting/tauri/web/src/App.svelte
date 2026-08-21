@@ -1,7 +1,7 @@
 <script lang="ts">
   import './app.css';
   import type { DirEntry } from './lib/types';
-  import { listDirectory, firstImage } from './lib/api';
+  import { listDirectory, firstImage, pageLoad } from './lib/api';
   import { files, selectedFile, currentDirectory } from './stores/files';
   import { pages, hasChanges } from './stores/pages';
   import { onProgress } from './lib/api';
@@ -9,20 +9,7 @@
   let dirPath = '';
   let isLoaded = false;
   let logLines: string[] = [];
-
-  function handleDrop(e: DragEvent) {
-    e.preventDefault();
-    const path = e.dataTransfer?.items[0]?.webkitGetAsEntry()?.path || '';
-    if (path) loadDirectory(path);
-  }
-
-  function handleDirInput(e: Event) {
-    const input = e.target as HTMLInputElement;
-    if (input.files && input.files.length > 0) {
-      // Use the first item's parent directory path
-      loadDirectory(dirPath);
-    }
-  }
+  let isLoadingPages = false;
 
   async function loadDirectory(dir: string) {
     currentDirectory.set(dir);
@@ -39,9 +26,65 @@
 
   async function selectFile(entry: DirEntry) {
     selectedFile.set(entry.name);
-    // Load pages when file is selected — in production this calls page_load
+    isLoadingPages = true;
     pages.set([]);
     hasChanges.set(false);
+
+    try {
+      const dir = currentDirectory;
+      const filePath = `${dir}/${entry.name}`;
+      const pageStates = await pageLoad(filePath);
+      pages.set(pageStates);
+    } catch (err) {
+      logLines = [...logLines, `Error loading pages: ${err}`];
+    } finally {
+      isLoadingPages = false;
+    }
+  }
+
+  async function selectFileWithThumbnail(entry: DirEntry) {
+    selectedFile.set(entry.name);
+    isLoadingPages = true;
+    pages.set([]);
+    hasChanges.set(false);
+
+    // If the entry already has a thumbnail from directory listing, preload it
+    if (entry.thumbnail) {
+      // The thumbnail is available immediately
+    }
+
+    try {
+      const dir = currentDirectory;
+      const filePath = `${dir}/${entry.name}`;
+      
+      // Load pages in background while showing first page thumbnail immediately
+      let firstPage: string | null = null;
+      if (entry.thumbnail) {
+        firstPage = entry.thumbnail;
+      } else {
+        try {
+          const imgResult = await firstImage(filePath);
+          if (imgResult.thumbnail) {
+            firstPage = imgResult.thumbnail;
+          }
+        } catch {}
+      }
+
+      // Load all pages
+      const pageStates = await pageLoad(filePath);
+      
+      // If we have a base64 thumbnail for the first page, inject it into the data
+      if (pageStates.length > 0 && entry.thumbnail) {
+        const updated = { ...pageStates[0], data: entry.thumbnail as string };
+        pageStates[0] = updated;
+      }
+      
+      pages.set(pageStates);
+    } catch (err) {
+      logLines = [...logLines, `Error loading pages: ${err}`];
+    } finally {
+      isLoadingPages = false;
+    }
   }
 
   onProgress((event) => {
@@ -56,24 +99,22 @@
       type="file"
       webkitdirectory
       class="dir-picker"
-      oninput={handleDirInput}
     />
   </header>
 
-  <main class="content" ondrop={handleDrop}>
+  <main class="content">
     <!-- Left pane: File browser -->
     <div class="file-browser">
       {#if !isLoaded}
         <div class="empty-state">
           <p>Open a directory to browse CBZ files</p>
-          <p class="hint">Drag &amp; drop or use the picker above</p>
         </div>
       {:else}
         <ul class="file-list">
           {#each $files as entry (entry.name)}
             <li
               class:selected={$selectedFile === entry.name}
-              on:click={() => selectFile(entry)}
+              on:click={() => selectFileWithThumbnail(entry)}
               title={entry.name}
             >
               {#if entry.thumbnail}
@@ -90,11 +131,18 @@
     <div class="page-preview">
       {#if selectedFile}
         <h2>{$selectedFile}</h2>
-        {#if $pages.length > 0}
+        {#if isLoadingPages}
+          <p class="empty-state">Loading pages...</p>
+        {:else if $pages.length > 0}
           <div class="page-grid">
             {#each $pages as page, i (i)}
               <div class="page-card" on:dblclick={() => {/* open page viewer */}}>
-                <span class="page-name">{page.name}</span>
+                {#if page.data}
+                  <img src={'data:image/png;base64,' + page.data} alt={page.name} 
+                       style="max-width: 100%; height: auto; display: block;" />
+                {:else}
+                  <span class="page-name">{page.name}</span>
+                {/if}
               </div>
             {/each}
           </div>
@@ -231,11 +279,6 @@
     height: 100%;
     color: #666;
     gap: 8px;
-  }
-
-  .hint {
-    font-size: 12px;
-    color: #999;
   }
 
   .job-monitor {

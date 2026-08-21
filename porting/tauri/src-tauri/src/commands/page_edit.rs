@@ -1,4 +1,5 @@
 use std::path::Path;
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 
 #[tauri::command]
 pub async fn page_load(file_path: String) -> Result<Vec<rust_core::types::PageState>, String> {
@@ -13,7 +14,7 @@ pub async fn page_load(file_path: String) -> Result<Vec<rust_core::types::PageSt
             orig_name: entry.name.clone(),
             gone: false,
             orig_index: i as i32,
-            data: Some(entry.data),
+            data: Some(STANDARD.encode(&entry.data)),
         })
         .collect())
 }
@@ -29,7 +30,7 @@ pub async fn page_save(
         .map(|p| rust_core::page_model::PageState {
             orig_name: p.orig_name.clone(),
             name: p.name.clone(),
-            data: p.data.clone(),
+            data: p.data.as_ref().map(|b64| STANDARD.decode(b64).unwrap_or_default()),
             deleted: p.gone,
         })
         .collect();

@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use std::sync::Mutex;
 
 /// Application settings persisted via INI file (matching Pascal implementation).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

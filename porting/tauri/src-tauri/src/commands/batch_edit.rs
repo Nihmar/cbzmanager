@@ -1,5 +1,6 @@
 use std::path::Path;
 use tauri::Emitter;
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 
 use serde::{Deserialize, Serialize};
 
@@ -129,7 +130,7 @@ pub async fn apply_batch_edit(
                     orig_name: entry.name.clone(),
                     gone: false,
                     orig_index: idx as i32,
-                    data: Some(entry.data.clone()),
+                    data: Some(STANDARD.encode(&entry.data)),
                 });
                 continue;
             }
@@ -149,7 +150,7 @@ pub async fn apply_batch_edit(
                 orig_name: entry.name.clone(),
                 gone: false,
                 orig_index: idx as i32,
-                data: Some(entry.data.clone()),
+                data: Some(STANDARD.encode(&entry.data)),
             });
             continue;
         }
@@ -161,7 +162,7 @@ pub async fn apply_batch_edit(
                 orig_name: entry.name.clone(),
                 gone: false,
                 orig_index: idx as i32,
-                data: Some(piece.data.clone()),
+                data: Some(STANDARD.encode(&piece.data)),
             });
         }
     }

@@ -215,8 +215,8 @@ pub struct PageState {
     pub gone: bool,
     /// Original 0-based position at open time (preserved for undo reference).
     pub orig_index: i32,
-    /// Raw image data for inserted or edited pages (None = unchanged archive page).
-    pub data: Option<Vec<u8>>,
+    /// Raw image data for inserted or edited pages — base64-encoded when present.
+    pub data: Option<String>,
 }
 
 /// Dynamic array of TPageState — the entire page list of a CBZ.

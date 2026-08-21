@@ -5,7 +5,7 @@
 ///
 /// Uses the `image` crate for pixel-level manipulation instead of LCL's TLazIntfImage.
 
-use image::{DynamicImage, Rgba, ImageBuffer};
+use image::DynamicImage;
 
 // ---------------------------------------------------------------------------
 // Resample — box filter resize

@@ -9,7 +9,6 @@ use image::DynamicImage;
 use crate::image_edit;
 use crate::image_util;
 use crate::page_model::{ChangeType, PageModel, PageState};
-use crate::types::*;
 
 // ---------------------------------------------------------------------------
 // Batch edit parameters
@@ -103,8 +102,6 @@ pub fn apply_edit_to_image(
     params: &MultiEditParams,
     orig_ext: &str,
 ) -> (Vec<MultiEditPiece>, bool) {
-    use image::DynamicImage;
-
     if img.width() == 0 || img.height() == 0 {
         return (Vec::new(), false);
     }
@@ -181,7 +178,6 @@ fn encode_ext_for(ext: &str) -> String {
 
 /// Encode a piece to the target format.
 fn encode_piece(piece: &DynamicImage, ext: &str) -> Option<Vec<u8>> {
-    use image::DynamicImage;
     match ext.to_lowercase().as_str() {
         "jpg" | "jpeg" => Some(image_util::encode_jpeg(piece).ok()?),
         "webp" => Some(image_util::encode_webp_default(piece).ok()?),
@@ -192,7 +188,6 @@ fn encode_piece(piece: &DynamicImage, ext: &str) -> Option<Vec<u8>> {
 
 /// Decode a page's current state (Data stream if present, else from archive entry).
 pub fn decode_page_input(input: &MultiEditPageInput) -> Option<DynamicImage> {
-    use image::DynamicImage;
     if let Some(ref data) = input.data {
         // Try to decode from Data stream.
         image_util::decode_image(data).ok()

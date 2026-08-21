@@ -10,7 +10,7 @@ export interface PageState {
   orig_name: string;
   gone: boolean;
   orig_index: number;
-  data?: Uint8Array | null;
+  data?: string | null;
 }
 
 export interface ArchiveEntry {

@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use crossbeam_channel;
 use tauri::Emitter;
 
@@ -20,7 +20,7 @@ pub struct FileValidationResult {
 
 #[tauri::command]
 pub async fn cmd_validate(
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
     dir_path: String,
 ) -> Result<Vec<FileValidationResult>, String> {
     let files = rust_core::helpers::collect_cbz_files(Path::new(&dir_path));

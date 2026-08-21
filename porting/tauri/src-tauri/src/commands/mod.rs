@@ -8,9 +8,8 @@ pub mod comicinfo;
 pub mod page_edit;
 pub mod settings;
 pub mod batch_edit;
-pub mod logger;
 
-use tauri::{Emitter, Manager};
+use tauri::Emitter;
 
 #[derive(serde::Serialize, Clone)]
 pub struct ProgressEvent {

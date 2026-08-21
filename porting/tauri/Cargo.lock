@@ -339,6 +339,7 @@ name = "cbzmanager-tauri-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "crossbeam-channel",
  "dirs",
  "rust-core",
@@ -2882,6 +2883,7 @@ name = "rust-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "clap",
  "crossbeam-channel",
  "dirs",

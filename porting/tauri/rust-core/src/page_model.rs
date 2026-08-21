@@ -155,7 +155,7 @@ impl PageModel {
     /// Move a page down (swap with next visible page).
     pub fn move_down(&mut self, index: usize) -> ChangeType {
         let snapshot = self.pages.clone();
-        if index >= 0 && index < self.pages.len() - 1 {
+        if index < self.pages.len() - 1 {
             self.pages.swap(index, index + 1);
         }
         let change_type = ChangeType::MovedDown(index);

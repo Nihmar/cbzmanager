@@ -6,7 +6,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crossbeam_channel::Sender;
 use rayon::current_num_threads;
 
 use crate::types::*;
@@ -273,29 +272,4 @@ pub fn strip_comicinfo_names(names: &[String]) -> Vec<String> {
 /// Find the index of the ComicInfo.xml entry in a list of names, or None.
 pub fn find_comicinfo_index(names: &[String]) -> Option<usize> {
     names.iter().position(|n| is_comicinfo_xml(n))
-}
-
-// ---------------------------------------------------------------------------
-// Thread-safe progress bridge for Tauri
-// ---------------------------------------------------------------------------
-
-/// Wrap an optional callback in a crossbeam channel so rayon workers can safely
-/// send progress messages without capturing the callback directly.
-///
-/// Returns (tx, rx) where tx is cloned into rayon workers and rx is drained
-/// on the main thread to call `cb` for each message. The returned closure
-/// can be passed as `Option<&ServiceProgressFn>`.
-pub fn with_rayon_progress<F>(cb: F) -> Option<Sender<(i32, String)>>
-where
-    F: Fn(i32, &str) + Send + Sync + 'static,
-{
-    let (tx, rx) = crossbeam_channel::bounded::<(i32, String)>(64);
-
-    std::thread::spawn(move || {
-        while let Ok((pct, msg)) = rx.recv() {
-            cb(pct, &msg);
-        }
-    });
-
-    Some(tx)
 }

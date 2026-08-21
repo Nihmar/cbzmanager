@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use crossbeam_channel;
 use tauri::Emitter;
 
@@ -30,8 +30,7 @@ pub async fn cmd_cbr_to_cbz(
     }
 
     let cpu_count = rust_core::helpers::online_cpu_count();
-    let threads_val = threads.unwrap_or(0).max(1) as usize;
-    let actual_threads = std::cmp::min(cpu_count, rust_core::types::MAX_CBR_THREADS);
+    let actual_threads = std::cmp::min(cpu_count, threads.unwrap_or(0).max(1) as usize);
 
     // Set up progress channel
     let (tx, rx) = crossbeam_channel::bounded::<(i32, String)>(64);

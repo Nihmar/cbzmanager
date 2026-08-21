@@ -22,9 +22,6 @@ const WEBP_QUALITY: i32 = 75;
 // Image extensions recognised as convertible by the app.
 const CONVERTIBLE_EXTS: &[&str] = &["jpg", "jpeg", "png", "gif", "bmp", "tiff", "tif"];
 
-/// Extension to use for WebP output (always ".webp").
-const WEBP_EXT: &str = ".webp";
-
 // ---------------------------------------------------------------------------
 // Result types
 // ---------------------------------------------------------------------------
@@ -99,7 +96,6 @@ fn process_cbz(file_path: &Path, threads: usize, delete_source: bool) -> Result<
 
     // Build new entry list: renumber pages sequentially.
     let mut new_entries: Vec<zip_ops::ZipEntry> = Vec::new();
-    let padding = page_padding_for(image_entries.len());
 
     let mut page_num: u32 = 0;
     for (_i, (name, data)) in image_entries.iter().enumerate() {
@@ -203,7 +199,7 @@ fn to_upper_ext(ext: &str) -> String {
 /// Supports parallel decoding/encoding via `rayon` (capped at MAX_CONVERT_THREADS = 8).
 /// When `delete_source` is true the original file is deleted after conversion;
 /// otherwise it is renamed to `_OLD.cbz` as a backup.
-pub fn convert_webp(dir: &Path, files: &[PathBuf], threads: usize, delete_source: bool) -> ConvertResults {
+pub fn convert_webp(_dir: &Path, files: &[PathBuf], threads: usize, delete_source: bool) -> ConvertResults {
     let progress = None;
 
     let total = files.len();

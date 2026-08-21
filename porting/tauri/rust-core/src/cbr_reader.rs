@@ -16,6 +16,7 @@ use crate::helpers::is_comicinfo_xml;
 
 #[derive(Debug)]
 pub struct ArchiveHandle {
+    #[allow(dead_code)]
     handle: libloading::Library,
 }
 
@@ -25,24 +26,22 @@ struct Archive {
     _private: [u8; 0],
 }
 
-type archive_read_new_fn = unsafe extern "C" fn() -> *mut Archive;
-type archive_read_free_fn = unsafe extern "C" fn(*mut Archive);
-type archive_read_open_filename_fn = unsafe extern "C" fn(*mut Archive, *const c_char, usize) -> c_int;
-type archive_read_next_header_fn = unsafe extern "C" fn(*mut Archive, *mut *mut c_void) -> c_int;
-type archive_read_data_fn = unsafe extern "C" fn(*mut Archive, *mut c_void, usize) -> isize;
-type archive_read_set_bytes_in_buffer_fn = unsafe extern "C" fn(*mut Archive, usize) -> c_int;
-type archive_entry_pathname_fn = unsafe extern "C" fn(*mut c_void) -> *const c_char;
-type archive_entry_size_fn = unsafe extern "C" fn(*mut c_void) -> u64;
+type ArchiveReadNewFn = unsafe extern "C" fn() -> *mut Archive;
+type ArchiveReadFreeFn = unsafe extern "C" fn(*mut Archive);
+type ArchiveReadOpenFilenameFn = unsafe extern "C" fn(*mut Archive, *const c_char, usize) -> c_int;
+type ArchiveReadNextHeaderFn = unsafe extern "C" fn(*mut Archive, *mut *mut c_void) -> c_int;
+type ArchiveReadDataFn = unsafe extern "C" fn(*mut Archive, *mut c_void, usize) -> isize;
+type ArchiveEntryPathnameFn = unsafe extern "C" fn(*mut c_void) -> *const c_char;
+type ArchiveEntrySizeFn = unsafe extern "C" fn(*mut c_void) -> u64;
 
 struct ArchiveSymbols {
-    read_new: archive_read_new_fn,
-    read_free: archive_read_free_fn,
-    read_open_filename: archive_read_open_filename_fn,
-    read_next_header: archive_read_next_header_fn,
-    read_data: archive_read_data_fn,
-    set_bytes_in_buffer: archive_read_set_bytes_in_buffer_fn,
-    entry_pathname: archive_entry_pathname_fn,
-    entry_size: archive_entry_size_fn,
+    read_new: ArchiveReadNewFn,
+    read_free: ArchiveReadFreeFn,
+    read_open_filename: ArchiveReadOpenFilenameFn,
+    read_next_header: ArchiveReadNextHeaderFn,
+    read_data: ArchiveReadDataFn,
+    entry_pathname: ArchiveEntryPathnameFn,
+    entry_size: ArchiveEntrySizeFn,
 }
 
 // ---------------------------------------------------------------------------
@@ -64,21 +63,19 @@ fn try_load_libarchive() -> Option<ArchiveSymbols> {
     for lib_name in &libs {
         match unsafe { libloading::Library::new(lib_name) } {
             Ok(handle) => {
-                let read_new: libloading::Symbol<archive_read_new_fn> =
+                let read_new: libloading::Symbol<ArchiveReadNewFn> =
                     unsafe { handle.get(b"archive_read_new") }.ok()?;
-                let read_free: libloading::Symbol<archive_read_free_fn> =
+                let read_free: libloading::Symbol<ArchiveReadFreeFn> =
                     unsafe { handle.get(b"archive_read_free") }.ok()?;
-                let read_open_filename: libloading::Symbol<archive_read_open_filename_fn> =
+                let read_open_filename: libloading::Symbol<ArchiveReadOpenFilenameFn> =
                     unsafe { handle.get(b"archive_read_open_filename") }.ok()?;
-                let read_next_header: libloading::Symbol<archive_read_next_header_fn> =
+                let read_next_header: libloading::Symbol<ArchiveReadNextHeaderFn> =
                     unsafe { handle.get(b"archive_read_next_header") }.ok()?;
-                let read_data: libloading::Symbol<archive_read_data_fn> =
+                let read_data: libloading::Symbol<ArchiveReadDataFn> =
                     unsafe { handle.get(b"archive_read_data") }.ok()?;
-                let set_bytes_in_buffer: libloading::Symbol<archive_read_set_bytes_in_buffer_fn> =
-                    unsafe { handle.get(b"archive_read_set_bytes_in_buffer") }.ok()?;
-                let entry_pathname: libloading::Symbol<archive_entry_pathname_fn> =
+                let entry_pathname: libloading::Symbol<ArchiveEntryPathnameFn> =
                     unsafe { handle.get(b"archive_entry_pathname") }.ok()?;
-                let entry_size: libloading::Symbol<archive_entry_size_fn> =
+                let entry_size: libloading::Symbol<ArchiveEntrySizeFn> =
                     unsafe { handle.get(b"archive_entry_size") }.ok()?;
 
                 return Some(ArchiveSymbols {
@@ -87,7 +84,6 @@ fn try_load_libarchive() -> Option<ArchiveSymbols> {
                     read_open_filename: *read_open_filename,
                     read_next_header: *read_next_header,
                     read_data: *read_data,
-                    set_bytes_in_buffer: *set_bytes_in_buffer,
                     entry_pathname: *entry_pathname,
                     entry_size: *entry_size,
                 });
@@ -157,7 +153,6 @@ pub fn collect_cbr_image_names(file_path: &Path) -> Result<Vec<String>, String> 
 // Constants for archive return codes.
 const ARCHIVE_OK: c_int = 1;
 const ARCHIVE_EOF: c_int = -1;
-const ARCHIVE_WARN: c_int = 2;
 
 /// Read all image entries from a CBR file into memory.
 pub fn collect_cbr_entries(file_path: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
@@ -207,12 +202,14 @@ pub fn collect_cbr_entries(file_path: &Path) -> Result<Vec<(String, Vec<u8>)>, S
 
                     let size = (symbols.entry_size)(entry_ptr) as usize;
                     let mut data: Vec<u8> = Vec::with_capacity(size);
-                    let mut bytes_read: isize = 0;
                     let mut total_read: usize = 0;
 
-                    while total_read < size {
+                    loop {
+                        if total_read >= size {
+                            break;
+                        }
                         let to_read = std::cmp::min(buf.len(), size - total_read);
-                        bytes_read = (symbols.read_data)(archive_ptr, buf.as_mut_ptr() as *mut c_void, to_read as usize);
+                        let bytes_read = (symbols.read_data)(archive_ptr, buf.as_mut_ptr() as *mut c_void, to_read as usize);
                         if bytes_read <= 0 {
                             break;
                         }

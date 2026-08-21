@@ -78,3 +78,22 @@ export interface ConvertWebpResult {
   converted: string[];
   skipped: string[];
 }
+
+export interface ColorAdjustParams {
+  grayscale: boolean;
+  sepia: boolean;
+  invert: boolean;
+  red_gain: number;
+  green_gain: number;
+  blue_gain: number;
+  saturation: number;
+  contrast: number;
+  brightness: number;
+  gamma: number;
+}
+
+export interface BatchEditParams {
+  resize_percent: number;
+  color_adjust: ColorAdjustParams;
+  cut_lines: number[][];
+}

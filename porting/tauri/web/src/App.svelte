@@ -1,6 +1,6 @@
 <script lang="ts">
   import './app.css';
-  import type { DirEntry } from './lib/types';
+  import type { DirEntry, PageState } from './lib/types';
   import { listDirectory, firstImage, pageLoad, pageSave } from './lib/api';
   import { files, selectedFile, currentDirectory } from './stores/files';
   import { pages as pagesStore, hasChanges } from './stores/pages';
@@ -11,6 +11,7 @@
   import JobMonitor from './components/JobMonitor.svelte';
   import ValidateDialog from './components/ValidateDialog.svelte';
   import ConvertDialog from './components/ConvertDialog.svelte';
+  import BatchEdit from './components/BatchEdit.svelte';
   import CbrDialog from './components/CbrDialog.svelte';
   import MergeDialog from './components/MergeDialog.svelte';
   import ComicInfoDialog from './components/ComicInfoDialog.svelte';
@@ -27,6 +28,7 @@
   let showCbr = false;
   let showMerge = false;
   let showComicinfo = false;
+  let showBatch = false;
 
   // Track the page the user is hovering/clicking so Space can open it.
   let highlighted = 0;
@@ -69,6 +71,11 @@
   function openViewerAt(index: number) {
     viewerIndex = index;
     viewerOpen = true;
+  }
+
+  function onBatchApply(pages: PageState[]) {
+    pagesStore.set(pages);
+    hasChanges.set(true);
   }
 
   async function saveChanges() {
@@ -139,6 +146,9 @@
         onOpenViewer={openViewerAt}
         onHighlight={(i) => (highlighted = i)}
       />
+      <div class="edit-bar">
+        <button class="btn" on:click={() => (showBatch = true)} disabled={!$selectedFile}>Apply batch edit…</button>
+      </div>
       <StageBar onSave={saveChanges} onRevert={revertChanges} />
     </div>
   </main>
@@ -148,6 +158,8 @@
   <CbrDialog open={showCbr} dirPath={$currentDirectory} />
   <MergeDialog open={showMerge} dirPath={$currentDirectory} />
   <ComicInfoDialog open={showComicinfo} dirPath={$currentDirectory} />
+
+  <BatchEdit open={showBatch} filePath={currentFilePath()} onApply={onBatchApply} onClose={() => (showBatch = false)} />
 
   <PageViewer
     open={viewerOpen}
@@ -197,6 +209,12 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+  }
+
+  .edit-bar {
+    display: flex;
+    justify-content: flex-end;
+    padding: 4px 8px 0;
   }
 
   .btn {

@@ -8,11 +8,12 @@ import type {
   FileValidationResult,
   ProgressEvent,
   SaveChangesResult,
-  ComicInfoResult,
-  CbrConversionResult,
-  MergeResult,
-  ConvertWebpResult,
-} from './types';
+   ComicInfoResult,
+   CbrConversionResult,
+   MergeResult,
+   ConvertWebpResult,
+   BatchEditParams,
+ } from './types';
 
 // Tauri command names — must match Rust invoke_handler![] registrations
 const CMD = {
@@ -27,9 +28,10 @@ const CMD = {
   CBR_TO_CBZ: 'cmd_cbr_to_cbz',
   SCAN_COMICINFO: 'cmd_scan_comicinfo',
   REMOVE_COMICINFO: 'cmd_remove_comicinfo',
-  PAGE_LOAD: 'page_load',
-  PAGE_SAVE: 'page_save',
-};
+   PAGE_LOAD: 'page_load',
+   PAGE_SAVE: 'page_save',
+   BATCH_EDIT: 'apply_batch_edit',
+ };
 
 export async function listDirectory(dirPath: string): Promise<DirEntry[]> {
   return invoke<DirEntry[]>(CMD.LIST_DIRECTORY, { dir_path: dirPath });
@@ -126,6 +128,14 @@ export async function pageSave(
   filePath: string,
 ): Promise<SaveChangesResult> {
   return invoke<SaveChangesResult>(CMD.PAGE_SAVE, { pages, file_path: filePath });
+}
+
+// Apply a batch edit (resize / colour adjust / split) to every page of a CBZ file.
+export async function applyBatchEdit(
+  filePath: string,
+  params: BatchEditParams,
+): Promise<PageState[]> {
+  return invoke<PageState[]>(CMD.BATCH_EDIT, { file_path: filePath, params });
 }
 
 export function onProgress(callback: (event: ProgressEvent) => void): () => void {

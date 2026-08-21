@@ -153,7 +153,7 @@ const IMAGE_EXTENSIONS: &[&str] = &[
 /// Check whether an entry name has a recognised image extension.
 pub fn is_image_entry(name: &str) -> bool {
     if let Some(ext) = Path::new(name).extension().and_then(|e| e.to_str()) {
-        return IMAGE_EXTENSIONS.iter().any(|ie| *ie == ext);
+        return IMAGE_EXTENSIONS.iter().any(|ie| ie.eq_ignore_ascii_case(ext));
     }
     false
 }
@@ -202,7 +202,7 @@ pub fn renumber_entries(entries: &mut [ZipEntry], preserve_comicinfo: bool) {
         }
         img_idx += 1;
         if let Some(ext) = Path::new(&entry.name).extension().and_then(|e| e.to_str()) {
-            entry.name = format_page_name(img_idx, padding, ext);
+            entry.name = format_page_name(img_idx, padding, &format!(".{}", ext));
         } else {
             // Fallback: no extension — use .png.
             entry.name = format_page_name(img_idx, padding, ".png");

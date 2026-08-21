@@ -79,40 +79,61 @@ fn event_name(e: &quick_xml::name::QName) -> String {
 }
 
 /// Parse a single XML element's text content from the root.
-fn get_node_text(root: &str, reader: &mut Reader<BufReader<&[u8]>>) -> String {
-    let mut text = String::new();
+///
+/// Each field is searched **independently** by exact element name, skipping any
+/// non-matching siblings so the document parses regardless of which fields are
+/// present or in what order — real ComicInfo.xml files omit most of the ~40
+/// ordered fields, so a strictly sequential scan would lose every field that
+/// follows an omitted one.
+fn get_node_text(root: &str, xml: &[u8]) -> String {
+    let mut reader = Reader::from_reader(BufReader::new(xml));
     let mut buf = Vec::new();
-    let mut depth = 0;
 
     loop {
         buf.clear();
         match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
-                if text.is_empty() {
-                    let name = event_name(&e.name());
-                    if name.starts_with(root) {
-                        // Start of target element — begin collecting.
-                        depth += 1;
-                        if depth > 1 {
-                            // Nested — skip but collect content.
-                        }
-                    }
-                }
-            }
-            Ok(Event::End(e)) => {
+            Ok(Event::Start(e)) => {
                 let name = event_name(&e.name());
-                if name.starts_with(root) && depth > 0 {
-                    depth -= 1;
-                    if depth == 0 {
-                        break; // Found closing tag of target element.
-                    }
+                if is_comicinfo_root(&name) {
+                    // Skip the opening <ComicInfo> wrapper.
+                    continue;
+                }
+                if name == root {
+                    return collect_content(&mut reader, &mut buf);
+                }
+                skip_subtree(&mut reader, &mut buf);
+            }
+            Ok(Event::Empty(e)) => {
+                let name = event_name(&e.name());
+                if is_comicinfo_root(&name) {
+                    continue; // Self-closed root.
+                }
+                if name == root {
+                    return String::new(); // Matched, but empty.
                 }
             }
-            Ok(Event::Text(e)) => {
-                if depth > 0 {
-                    text.push_str(&e.unescape().unwrap_or_default());
+            Ok(Event::Eof) => return String::new(),
+            _ => {} // Whitespace / comments between children: ignore.
+        }
+    }
+}
+
+/// Read text content until the matching End tag of the currently open element.
+fn collect_content(reader: &mut Reader<BufReader<&[u8]>>, buf: &mut Vec<u8>) -> String {
+    let mut text = String::new();
+    let mut depth = 1;
+
+    loop {
+        buf.clear();
+        match reader.read_event_into(buf) {
+            Ok(Event::Start(_)) | Ok(Event::Empty(_)) => depth += 1,
+            Ok(Event::End(_)) => {
+                depth -= 1;
+                if depth == 0 {
+                    break;
                 }
             }
+            Ok(Event::Text(e)) => text.push_str(&e.unescape().unwrap_or_default()),
             Ok(Event::Eof) => break,
             _ => {}
         }
@@ -121,9 +142,29 @@ fn get_node_text(root: &str, reader: &mut Reader<BufReader<&[u8]>>) -> String {
     text.trim().to_string()
 }
 
+/// Skip a sibling subtree (balanced Start/End) until its matching End tag.
+fn skip_subtree(reader: &mut Reader<BufReader<&[u8]>>, buf: &mut Vec<u8>) {
+    let mut depth = 1;
+
+    while depth > 0 {
+        buf.clear();
+        match reader.read_event_into(buf) {
+            Ok(Event::Start(_)) | Ok(Event::Empty(_)) => depth += 1,
+            Ok(Event::End(_)) => depth -= 1,
+            Ok(Event::Eof) => break,
+            _ => {}
+        }
+    }
+}
+
+/// True for the root `<ComicInfo>` element (tolerates a namespace prefix).
+fn is_comicinfo_root(name: &str) -> bool {
+    name.starts_with("ComicInfo")
+}
+
 /// Parse a single integer element from XML.
-fn get_node_int(root: &str, reader: &mut Reader<BufReader<&[u8]>>) -> i32 {
-    let s = get_node_text(root, reader);
+fn get_node_int(root: &str, xml: &[u8]) -> i32 {
+    let s = get_node_text(root, xml);
     if s.is_empty() {
         return UNSET_INT;
     }
@@ -131,8 +172,8 @@ fn get_node_int(root: &str, reader: &mut Reader<BufReader<&[u8]>>) -> i32 {
 }
 
 /// Parse a single double element from XML.
-fn get_node_double(root: &str, reader: &mut Reader<BufReader<&[u8]>>) -> f64 {
-    let s = get_node_text(root, reader);
+fn get_node_double(root: &str, xml: &[u8]) -> f64 {
+    let s = get_node_text(root, xml);
     if s.is_empty() {
         return UNSET_RATING;
     }
@@ -143,65 +184,47 @@ fn get_node_double(root: &str, reader: &mut Reader<BufReader<&[u8]>>) -> f64 {
 ///
 /// Uses `quick-xml` to read the XML. Returns a default ComicInfo if parsing fails.
 pub fn parse_comicinfo_xml(xml: &[u8]) -> ComicInfo {
-    let mut reader = Reader::from_reader(BufReader::new(xml));
-
-    // Skip past the root <ComicInfo> tag.
-    let mut buf = Vec::new();
-    loop {
-        buf.clear();
-        match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
-                let name = event_name(&e.name());
-                if name.starts_with("ComicInfo") {
-                    break; // Found root element.
-                }
-            }
-            Ok(Event::Eof) => return default_comicinfo(),
-            _ => {}
-        }
-    }
-
     let mut ci = default_comicinfo();
 
-    ci.title = get_node_text("Title", &mut reader);
-    ci.series = get_node_text("Series", &mut reader);
-    ci.number = get_node_text("Number", &mut reader);
-    ci.count = get_node_int("Count", &mut reader);
-    ci.volume = get_node_int("Volume", &mut reader);
-    ci.alternate_series = get_node_text("AlternateSeries", &mut reader);
-    ci.alternate_number = get_node_text("AlternateNumber", &mut reader);
-    ci.alternate_count = get_node_int("AlternateCount", &mut reader);
-    ci.summary = get_node_text("Summary", &mut reader);
-    ci.notes = get_node_text("Notes", &mut reader);
-    ci.year = get_node_int("Year", &mut reader);
-    ci.month = get_node_int("Month", &mut reader);
-    ci.day = get_node_int("Day", &mut reader);
-    ci.writer = get_node_text("Writer", &mut reader);
-    ci.penciller = get_node_text("Penciller", &mut reader);
-    ci.inker = get_node_text("Inker", &mut reader);
-    ci.colorist = get_node_text("Colorist", &mut reader);
-    ci.letterer = get_node_text("Letterer", &mut reader);
-    ci.cover_artist = get_node_text("CoverArtist", &mut reader);
-    ci.editor = get_node_text("Editor", &mut reader);
-    ci.publisher = get_node_text("Publisher", &mut reader);
-    ci.imprint = get_node_text("Imprint", &mut reader);
-    ci.genre = get_node_text("Genre", &mut reader);
-    ci.tags = get_node_text("Tags", &mut reader);
-    ci.web = get_node_text("Web", &mut reader);
-    ci.page_count = get_node_int("PageCount", &mut reader);
-    ci.language_iso = get_node_text("LanguageISO", &mut reader);
-    ci.format = get_node_text("Format", &mut reader);
-    ci.black_and_white = get_node_text("BlackAndWhite", &mut reader);
-    ci.manga = get_node_text("Manga", &mut reader);
-    ci.characters = get_node_text("Characters", &mut reader);
-    ci.teams = get_node_text("Teams", &mut reader);
-    ci.locations = get_node_text("Locations", &mut reader);
-    ci.scan_information = get_node_text("ScanInformation", &mut reader);
-    ci.story_arc = get_node_text("StoryArc", &mut reader);
-    ci.story_arc_number = get_node_text("StoryArcNumber", &mut reader);
-    ci.series_group = get_node_text("SeriesGroup", &mut reader);
-    ci.age_rating = get_node_text("AgeRating", &mut reader);
-    ci.community_rating = get_node_double("CommunityRating", &mut reader);
+    ci.title = get_node_text("Title", xml);
+    ci.series = get_node_text("Series", xml);
+    ci.number = get_node_text("Number", xml);
+    ci.count = get_node_int("Count", xml);
+    ci.volume = get_node_int("Volume", xml);
+    ci.alternate_series = get_node_text("AlternateSeries", xml);
+    ci.alternate_number = get_node_text("AlternateNumber", xml);
+    ci.alternate_count = get_node_int("AlternateCount", xml);
+    ci.summary = get_node_text("Summary", xml);
+    ci.notes = get_node_text("Notes", xml);
+    ci.year = get_node_int("Year", xml);
+    ci.month = get_node_int("Month", xml);
+    ci.day = get_node_int("Day", xml);
+    ci.writer = get_node_text("Writer", xml);
+    ci.penciller = get_node_text("Penciller", xml);
+    ci.inker = get_node_text("Inker", xml);
+    ci.colorist = get_node_text("Colorist", xml);
+    ci.letterer = get_node_text("Letterer", xml);
+    ci.cover_artist = get_node_text("CoverArtist", xml);
+    ci.editor = get_node_text("Editor", xml);
+    ci.publisher = get_node_text("Publisher", xml);
+    ci.imprint = get_node_text("Imprint", xml);
+    ci.genre = get_node_text("Genre", xml);
+    ci.tags = get_node_text("Tags", xml);
+    ci.web = get_node_text("Web", xml);
+    ci.page_count = get_node_int("PageCount", xml);
+    ci.language_iso = get_node_text("LanguageISO", xml);
+    ci.format = get_node_text("Format", xml);
+    ci.black_and_white = get_node_text("BlackAndWhite", xml);
+    ci.manga = get_node_text("Manga", xml);
+    ci.characters = get_node_text("Characters", xml);
+    ci.teams = get_node_text("Teams", xml);
+    ci.locations = get_node_text("Locations", xml);
+    ci.scan_information = get_node_text("ScanInformation", xml);
+    ci.story_arc = get_node_text("StoryArc", xml);
+    ci.story_arc_number = get_node_text("StoryArcNumber", xml);
+    ci.series_group = get_node_text("SeriesGroup", xml);
+    ci.age_rating = get_node_text("AgeRating", xml);
+    ci.community_rating = get_node_double("CommunityRating", xml);
 
     ci
 }

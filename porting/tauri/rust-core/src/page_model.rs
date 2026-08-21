@@ -217,10 +217,11 @@ impl PageModel {
     pub fn renumber(&mut self) {
         let padding = page_padding_for(self.visible_count());
 
-        let mut visible_pages: Vec<&mut PageState> = self.pages.iter_mut().filter(|p| !p.deleted).collect();
-        for (i, page) in visible_pages.iter_mut().enumerate() {
-            let ext = get_ext(&page.name);
-            page.name = format_page_name(i, padding + 1, &ext);
+        let mut idx: usize = 1;
+        for page in self.pages.iter_mut().filter(|p| !p.deleted) {
+            let ext = format!(".{}", get_ext(&page.name));
+            page.name = format_page_name(idx, padding + 1, &ext);
+            idx += 1;
         }
     }
 

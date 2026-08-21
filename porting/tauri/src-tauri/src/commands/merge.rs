@@ -94,8 +94,13 @@ pub async fn cmd_merge(
             error_msg = Some(series.error_msg.clone());
         }
         total_pages += series.total_pages;
-        // Note: volumes_created count is available but we'd need to track volume paths
-        // from the actual output. For now report series name.
+        for v in series.volumes {
+            volumes.push(MergeVolumeInfo {
+                title: v.title,
+                output_path: v.output_path.to_string_lossy().to_string(),
+                chapters: v.chapters.into_iter().map(|p| p.to_string_lossy().to_string()).collect(),
+            });
+        }
     }
 
     Ok(MergeResult {

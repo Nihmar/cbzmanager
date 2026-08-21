@@ -51,12 +51,25 @@ pub struct SeriesPlan {
     pub remaining: usize,
 }
 
+/// A single output volume produced by a merge operation.
+#[derive(Debug, Clone)]
+pub struct MergeVolumeResult {
+    /// Title of the resulting volume (e.g. "Series Name V01").
+    pub title: String,
+    /// Output file path for the merged CBZ.
+    pub output_path: PathBuf,
+    /// Source chapter files included in this volume.
+    pub chapters: Vec<PathBuf>,
+}
+
 /// Merge result for one series.
 #[derive(Debug, Clone)]
 pub struct SeriesMergeResult {
     pub series_name: String,
     pub volumes_created: usize,
     pub total_pages: usize,
+    /// Actual volume output metadata (paths, chapter list).
+    pub volumes: Vec<MergeVolumeResult>,
     pub error_msg: String,
 }
 
@@ -259,6 +272,7 @@ pub fn merge_chapters(
             series_name: String::new(),
             volumes_created: 0,
             total_pages: 0,
+            volumes: Vec::new(),
             error_msg: "No chapter files found".to_string(),
         }];
     }
@@ -332,6 +346,7 @@ pub fn merge_chapters(
         report_service_progress(progress, "Merging", series_name.as_str(), s_idx, total_series);
 
         let mut total_pages = 0usize;
+        let mut vol_results: Vec<MergeVolumeResult> = Vec::new();
         for vol in volumes {
             match merge_cbz_files(&vol.chapter_paths, &vol.output_path) {
                 Ok(page_count) => {
@@ -342,12 +357,19 @@ pub fn merge_chapters(
                             std::fs::remove_file(ch_path).ok();
                         }
                     }
+                    vol_results.push(MergeVolumeResult {
+                        title: vol.output_path.file_name()
+                            .unwrap_or_default().to_string_lossy().to_string(),
+                        output_path: vol.output_path.clone(),
+                        chapters: vol.chapter_paths.clone(),
+                    });
                 }
                 Err(e) => {
                     results.push(SeriesMergeResult {
                         series_name: series_name.clone(),
                         volumes_created: 0,
                         total_pages: 0,
+                        volumes: Vec::new(),
                         error_msg: format!("{}: {}", series_name, e),
                     });
                     continue;
@@ -359,6 +381,7 @@ pub fn merge_chapters(
             series_name: series_name.clone(),
             volumes_created: *num_volumes,
             total_pages,
+            volumes: vol_results,
             error_msg: String::new(),
         });
     }
@@ -406,6 +429,7 @@ pub fn merge_chapters_with_progress(
             series_name: String::new(),
             volumes_created: 0,
             total_pages: 0,
+            volumes: Vec::new(),
             error_msg: "No chapter files found".to_string(),
         }];
     }
@@ -481,6 +505,7 @@ pub fn merge_chapters_with_progress(
         cb(pct, &format!("Merging {} ({}/{})", series_name, s_idx + 1, total_series));
 
         let mut total_pages = 0usize;
+        let mut vol_results: Vec<MergeVolumeResult> = Vec::new();
         for vol in volumes {
             match merge_cbz_files(&vol.chapter_paths, &vol.output_path) {
                 Ok(page_count) => {
@@ -490,12 +515,19 @@ pub fn merge_chapters_with_progress(
                             std::fs::remove_file(ch_path).ok();
                         }
                     }
+                    vol_results.push(MergeVolumeResult {
+                        title: vol.output_path.file_name()
+                            .unwrap_or_default().to_string_lossy().to_string(),
+                        output_path: vol.output_path.clone(),
+                        chapters: vol.chapter_paths.clone(),
+                    });
                 }
                 Err(e) => {
                     results.push(SeriesMergeResult {
                         series_name: series_name.clone(),
                         volumes_created: 0,
                         total_pages: 0,
+                        volumes: Vec::new(),
                         error_msg: format!("{}: {}", series_name, e),
                     });
                     continue;
@@ -507,6 +539,7 @@ pub fn merge_chapters_with_progress(
             series_name: series_name.clone(),
             volumes_created: *num_volumes,
             total_pages,
+            volumes: vol_results,
             error_msg: String::new(),
         });
     }

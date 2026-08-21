@@ -64,10 +64,12 @@ pub async fn cmd_convert_webp(
         let _ = tx.send((pct, msg.to_string()));
     }));
 
+    // Delete source option: if true, original is deleted; if false, renamed to "_OLD.cbz" backup.
     let results = rust_core::convert_webp::convert_webp_with_progress(
         Path::new(&dir_path),
         &files,
         actual_threads,
+        _delete_source,
         cb,
     );
 

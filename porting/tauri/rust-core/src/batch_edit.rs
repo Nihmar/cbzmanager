@@ -246,7 +246,7 @@ pub fn stage_results(
             for (i, piece) in result.pieces.iter().skip(1).enumerate() {
                 new_pages.push(PageState {
                     orig_name: String::new(), // OrigName empty — can't match archive entry.
-                    name: format!("split{}.{}", i + 1, piece.ext),
+                    name: format!("page_{:04}.{}", model.pages().len() + i, piece.ext),
                     data: Some(piece.data.clone()),
                     deleted: false,
                 });

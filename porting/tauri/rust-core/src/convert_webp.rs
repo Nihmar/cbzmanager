@@ -47,7 +47,9 @@ pub type ConvertResults = Vec<ConvertResult>;
 // ---------------------------------------------------------------------------
 
 /// Process a single CBZ file: convert convertible images to WebP (only if smaller).
-fn process_cbz(file_path: &Path, threads: usize) -> Result<(bool, u64, u64), String> {
+/// When `delete_source` is true the original file is deleted after conversion;
+/// otherwise it is renamed to `_OLD.cbz` as a backup.
+fn process_cbz(file_path: &Path, threads: usize, delete_source: bool) -> Result<(bool, u64, u64), String> {
     // Read the source CBZ into memory.
     let entries = zip_ops::collect_zip_entries_all(file_path)
         .map_err(|e| format!("Cannot read {}: {}", file_path.display(), e))?;
@@ -142,14 +144,20 @@ fn process_cbz(file_path: &Path, threads: usize) -> Result<(bool, u64, u64), Str
     let new_size = tmp_path.metadata().map(|m| m.len()).unwrap_or(0);
 
     // Replace the original.
-    let old_file = backup_file_path(file_path);
-    if old_file.exists() {
-        std::fs::remove_file(&old_file).ok();
+    if delete_source {
+        // No backup — just atomically swap temp → source.
+        std::fs::rename(&tmp_path, file_path)
+            .map_err(|e| format!("Failed to replace: {}", e))?;
+    } else {
+        let old_file = backup_file_path(file_path);
+        if old_file.exists() {
+            std::fs::remove_file(&old_file).ok();
+        }
+        std::fs::rename(file_path, &old_file)
+            .map_err(|e| format!("Failed to backup: {}", e))?;
+        std::fs::rename(&tmp_path, file_path)
+            .map_err(|e| format!("Failed to replace: {}", e))?;
     }
-    std::fs::rename(file_path, &old_file)
-        .map_err(|e| format!("Failed to backup: {}", e))?;
-    std::fs::rename(&tmp_path, file_path)
-        .map_err(|e| format!("Failed to replace: {}", e))?;
 
     Ok((true, original_size, new_size))
 }
@@ -193,7 +201,9 @@ fn to_upper_ext(ext: &str) -> String {
 ///
 /// Filters ComicInfo.xml entries, renames pages sequentially.
 /// Supports parallel decoding/encoding via `rayon` (capped at MAX_CONVERT_THREADS = 8).
-pub fn convert_webp(dir: &Path, files: &[PathBuf], threads: usize) -> ConvertResults {
+/// When `delete_source` is true the original file is deleted after conversion;
+/// otherwise it is renamed to `_OLD.cbz` as a backup.
+pub fn convert_webp(dir: &Path, files: &[PathBuf], threads: usize, delete_source: bool) -> ConvertResults {
     let progress = None;
 
     let total = files.len();
@@ -214,7 +224,7 @@ pub fn convert_webp(dir: &Path, files: &[PathBuf], threads: usize) -> ConvertRes
                 error_msg: String::new(),
             };
 
-            match process_cbz(full_path, threads) {
+            match process_cbz(full_path, threads, delete_source) {
                 Ok((changed, orig, new)) => {
                     result.converted = changed;
                     result.original_size = orig;
@@ -235,10 +245,12 @@ pub fn convert_webp(dir: &Path, files: &[PathBuf], threads: usize) -> ConvertRes
 /// Convert images in CBZ files to WebP format with progress reporting.
 ///
 /// Accepts an optional boxed callback that can be cloned into rayon workers.
+/// When `delete_source` is true the original file is deleted after conversion.
 pub fn convert_webp_with_progress(
     dir: &Path,
     files: &[PathBuf],
     threads: usize,
+    delete_source: bool,
     on_progress: Option<Box<dyn Fn(i32, &str) + Send + Sync>>,
 ) -> ConvertResults {
     let progress = on_progress;
@@ -252,7 +264,7 @@ pub fn convert_webp_with_progress(
 
     // If no callback provided, use the standard non-progress path
     if progress.is_none() {
-        return convert_webp(dir, files, threads);
+        return convert_webp(dir, files, threads, delete_source);
     }
 
     let results: Vec<ConvertResult> = (0..files.len())
@@ -276,7 +288,7 @@ pub fn convert_webp_with_progress(
                 error_msg: String::new(),
             };
 
-            match process_cbz(full_path, threads) {
+            match process_cbz(full_path, threads, delete_source) {
                 Ok((changed, orig, new)) => {
                     result.converted = changed;
                     result.original_size = orig;

@@ -157,7 +157,7 @@ fn cmd_validate(dir: &PathBuf, threads_opt: Option<usize>) -> Result<i32> {
     }
 }
 
-fn cmd_convert_webp(dir: &PathBuf, _delete: bool, threads_opt: Option<usize>) -> Result<i32> {
+fn cmd_convert_webp(dir: &PathBuf, delete: bool, threads_opt: Option<usize>) -> Result<i32> {
     let dir = dir.canonicalize().context("invalid directory")?;
     if !dir.is_dir() {
         return Err(anyhow::anyhow!("'{}' is not a valid directory", dir.display()));
@@ -173,8 +173,7 @@ fn cmd_convert_webp(dir: &PathBuf, _delete: bool, threads_opt: Option<usize>) ->
 
     let threads = resolve_threads(threads_opt, rust_core::helpers::online_cpu_count(), rust_core::types::MAX_WEBP_THREADS);
 
-    // ConvertWebP service: always creates backup (delete not yet implemented in rust-core).
-    let results = rust_core::convert_webp::convert_webp(&dir, &files, threads);
+    let results = rust_core::convert_webp::convert_webp(&dir, &files, threads, delete);
 
     let mut converted = 0usize;
     let mut skipped = 0usize;
@@ -272,8 +271,7 @@ fn cmd_cbr_to_cbz(dir: &PathBuf, _delete: bool, threads_opt: Option<usize>) -> R
 
     let threads = resolve_threads(threads_opt, rust_core::helpers::online_cpu_count(), rust_core::types::MAX_CBR_THREADS);
 
-    // Note: delete-source not yet implemented in convert_cbr_to_cbz (always creates backup).
-    let results = rust_core::cbr_convert::convert_cbr_to_cbz(&dir, &file_paths, threads, true);
+    let results = rust_core::cbr_convert::convert_cbr_to_cbz(&dir, &file_paths, threads, false);
 
     let mut converted = 0usize;
     let mut skipped = 0usize;

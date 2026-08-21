@@ -162,7 +162,7 @@ pub fn collect_cbr_files(dir: &Path) -> Vec<String> {
 /// Supports skip-existing (by checking for target .cbz) and delete-source.
 /// Parallel per-file conversion pool, capped at MAX_CBR_CONVERT_THREADS = 4.
 pub fn convert_cbr_to_cbz(
-    dir: &Path,
+    _dir: &Path,
     files: &[PathBuf],
     threads: usize,
     _skip_existing: bool,

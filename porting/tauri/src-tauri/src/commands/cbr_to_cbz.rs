@@ -21,6 +21,8 @@ pub async fn cmd_cbr_to_cbz(
         return Err("CBR support not available: libarchive not found".to_string());
     }
 
+    // Note: _delete_source is accepted but rust-core CBR conversion always creates backup.
+    // delete-source support for CBR would require threading the parameter through process_cbr.
     let files = rust_core::helpers::collect_cbr_files(Path::new(&dir_path));
 
     if files.is_empty() {
@@ -61,7 +63,7 @@ pub async fn cmd_cbr_to_cbz(
         let _ = tx.send((pct, msg.to_string()));
     }));
 
-    // convert_cbr_to_cbz doesn't expose delete_source parameter - that's handled elsewhere
+    // convert_cbr_to_cbz skips existing is not applicable for batch mode
     let results = rust_core::cbr_convert::convert_cbr_to_cbz_with_progress(
         Path::new(&dir_path),
         &files,

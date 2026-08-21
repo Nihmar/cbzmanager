@@ -410,6 +410,7 @@ export function onProgress(callback) { return listen('progress', ...) }
 - [ ] **8C.** Implement `FileBrowser.svelte` with lazy thumbnail loading and ComicInfo badges
 - [ ] **8D.** Implement `PageEditor.svelte` modal (resize + colour + split)
 - [ ] **8E.** Implement `BatchEdit.svelte` dialog
+      - Wire `apply_batch_edit` through `api.ts` (`BATCH_EDIT` invoke + `cmd_apply_batch_edit` signature parity) and connect the batch UI to selected pages
 - [ ] **8F.** Implement `JobMonitor.svelte` non-modal window
 - [ ] **8G.** Implement main layout with two-pane UI, keyboard shortcuts, zoom slider, context menus
 

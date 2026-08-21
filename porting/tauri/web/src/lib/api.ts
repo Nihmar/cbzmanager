@@ -51,6 +51,16 @@ export async function validate(dirPath: string): Promise<FileValidationResult[]>
   return invoke<FileValidationResult[]>(CMD.VALIDATE, { dir_path: dirPath });
 }
 
+export async function validateDeep(
+  dirPath: string,
+  threads?: number,
+): Promise<FileValidationResult[]> {
+  return invoke<FileValidationResult[]>(CMD.VALIDATE_DEEP, {
+    dir_path: dirPath,
+    threads,
+  });
+}
+
 export async function convertWebp(
   dirPath: string,
   deleteSource: boolean,
@@ -123,5 +133,43 @@ export function onProgress(callback: (event: ProgressEvent) => void): () => void
     callback(event.payload);
   });
   return () => unlisten.then((fn) => fn());
+}
+
+// Detect image MIME type from magic bytes so pages can be rendered regardless of format.
+export function mimeFromBytes(bytes: Uint8Array): string {
+  const b = bytes.slice(0, 12);
+  if (b.length >= 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'image/png';
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
+  if (b.length >= 12 && ((b[0] | b[1] | b[2] | b[3]) === 0 && b[7] === 0x57 && b[8] === 0x45 && b[9] === 0x42)) return 'image/webp';
+  if (b.length >= 4 && b[0] === 0x42 && b[1] === 0x4d) return 'image/bmp';
+  if ((b[0] | b[1] | b[2] | b[3]) === 0 && b[8] === 0x47 && b[9] === 0x49 && b[10] === 0x46) return 'image/gif';
+  return 'image/png';
+}
+
+export async function readEntryBytes(
+  filePath: string,
+  name: string,
+): Promise<{ data: Uint8Array }> {
+  const bytes = await invoke<Uint8Array>(CMD.READ_ENTRY, { file_path: filePath, name });
+  return { data: bytes };
+}
+
+function extToMime(name: string): string {
+  const ext = name.split('.').pop()?.toLowerCase() ?? '';
+  switch (ext) {
+    case 'jpg':
+    case 'jpeg': return 'image/jpeg';
+    case 'webp': return 'image/webp';
+    case 'bmp': return 'image/bmp';
+    case 'gif': return 'image/gif';
+    case 'tiff':
+    case 'tif': return 'image/png';
+    default: return 'image/png';
+  }
+}
+
+// Render a stored base64 page as an <img> data URL (display only).
+export function pageDataUrl(b64: string, name: string): string {
+  return `data:${extToMime(name)};base64,${b64}`;
 }
 

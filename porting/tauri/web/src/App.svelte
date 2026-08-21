@@ -1,170 +1,163 @@
 <script lang="ts">
   import './app.css';
   import type { DirEntry } from './lib/types';
-  import { listDirectory, firstImage, pageLoad } from './lib/api';
+  import { listDirectory, firstImage, pageLoad, pageSave } from './lib/api';
   import { files, selectedFile, currentDirectory } from './stores/files';
-  import { pages, hasChanges } from './stores/pages';
-  import { onProgress } from './lib/api';
+  import { pages as pagesStore, hasChanges } from './stores/pages';
 
-  let dirPath = '';
-  let isLoaded = false;
-  let logLines: string[] = [];
-  let isLoadingPages = false;
+  import FileBrowser from './components/FileBrowser.svelte';
+  import PagePreview from './components/PagePreview.svelte';
+  import StageBar from './components/StageBar.svelte';
+  import JobMonitor from './components/JobMonitor.svelte';
+  import ValidateDialog from './components/ValidateDialog.svelte';
+  import ConvertDialog from './components/ConvertDialog.svelte';
+  import CbrDialog from './components/CbrDialog.svelte';
+  import MergeDialog from './components/MergeDialog.svelte';
+  import ComicInfoDialog from './components/ComicInfoDialog.svelte';
+  import PageViewer from './components/PageViewer.svelte';
 
-  async function loadDirectory(dir: string) {
-    currentDirectory.set(dir);
-    dirPath = dir;
-    isLoaded = true;
-    
-    try {
-      const entries = await listDirectory(dir);
-      files.set(entries);
-    } catch (err) {
-      logLines = [...logLines, `Error loading directory: ${err}`];
-    }
+  let dirText = '';
+  let listing = false;
+  let loadingPages = false;
+  let viewerOpen = false;
+  let viewerIndex = 0;
+
+  let showValidate = false;
+  let showConvert = false;
+  let showCbr = false;
+  let showMerge = false;
+  let showComicinfo = false;
+
+  // Track the page the user is hovering/clicking so Space can open it.
+  let highlighted = 0;
+
+  function openDirectory() {
+    const dir = $currentDirectory.trim();
+    if (!dir) return;
+    listing = true;
+    files.set([]);
+    listDirectory(dir).then((entries) => files.set(entries)).catch(() => {}).finally(() => (listing = false));
   }
 
   async function selectFile(entry: DirEntry) {
     selectedFile.set(entry.name);
-    isLoadingPages = true;
-    pages.set([]);
+    loadingPages = true;
+    pagesStore.set([]);
     hasChanges.set(false);
-
+    highlighted = 0;
     try {
-      const dir = currentDirectory;
+      const dir = $currentDirectory;
       const filePath = `${dir}/${entry.name}`;
       const pageStates = await pageLoad(filePath);
-      pages.set(pageStates);
+      if (entry.thumbnail && pageStates.length > 0) {
+        pageStates[0] = { ...pageStates[0], data: entry.thumbnail };
+      }
+      pagesStore.set(pageStates);
     } catch (err) {
-      logLines = [...logLines, `Error loading pages: ${err}`];
+      console.error(err);
     } finally {
-      isLoadingPages = false;
+      loadingPages = false;
     }
   }
 
-  async function selectFileWithThumbnail(entry: DirEntry) {
-    selectedFile.set(entry.name);
-    isLoadingPages = true;
-    pages.set([]);
-    hasChanges.set(false);
+  function currentFilePath(): string {
+    const dir = $currentDirectory;
+    const name = $selectedFile;
+    return name ? `${dir}/${name}` : '';
+  }
 
-    // If the entry already has a thumbnail from directory listing, preload it
-    if (entry.thumbnail) {
-      // The thumbnail is available immediately
-    }
+  function openViewerAt(index: number) {
+    viewerIndex = index;
+    viewerOpen = true;
+  }
 
+  async function saveChanges() {
+    const filePath = currentFilePath();
+    if (!filePath) return;
     try {
-      const dir = currentDirectory;
-      const filePath = `${dir}/${entry.name}`;
-      
-      // Load pages in background while showing first page thumbnail immediately
-      let firstPage: string | null = null;
-      if (entry.thumbnail) {
-        firstPage = entry.thumbnail;
-      } else {
-        try {
-          const imgResult = await firstImage(filePath);
-          if (imgResult.thumbnail) {
-            firstPage = imgResult.thumbnail;
-          }
-        } catch {}
-      }
-
-      // Load all pages
-      const pageStates = await pageLoad(filePath);
-      
-      // If we have a base64 thumbnail for the first page, inject it into the data
-      if (pageStates.length > 0 && entry.thumbnail) {
-        const updated = { ...pageStates[0], data: entry.thumbnail as string };
-        pageStates[0] = updated;
-      }
-      
-      pages.set(pageStates);
+      await pageSave($pagesStore, filePath);
+      hasChanges.set(false);
     } catch (err) {
-      logLines = [...logLines, `Error loading pages: ${err}`];
-    } finally {
-      isLoadingPages = false;
+      console.error(err);
     }
   }
 
-  onProgress((event) => {
-    logLines = [...logLines, `[${event.phase}] ${event.message} (${event.percent}%)\n`];
-  });
+  function revertChanges() {
+    // Reload from disk to discard unsaved edits.
+    const entry = { name: $selectedFile, is_dir: false, ext: '' } as DirEntry;
+    if (entry.name) selectFile(entry);
+  }
+
+  function onKeydown(event: KeyboardEvent) {
+    // Space opens the full-res viewer for the highlighted page.
+    if (event.key === ' ' && $selectedFile && !viewerOpen) {
+      event.preventDefault();
+      openViewerAt(highlighted);
+    }
+  }
 </script>
+
+<svelte:window on:keydown={onKeydown} />
 
 <div class="app">
   <header class="toolbar">
     <h1>CBZ Manager</h1>
     <input
-      type="file"
-      webkitdirectory
-      class="dir-picker"
+      type="text"
+      class="dir-input"
+      bind:value={dirText}
+      placeholder="Directory path (e.g. /home/user/comics)"
+      on:keydown={(e) => e.key === 'Enter' && openDirectory()}
     />
+    <button class="btn" on:click={openDirectory}>Open directory</button>
+
+    <span class="spacer"></span>
+
+    <button class="btn" on:click={() => (showValidate = true)}>Validate</button>
+    <button class="btn" on:click={() => (showConvert = true)}>Convert to WebP</button>
+    <button class="btn" on:click={() => (showCbr = true)}>CBR → CBZ</button>
+    <button class="btn" on:click={() => (showMerge = true)}>Merge</button>
+    <button class="btn" on:click={() => (showComicinfo = true)}>ComicInfo</button>
   </header>
 
   <main class="content">
-    <!-- Left pane: File browser -->
-    <div class="file-browser">
-      {#if !isLoaded}
-        <div class="empty-state">
-          <p>Open a directory to browse CBZ files</p>
-        </div>
-      {:else}
-        <ul class="file-list">
-          {#each $files as entry (entry.name)}
-            <li
-              class:selected={$selectedFile === entry.name}
-              on:click={() => selectFileWithThumbnail(entry)}
-              title={entry.name}
-            >
-              {#if entry.thumbnail}
-                <img src={entry.thumbnail} alt="" class="thumb" loading="lazy" />
-              {/if}
-              <span>{entry.name}</span>
-            </li>
-          {/each}
-        </ul>
-      {/if}
+    <div class="file-browser-pane">
+      <FileBrowser
+        entries={$files}
+        selectedFile={$selectedFile}
+        loading={listing}
+        onSelect={selectFile}
+      />
     </div>
 
-    <!-- Right pane: Page preview -->
-    <div class="page-preview">
-      {#if selectedFile}
-        <h2>{$selectedFile}</h2>
-        {#if isLoadingPages}
-          <p class="empty-state">Loading pages...</p>
-        {:else if $pages.length > 0}
-          <div class="page-grid">
-            {#each $pages as page, i (i)}
-              <div class="page-card" on:dblclick={() => {/* open page viewer */}}>
-                {#if page.data}
-                  <img src={'data:image/png;base64,' + page.data} alt={page.name} 
-                       style="max-width: 100%; height: auto; display: block;" />
-                {:else}
-                  <span class="page-name">{page.name}</span>
-                {/if}
-              </div>
-            {/each}
-          </div>
-        {:else}
-          <p class="empty-state">No pages loaded for this file</p>
-        {/if}
-      {:else}
-        <div class="empty-state">
-          <p>Select a CBZ file to preview its pages</p>
-        </div>
-      {/if}
+    <div class="preview-pane">
+      <PagePreview
+        pages={$pagesStore}
+        fileName={$selectedFile}
+        filePath={currentFilePath()}
+        loading={loadingPages}
+        onOpenViewer={openViewerAt}
+        onHighlight={(i) => (highlighted = i)}
+      />
+      <StageBar onSave={saveChanges} onRevert={revertChanges} />
     </div>
   </main>
 
-  <!-- Job monitor -->
-  {#if logLines.length > 0}
-    <div class="job-monitor">
-      <h3>Job Log</h3>
-      <pre>{logLines.join('')}</pre>
-    </div>
-  {/if}
+  <ValidateDialog open={showValidate} dirPath={$currentDirectory} />
+  <ConvertDialog open={showConvert} dirPath={$currentDirectory} />
+  <CbrDialog open={showCbr} dirPath={$currentDirectory} />
+  <MergeDialog open={showMerge} dirPath={$currentDirectory} />
+  <ComicInfoDialog open={showComicinfo} dirPath={$currentDirectory} />
+
+  <PageViewer
+    open={viewerOpen}
+    filePath={currentFilePath()}
+    pageNames={$pagesStore.filter((p) => !p.gone).map((p) => p.name)}
+    startIndex={viewerIndex}
+  />
 </div>
+
+<JobMonitor />
 
 <style>
   .app {
@@ -177,131 +170,43 @@
   .toolbar {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 8px 16px;
+    gap: 8px;
+    padding: 8px 12px;
     background: #f5f5f5;
     border-bottom: 1px solid #ddd;
   }
 
-  .toolbar h1 {
-    margin: 0;
-    font-size: 16px;
-  }
+  .toolbar h1 { margin: 0; font-size: 16px; }
 
-  .dir-picker {
-    font-size: 12px;
-  }
+  .dir-input { width: 360px; padding: 5px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; }
 
-  .content {
-    display: flex;
-    flex: 1;
-    overflow: hidden;
-  }
+  .spacer { flex: 1; }
 
-  .file-browser {
-    width: 300px;
+  .content { display: flex; flex: 1; overflow: hidden; }
+
+  .file-browser-pane {
+    width: 280px;
     min-width: 200px;
     border-right: 1px solid #ddd;
-    overflow-y: auto;
+    overflow: hidden;
     background: #fafafa;
   }
 
-  .file-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-  }
-
-  .file-list li {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 12px;
-    cursor: pointer;
-    font-size: 13px;
-    border-bottom: 1px solid #eee;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .file-list li:hover {
-    background: #e8f0fe;
-  }
-
-  .file-list li.selected {
-    background: #d2e3fc;
-    font-weight: 500;
-  }
-
-  .thumb {
-    width: 32px;
-    height: 40px;
-    object-fit: cover;
-    border-radius: 2px;
-    flex-shrink: 0;
-  }
-
-  .page-preview {
+  .preview-pane {
     flex: 1;
-    overflow-y: auto;
-    padding: 16px;
-  }
-
-  .page-preview h2 {
-    margin: 0 0 12px 0;
-    font-size: 14px;
-  }
-
-  .page-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-    gap: 8px;
-  }
-
-  .page-card {
-    border: 1px solid #ddd;
-    padding: 4px;
-    cursor: pointer;
-    text-align: center;
-  }
-
-  .page-name {
-    font-size: 11px;
-    word-break: break-all;
-  }
-
-  .empty-state {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-    color: #666;
-    gap: 8px;
+    overflow: hidden;
   }
 
-  .job-monitor {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    background: #f8f8f8;
-    border-top: 1px solid #ddd;
-    padding: 8px 16px;
-    max-height: 200px;
-    overflow-y: auto;
-    font-size: 12px;
-  }
-
-  .job-monitor h3 {
-    margin: 0 0 4px 0;
+  .btn {
+    padding: 5px 12px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background: #fafafa;
     font-size: 13px;
+    cursor: pointer;
   }
 
-  .job-monitor pre {
-    margin: 0;
-    white-space: pre-wrap;
-    font-family: monospace;
-  }
+  .btn:hover { background: #eee; }
 </style>

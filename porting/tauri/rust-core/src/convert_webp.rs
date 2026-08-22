@@ -17,7 +17,8 @@ use crate::zip_ops;
 // Constants
 // ---------------------------------------------------------------------------
 
-const WEBP_QUALITY: i32 = 75;
+// Default WebP quality, matching the reference (Pascal/Python default is q75).
+const DEFAULT_WEBP_QUALITY: u32 = crate::image_util::WEBP_QUALITY;
 
 // Image extensions recognised as convertible by the app.
 const CONVERTIBLE_EXTS: &[&str] = &["jpg", "jpeg", "png", "gif", "bmp", "tiff", "tif"];
@@ -45,8 +46,11 @@ pub type ConvertResults = Vec<ConvertResult>;
 
 /// Process a single CBZ file: convert convertible images to WebP (only if smaller).
 /// When `delete_source` is true the original file is deleted after conversion;
-/// otherwise it is renamed to `_OLD.cbz` as a backup.
-fn process_cbz(file_path: &Path, threads: usize, delete_source: bool) -> Result<(bool, u64, u64), String> {
+/// otherwise it is renamed to `_OLD.cbz` as a backup. A `quality` of 0 means
+/// "use the default" (q75); any other value is passed straight to the WebP encoder.
+fn process_cbz(file_path: &Path, threads: usize, delete_source: bool, quality: u32) -> Result<(bool, u64, u64), String> {
+    let quality = if quality == 0 { DEFAULT_WEBP_QUALITY } else { quality };
+
     // Read the source CBZ into memory.
     let entries = zip_ops::collect_zip_entries_all(file_path)
         .map_err(|e| format!("Cannot read {}: {}", file_path.display(), e))?;
@@ -76,14 +80,14 @@ fn process_cbz(file_path: &Path, threads: usize, delete_source: bool) -> Result<
         convertible_indices.par_iter().map(|&i| -> (usize, bool) {
             let _name = &image_entries[i].0;
             let data = &image_entries[i].1;
-            let (_webp_data, was_smaller) = convert_image_to_webp(data, WEBP_QUALITY);
+            let (_webp_data, was_smaller) = convert_image_to_webp(data, quality);
             (i, was_smaller)
         }).collect()
     } else {
         convertible_indices.iter().map(|&i| -> (usize, bool) {
             let _name = &image_entries[i].0;
             let data = &image_entries[i].1;
-            let (_webp_data, was_smaller) = convert_image_to_webp(data, WEBP_QUALITY);
+            let (_webp_data, was_smaller) = convert_image_to_webp(data, quality);
             (i, was_smaller)
         }).collect()
     };
@@ -106,7 +110,7 @@ fn process_cbz(file_path: &Path, threads: usize, delete_source: bool) -> Result<
             if *was_smaller {
                 page_num += 1;
                 // Use the WebP data (re-convert here — acceptable since it's a small set).
-                let (webp_data, _) = convert_image_to_webp(data, WEBP_QUALITY);
+                let (webp_data, _) = convert_image_to_webp(data, quality);
                 new_entries.push(zip_ops::ZipEntry {
                     name: format!("page_{:04}.webp", page_num),
                     data: webp_data,
@@ -165,9 +169,9 @@ fn is_convertible(name: &str) -> bool {
 }
 
 /// Convert image bytes to WebP. Returns (webp_data, was_smaller).
-fn convert_image_to_webp(data: &[u8], quality: i32) -> (Vec<u8>, bool) {
+fn convert_image_to_webp(data: &[u8], quality: u32) -> (Vec<u8>, bool) {
     let original_size = data.len();
-    match image_util::convert_bytes_to_webp(data, quality as u32) {
+    match image_util::convert_bytes_to_webp(data, quality) {
         Ok(webp_data) => {
             if webp_data.len() < original_size {
                 (webp_data, true)
@@ -199,7 +203,7 @@ fn to_upper_ext(ext: &str) -> String {
 /// Supports parallel decoding/encoding via `rayon` (capped at MAX_CONVERT_THREADS = 8).
 /// When `delete_source` is true the original file is deleted after conversion;
 /// otherwise it is renamed to `_OLD.cbz` as a backup.
-pub fn convert_webp(_dir: &Path, files: &[PathBuf], threads: usize, delete_source: bool) -> ConvertResults {
+pub fn convert_webp(_dir: &Path, files: &[PathBuf], threads: usize, delete_source: bool, quality: u32) -> ConvertResults {
     let progress = None;
 
     let total = files.len();
@@ -220,7 +224,7 @@ pub fn convert_webp(_dir: &Path, files: &[PathBuf], threads: usize, delete_sourc
                 error_msg: String::new(),
             };
 
-            match process_cbz(full_path, threads, delete_source) {
+            match process_cbz(full_path, threads, delete_source, quality) {
                 Ok((changed, orig, new)) => {
                     result.converted = changed;
                     result.original_size = orig;
@@ -247,6 +251,7 @@ pub fn convert_webp_with_progress(
     files: &[PathBuf],
     threads: usize,
     delete_source: bool,
+    quality: u32,
     on_progress: Option<Box<dyn Fn(i32, &str) + Send + Sync>>,
 ) -> ConvertResults {
     let progress = on_progress;
@@ -260,7 +265,7 @@ pub fn convert_webp_with_progress(
 
     // If no callback provided, use the standard non-progress path
     if progress.is_none() {
-        return convert_webp(dir, files, threads, delete_source);
+        return convert_webp(dir, files, threads, delete_source, quality);
     }
 
     let results: Vec<ConvertResult> = (0..files.len())
@@ -284,7 +289,7 @@ pub fn convert_webp_with_progress(
                 error_msg: String::new(),
             };
 
-            match process_cbz(full_path, threads, delete_source) {
+            match process_cbz(full_path, threads, delete_source, quality) {
                 Ok((changed, orig, new)) => {
                     result.converted = changed;
                     result.original_size = orig;

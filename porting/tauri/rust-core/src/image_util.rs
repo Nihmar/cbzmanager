@@ -167,10 +167,23 @@ pub fn encode_image(img: &DynamicImage, format: ImageFormat, quality: u32) -> Re
             Ok(buf)
         }
         ImageFormat::Webp => {
-            let mut buf: Vec<u8> = Vec::new();
-            buffer.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::WebP)
+            // Quality-controlled lossy WebP via libwebp. This matches the Python
+            // reference's `save(format="WEBP", quality=..., method=6)` and the
+            // Pascal `IntfImageToWebP` path. The `image` crate's built-in WebP
+            // writer is lossless-only and silently ignores any quality value, so
+            // we encode directly against libwebp to actually honour it.
+            let q = if quality > 0 {
+                (quality as f32).clamp(0.0, 100.0)
+            } else {
+                WEBP_QUALITY as f32
+            };
+            // Encode from the RGBA buffer: `libwebp`'s image encoder does not
+            // support Luma8 inputs (it errors), yet many CBZ pages decode to
+            // grayscale, so we must go through rgba first.
+            let dyn_img = DynamicImage::ImageRgba8(buffer);
+            let encoder = webp::Encoder::from_image(&dyn_img)
                 .map_err(|e| Error::Encode(e.to_string()))?;
-            Ok(buf)
+            Ok(encoder.encode(q).to_vec())
         }
         ImageFormat::Bmp => {
             let mut buf: Vec<u8> = Vec::new();
@@ -207,7 +220,7 @@ pub fn encode_webp_default(img: &DynamicImage) -> Result<Vec<u8>> {
 /// Returns the WebP data if successful, otherwise returns the original data.
 pub fn convert_bytes_to_webp(data: &[u8], quality: u32) -> Result<Vec<u8>> {
     let img = decode_image(data)?;
-    encode_image(&img, ImageFormat::Webp, quality * 256 / 100) // image crate uses 0-255 for quality
+    encode_image(&img, ImageFormat::Webp, quality)
 }
 
 // ---------------------------------------------------------------------------

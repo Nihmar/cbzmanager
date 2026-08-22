@@ -70,6 +70,8 @@ pub async fn cmd_convert_webp(
         &files,
         actual_threads,
         _delete_source,
+        // 0 = use the server default (q75). Tauri GUI will expose this as a knob.
+        0,
         cb,
     );
 

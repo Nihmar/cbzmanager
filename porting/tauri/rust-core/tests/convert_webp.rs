@@ -50,8 +50,8 @@ fn convert_webp_deterministic_across_threads() {
     let files1 = vec![file_a.clone()];
     let files4 = vec![file_b.clone()];
 
-    let r1 = rust_core::convert_webp::convert_webp(&dir_a, &files1, 1, false);
-    let r4 = rust_core::convert_webp::convert_webp(&dir_b, &files4, 4, false);
+    let r1 = rust_core::convert_webp::convert_webp(&dir_a, &files1, 1, false, 0);
+    let r4 = rust_core::convert_webp::convert_webp(&dir_b, &files4, 4, false, 0);
 
     assert_eq!(r1.len(), 1);
     assert_eq!(r4.len(), 1);
@@ -76,7 +76,7 @@ fn convert_backs_up_original_when_not_deleting() {
     make_cbz(&dir, "volume.cbz", &[make_noise_png(48, 48, 7), make_noise_png(48, 48, 8)]);
     let orig = dir.join("volume.cbz");
 
-    rust_core::convert_webp::convert_webp(&dir, &vec![orig.clone()], 2, false);
+    rust_core::convert_webp::convert_webp(&dir, &vec![orig.clone()], 2, false, 0);
 
     assert!(
         orig.parent().unwrap().join("volume_OLD.cbz").exists(),
@@ -90,7 +90,7 @@ fn convert_deletes_source_when_requested() {
     make_cbz(&dir, "volume.cbz", &[make_noise_png(48, 48, 11), make_noise_png(48, 48, 12)]);
     let orig = dir.join("volume.cbz");
 
-    rust_core::convert_webp::convert_webp(&dir, &vec![orig.clone()], 2, true);
+    rust_core::convert_webp::convert_webp(&dir, &vec![orig.clone()], 2, true, 0);
 
     // --delete means: overwrite in place with no _OLD backup (the "source" that
     // is deleted is the original *bytes*, replaced by the converted output).
@@ -113,7 +113,7 @@ fn convert_renumbers_pages_sequentially() {
     ];
     write_zip_from_entries(&dir.join("volume.cbz"), &entries).unwrap();
 
-    rust_core::convert_webp::convert_webp(&dir, &[dir.join("volume.cbz")], 1, true);
+    rust_core::convert_webp::convert_webp(&dir, &[dir.join("volume.cbz")], 1, true, 0);
 
     let names = cbz_names(&dir.join("volume.cbz"));
     assert_eq!(names.len(), 3, "comicinfo stays out of the way; all images kept");
@@ -121,4 +121,41 @@ fn convert_renumbers_pages_sequentially() {
     assert_eq!(names[0], "page_0001.webp", "renumbered sequentially in original order");
     assert_eq!(names[1], "page_0002.webp");
     assert_eq!(names[2], "page_0003.webp");
+}
+
+/// Regression test for "WebP quality ignored". The Rust encoder previously used a
+/// hardcoded default and discarded any requested quality; two conversions at
+/// different explicit qualities must now produce different bytes.
+#[test]
+fn convert_webp_quality_changes_output() {
+    let dir = tempdir("convqual");
+    make_cbz(&dir, "volume.cbz", &[make_noise_png(64, 64, 101), make_noise_png(64, 64, 202)]);
+    let file = dir.join("volume.cbz");
+
+    let low_dir = tempdir("convqual_low");
+    let high_dir = tempdir("convqual_high");
+    // Copy the same source into both; convert one at q20 and one at q95.
+    let _ = std::fs::copy(&file, &low_dir.join("volume.cbz"));
+    let _ = std::fs::copy(&file, &high_dir.join("volume.cbz"));
+
+    rust_core::convert_webp::convert_webp(&low_dir, &[low_dir.join("volume.cbz")], 1, true, 20);
+    rust_core::convert_webp::convert_webp(
+        &high_dir,
+        &[high_dir.join("volume.cbz")],
+        1,
+        true,
+        95,
+    );
+
+    let low = rust_core::zip_ops::collect_zip_entries_all(&low_dir.join("volume.cbz")).unwrap();
+    let high = rust_core::zip_ops::collect_zip_entries_all(&high_dir.join("volume.cbz")).unwrap();
+    assert_eq!(low.len(), 2, "both runs should have converted the two pages");
+    // q20 output must differ from q95 output — proves quality is honored.
+    let low_img = &low.iter().find(|e| e.name == "page_0001.webp").unwrap().data;
+    let high_img = &high.iter().find(|e| e.name == "page_0001.webp").unwrap().data;
+    assert_ne!(low_img, high_img, "different WebP qualities must yield different encoder output");
+
+    // A very low quality should generally be at least as small as a high one for
+    // the same source; sanity-check it never blows up (and stays non-zero).
+    assert!(!low_img.is_empty());
 }

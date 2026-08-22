@@ -35,6 +35,9 @@ enum Command {
         /// Delete originals after conversion (default: rename to _OLD.cbz)
         #[arg(long)]
         delete: bool,
+        /// WebP quality (0..=100; 0 = default q75). Larger archives are still dropped unless smaller.
+        #[arg(long)]
+        quality: Option<u32>,
         /// Decode/encode pages on N worker threads (default: auto)
         #[arg(long, value_name = "N")]
         threads: Option<usize>,
@@ -106,8 +109,9 @@ fn run() -> Result<i32> {
         Command::ConvertWebp {
             dir,
             delete,
+            quality,
             threads,
-        } => cmd_convert_webp(&dir, delete, threads),
+        } => cmd_convert_webp(&dir, delete, threads, quality),
         Command::Merge {
             dir,
             delete,
@@ -157,7 +161,7 @@ fn cmd_validate(dir: &PathBuf, threads_opt: Option<usize>) -> Result<i32> {
     }
 }
 
-fn cmd_convert_webp(dir: &PathBuf, delete: bool, threads_opt: Option<usize>) -> Result<i32> {
+fn cmd_convert_webp(dir: &PathBuf, delete: bool, threads_opt: Option<usize>, quality_opt: Option<u32>) -> Result<i32> {
     let dir = dir.canonicalize().context("invalid directory")?;
     if !dir.is_dir() {
         return Err(anyhow::anyhow!("'{}' is not a valid directory", dir.display()));
@@ -173,7 +177,10 @@ fn cmd_convert_webp(dir: &PathBuf, delete: bool, threads_opt: Option<usize>) -> 
 
     let threads = resolve_threads(threads_opt, rust_core::helpers::online_cpu_count(), rust_core::types::MAX_WEBP_THREADS);
 
-    let results = rust_core::convert_webp::convert_webp(&dir, &files, threads, delete);
+    // 0 = use the server default (q75); values >100 are clamped by the encoder.
+    let quality = quality_opt.unwrap_or(0);
+
+    let results = rust_core::convert_webp::convert_webp(&dir, &files, threads, delete, quality);
 
     let mut converted = 0usize;
     let mut skipped = 0usize;

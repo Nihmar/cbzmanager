@@ -18,6 +18,8 @@ type
     procedure Validate_InvalidFile;
     procedure ValidateDeep_ValidFile;
     procedure ValidateDeep_CorruptFile;
+    procedure ValidateDeep_NoImagesArchive;
+    procedure ValidateDeep_AllImagesCorrupt;
     procedure ValidateDeep_ParallelEqualsSequential;
   end;
 
@@ -116,6 +118,66 @@ begin
   AssertTrue('error message set', Results[0].ErrorMsg <> '');
   AssertEquals('no image checks for corrupt', 1, Length(Results[0].ImageChecks));
   AssertFalse('the one check is invalid', Results[0].ImageChecks[0].Valid);
+end;
+
+{ An archive whose entries are all non-images (ComicInfo.xml only, or a stray
+  text page) decodes zero images yet is still a well-formed CBZ: report
+  valid/empty rather than a corruption failure. Mirrors the Python reference
+  model and guards the ValidateDeep empty-archive branch of L2. }
+procedure TValidateServiceTest.ValidateDeep_NoImagesArchive;
+var
+  Txt: TMemoryStream;
+  Files: TStringArray;
+  R1, R4: TValidationResults;
+begin
+  { A single text entry (plus ComicInfo.xml) — entries present but no image. }
+  Txt := TMemoryStream.Create;
+  Txt.WriteAnsiString('not an image');
+  Txt.Position := 0;
+  CreateCBZ(FTempDir + 'noimage.cbz', [Txt], ['notes.txt']);
+  Txt.Free;
+
+  SetLength(Files, 1);
+  Files[0] := 'noimage.cbz';
+  R1 := TValidateService.ValidateDeep(Files, FTempDir, nil, 1);
+  R4 := TValidateService.ValidateDeep(Files, FTempDir, nil, 4);
+
+  AssertEquals('zero images', 0, R1[0].ImageCount);
+  AssertTrue('entries-but-no-images is valid', R1[0].Valid);
+  AssertEquals('empty message', 'No images found', R1[0].ErrorMsg);
+  { Threads must agree on the valid/empty status. }
+  AssertEquals('same valid flag', R1[0].Valid, R4[0].Valid);
+  AssertEquals('same error', R1[0].ErrorMsg, R4[0].ErrorMsg);
+end;
+
+{ An archive with image-extension entries that all fail to decode is a genuine
+  failure: invalid, with the "All images failed to decode" summary. This is a
+  different branch from the no-entries case above and ensures the two are not
+  conflated (e.g. a non-image byte stored as a .png still reports corruption). }
+procedure TValidateServiceTest.ValidateDeep_AllImagesCorrupt;
+var
+  Garbage: TMemoryStream;
+  Files: TStringArray;
+  R2: TValidationResults;
+begin
+  Garbage := TMemoryStream.Create;
+  Garbage.WriteAnsiString('this is not an image');
+  Garbage.Position := 0;
+  { Named with an image extension so it lands in the decode checks. }
+  CreateCBZ(FTempDir + 'corruptimg.cbz', [Garbage], ['broken.png']);
+  Garbage.Free;
+
+  SetLength(Files, 1);
+  Files[0] := 'corruptimg.cbz';
+  { No ComicInfo.xml here so the single broken page is the only archive entry. }
+  R2 := TValidateService.ValidateDeep(Files, FTempDir, nil, 1);
+
+  { No image decoded -> ImageCount is the count of successes (0), yet one
+    decode was attempted so there is a single failed check. }
+  AssertEquals('zero successful decodes', 0, R2[0].ImageCount);
+  AssertEquals('one decode attempt', 1, Length(R2[0].ImageChecks));
+  AssertFalse('all-corrupt archive is invalid', R2[0].Valid);
+  AssertEquals('corrupt message', 'All images failed to decode', R2[0].ErrorMsg);
 end;
 
 { Parallel deep validation must produce identical per-image checks to the

@@ -257,6 +257,18 @@ begin
       { Drop ComicInfo.xml, compacting the surviving entries. }
       StripComicInfo(Entries);
 
+      if not HasImageEntries(Entries) then
+      begin
+        { No image entries survive: the archive is a metadata-only (or
+          otherwise non-image) collection, so writing it back would leave an
+          empty or otherwise invalid CBZ while the result still reports
+          removed.  Keep the original untouched and mark this file skipped so
+          the corruption never happens silently. }
+        Result.Removed := False;
+        Result.ErrorMsg := 'No images to keep';
+        Exit;
+      end;
+
       { Backup original if requested }
       if ABackup then
         if not BackupFile(FullPath) then

@@ -158,6 +158,15 @@ fn remove_one(
                 .filter(|e| !is_comicinfo_xml(&e.name))
                 .collect();
 
+            if !filtered.iter().any(|e| zip_ops::is_image_entry(&e.name)) {
+                // No image entries survive: writing it back would leave an
+                // empty or otherwise invalid CBZ, so keep the original untouched
+                // and report the file as skipped rather than corrupting it.
+                result.removed = false;
+                result.error_msg = "No images to keep".to_string();
+                return result;
+            }
+
             if backup {
                 if let Err(e) = backup_file(full_path) {
                     result.error_msg = e.to_string();

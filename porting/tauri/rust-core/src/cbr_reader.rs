@@ -37,7 +37,7 @@ type ArchiveReadOpenFilenameFn = unsafe extern "C" fn(*mut Archive, *const c_cha
 type ArchiveReadNextHeaderFn = unsafe extern "C" fn(*mut Archive, *mut *mut c_void) -> c_int;
 type ArchiveReadDataFn = unsafe extern "C" fn(*mut Archive, *mut c_void, usize) -> isize;
 type ArchiveEntryPathnameFn = unsafe extern "C" fn(*mut c_void) -> *const c_char;
-type ArchiveEntrySizeFn = unsafe extern "C" fn(*mut c_void) -> u64;
+type ArchiveEntrySizeFn = unsafe extern "C" fn(*mut c_void) -> isize;
 type ArchiveSupportFilterFn = unsafe extern "C" fn(*mut Archive);
 type ArchiveSupportFormatZipFn = unsafe extern "C" fn(*mut Archive);
 
@@ -189,6 +189,38 @@ pub fn collect_cbr_image_names(file_path: &Path) -> Result<Vec<String>, String> 
 // is treated as an error or end-of-archive.
 const ARCHIVE_OK: c_int = 0;
 
+/// Stream one entry's bytes for a declared `raw_size`.
+///
+/// Pure/testable wrapper around the FFI read loop. `read_data` fills at most
+/// one scratch-buffer worth of bytes and returns how many it wrote (0/negative
+/// signals end-of-entry/stream). A non-positive `raw_size` means "unknown", so
+/// we stream until `read_data` stops — this is exactly the libarchive `-1`
+/// sentinel case, which the old code turned into a huge capacity allocation.
+fn read_entry_data(
+    raw_size: isize,
+    buf: &mut [u8],
+    mut read_data: impl FnMut(&mut [u8]) -> isize,
+) -> Vec<u8> {
+    let mut data = Vec::new();
+    if raw_size > 0 {
+        // Unknown/negative sizes skip allocation entirely and stream via read_data.
+        // The clamp is only meaningful on 32-bit usize targets; a positive size
+        // reflects real decompressed bytes so reserve as-is there.
+        let capacity = std::cmp::min(raw_size as u64, usize::MAX as u64) as usize;
+        data.reserve(capacity);
+    }
+    let mut total_read: isize = 0;
+    while raw_size <= 0 || total_read < raw_size {
+        let bytes_read = read_data(buf);
+        if bytes_read <= 0 {
+            break;
+        }
+        data.extend_from_slice(&buf[..bytes_read as usize]);
+        total_read += bytes_read as isize;
+    }
+    data
+}
+
 /// Read all image entries from a CBR file into memory.
 pub fn collect_cbr_entries(file_path: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
     let symbols = try_load_libarchive()
@@ -237,18 +269,13 @@ pub fn collect_cbr_entries(file_path: &Path) -> Result<Vec<(String, Vec<u8>)>, S
                 continue;
             }
 
-            let size = (symbols.entry_size)(entry_ptr) as usize;
-            let mut data: Vec<u8> = Vec::with_capacity(size);
-            let mut total_read: usize = 0;
-            while total_read < size {
-                let to_read = std::cmp::min(buf.len(), size - total_read);
-                let bytes_read = (symbols.read_data)(archive_ptr, buf.as_mut_ptr() as *mut c_void, to_read as usize);
-                if bytes_read <= 0 {
-                    break;
-                }
-                data.extend_from_slice(&buf[..bytes_read as usize]);
-                total_read += bytes_read as usize;
-            }
+            // `archive_entry_size` returns -1 for entries of unknown size; never let
+            // that sentinel wrap to a huge Vec capacity (which OOMs/panics on a
+            // malformed RAR). Unknown size → read_entry_data streams until EOF.
+            let raw_size: isize = (symbols.entry_size)(entry_ptr);
+            let data = read_entry_data(raw_size, &mut buf, |buf| {
+                (symbols.read_data)(archive_ptr, buf.as_mut_ptr() as *mut c_void, buf.len())
+            });
 
             entries.push((name.to_string(), data));
         }
@@ -259,4 +286,84 @@ pub fn collect_cbr_entries(file_path: &Path) -> Result<Vec<(String, Vec<u8>)>, S
     // Sort alphabetically (matching Pascal behavior).
     entries.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
     Ok(entries)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Mock FFI `read_data` backed by an in-memory buffer. Returns up to one
+    /// scratch-buffer worth of bytes per call (like libarchive), or 0 at EOF.
+    struct MockReader {
+        data: Vec<u8>,
+        pos: usize,
+    }
+
+    impl MockReader {
+        fn read_fn(&mut self) -> impl FnMut(&mut [u8]) -> isize + '_ {
+            let this = self;
+            move |buf: &mut [u8]| -> isize {
+                if this.pos >= this.data.len() {
+                    return 0;
+                }
+                let avail = this.data.len() - this.pos;
+                let n = std::cmp::min(buf.len(), avail);
+                buf[..n].copy_from_slice(&this.data[this.pos..this.pos + n]);
+                this.pos += n;
+                n as isize
+            }
+        }
+    }
+
+    #[test]
+    fn known_size_reads_exact_bytes_in_chunks() {
+        let data: Vec<u8> = (0u32..4096).map(|i| (i % 256) as u8).collect();
+        let mut buf = [0u8; 1024];
+        let mut reader = MockReader {
+            data: data.clone(),
+            pos: 0,
+        };
+        let out = read_entry_data(4096, &mut buf, reader.read_fn());
+        assert_eq!(out, data);
+    }
+
+    #[test]
+    fn unknown_size_streams_until_eof() {
+        // raw_size == -1 is the libarchive "unknown" sentinel; must stream via
+        // read_data until it stops rather than trying to pre-allocate -1 bytes.
+        let data: Vec<u8> = (0u32..3000).map(|i| (i % 256) as u8).collect();
+        let mut buf = [0u8; 1024];
+        let mut reader = MockReader {
+            data: data.clone(),
+            pos: 0,
+        };
+        let out = read_entry_data(-1, &mut buf, reader.read_fn());
+        assert_eq!(out, data);
+    }
+
+    #[test]
+    fn stop_when_reader_reports_zero() {
+        // A known size but a reader that immediately returns 0 (empty entry)
+        // yields an empty buffer — no bytes were actually present.
+        let mut buf = [0u8; 64];
+        let mut reader = MockReader {
+            data: Vec::new(),
+            pos: 0,
+        };
+        let out = read_entry_data(64, &mut buf, reader.read_fn());
+        assert!(out.is_empty());
+    }
+
+    /// Sanity-check the mock itself: non-empty backing data is returned.
+    #[test]
+    fn mock_reader_returns_backing_bytes() {
+        let data: Vec<u8> = (0u32..10).map(|i| i as u8).collect();
+        let mut buf = [0u8; 64];
+        let mut reader = MockReader {
+            data: data.clone(),
+            pos: 0,
+        };
+        let out = read_entry_data(10, &mut buf, reader.read_fn());
+        assert_eq!(out, data);
+    }
 }

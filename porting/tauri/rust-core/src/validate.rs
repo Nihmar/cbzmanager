@@ -151,6 +151,33 @@ fn validate_one_deep(path: &std::path::Path, threads: usize) -> Result<(usize, V
     Ok((total_valid, checks))
 }
 
+/// Fill in `valid`/`error_msg` for a deep-validation result, given the count of
+/// successfully decoded images and the per-check results already stored on
+/// `result`. Mirrors the Python reference model:
+///   - at least one image decoded                 -> valid (plus a partial-failure
+///     summary when some individual image failed);
+///   - nothing decoded *and* no decode attempts    -> valid/empty: the archive's
+///     entries are all non-images (e.g. only ComicInfo.xml), so it is still a CBZ;
+///   - images were present but none decoded        -> invalid: genuine corruption.
+fn classify_deep_result(result: &mut FileValidationResult, total_valid: usize) {
+    if total_valid > 0 {
+        result.valid = true;
+        if result.image_checks.iter().any(|c| !c.ok) {
+            result.error_msg = format!(
+                "{}/{} images valid",
+                total_valid,
+                result.image_checks.len()
+            );
+        }
+    } else if result.image_checks.is_empty() {
+        result.valid = true;
+        result.error_msg = "No images found".to_string();
+    } else {
+        result.valid = false;
+        result.error_msg = "All images failed to decode".to_string();
+    }
+}
+
 /// Deep validate: decode every image and report per-image errors.
 pub fn validate_deep(
     _dir: &std::path::Path,
@@ -178,19 +205,7 @@ pub fn validate_deep(
                 Ok((total_valid, checks)) => {
                     result.image_checks = checks;
                     result.image_count = total_valid;
-                    result.valid = total_valid > 0;
-
-                    if total_valid == 0 && result.image_checks.is_empty() {
-                        result.error_msg = "No images found".to_string();
-                    } else if total_valid == 0 {
-                        result.error_msg = "All images failed to decode".to_string();
-                    } else if result.image_checks.iter().any(|c| !c.ok) {
-                        result.error_msg = format!(
-                            "{}/{} images valid",
-                            total_valid,
-                            result.image_checks.len()
-                        );
-                    }
+                    classify_deep_result(&mut result, total_valid);
                 }
                 Err(e) => {
                     result.valid = false;
@@ -242,19 +257,7 @@ pub fn validate_deep_with_progress(
             Ok((total_valid, checks)) => {
                 result.image_checks = checks;
                 result.image_count = total_valid;
-                result.valid = total_valid > 0;
-
-                if total_valid == 0 && result.image_checks.is_empty() {
-                    result.error_msg = "No images found".to_string();
-                } else if total_valid == 0 {
-                    result.error_msg = "All images failed to decode".to_string();
-                } else if result.image_checks.iter().any(|c| !c.ok) {
-                    result.error_msg = format!(
-                        "{}/{} images valid",
-                        total_valid,
-                        result.image_checks.len()
-                    );
-                }
+                classify_deep_result(&mut result, total_valid);
             }
             Err(e) => {
                 result.valid = false;

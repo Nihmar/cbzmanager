@@ -15,6 +15,7 @@ type
     procedure Scan_HasComicInfo;
     procedure Scan_NoComicInfo;
     procedure Remove_RemovesComicInfo;
+    procedure Remove_NoImages_Skipped;
     procedure Remove_BackupCreated;
     procedure Remove_ParallelEqualsSequential;
     procedure Remove_ParallelBackup;
@@ -185,6 +186,35 @@ begin
   AssertTrue('removed', Results[0].Removed);
   AssertTrue('backup created under pool',
     FileExists(FTempDir + 'parb_OLD.cbz'));
+end;
+
+{ An archive whose only entry is ComicInfo.xml (no image entries) must be
+  skipped, not silently turned into an empty/invalid CBZ.  The original file
+  stays intact and the result reports skipped (Removed=false) with a reason. }
+procedure TComicInfoServiceTest.Remove_NoImages_Skipped;
+var
+  Xml: TMemoryStream;
+  Files: TStringArray;
+  Results, ScanAfter: TComicInfoResults;
+begin
+  { A metadata-only archive: ComicInfo.xml and nothing else. }
+  Xml := TMemoryStream.Create;
+  Xml.WriteAnsiString('<ComicInfo/>');
+  Xml.Position := 0;
+  CreateCBZ(FTempDir + 'metadata.cbz', [Xml], ['ComicInfo.xml']);
+  Xml.Free;
+
+  SetLength(Files, 1);
+  Files[0] := 'metadata.cbz';
+  Results := TComicInfoService.Remove(Files, FTempDir, False);
+  AssertFalse('no-image archive skipped', Results[0].Removed);
+  AssertEquals('skip message', 'No images to keep', Results[0].ErrorMsg);
+  AssertTrue('comicinfo still detected', Results[0].HasComicInfo);
+
+  { The on-disk file must be untouched: a re-scan still finds ComicInfo.xml,
+    proving nothing was rewritten into an empty archive. }
+  ScanAfter := TComicInfoService.Scan(Files, FTempDir);
+  AssertTrue('comicinfo present on disk after skip', ScanAfter[0].HasComicInfo);
 end;
 
 initialization

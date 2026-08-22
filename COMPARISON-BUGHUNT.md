@@ -169,9 +169,9 @@ Ordered by severity/value. Each item lists the concrete change, where to make it
     let size = raw.max(0) as usize;
     ```
   - Verify: new `tests/cbr_reader.rs` case synthesizing an RAR entry whose size is `-1`; assert the reader returns empty/None instead of panicking/OOMing.
-- **[L5] Pascal Synchronize + FreeOnTerminate SIGSEGV hazard** — `src/uthreadservice.pas:306`
-  - Change: switch worker progress reporting to `TThread.Queue`, and/or add a runtime guard in the base-thread constructor asserting descendants never set `FreeOnTerminate := True`. Add class-level comment + assertion.
-  - Verify: new regression test spawning a FreeOnTerminate worker on the shared stream-queue path, asserting no crash (currently untested).
+- **[L5] STALE — already resolved** — `src/uthreadservice.pas` (Synchronize at ~349; line 306 in the plan predates a refactor)
+   - Status: **Do not change.** Progress() *used* `TThread.Queue` + `FreeOnTerminate=True`, which caused the use-after-free SIGSEGV in `SyncProgress` and re-raised callback exceptions on the main thread. The code was already migrated to a blocking `Synchronize`: the worker stays alive during the call (object owned by Execute) and any callback exception is passed back into `Execute`'s per-file try/except. Switching back to Queue would **reintroduce** the crash.
+   - Verify: `tests/test_uthreadservice.pas` (`Progress_DeliversValuesToMainThread`, `Progress_RaisingCallbackStaysInWorker`) documents + locks this; both pass under `make test`. See also §5a "L5 (stale)" which was already marked disproven.
 
 ### P1 — correctness / parity with Python golden model
 
@@ -179,6 +179,8 @@ Ordered by severity/value. Each item lists the concrete change, where to make it
   - Change: a batch/archive with **zero entries** returns an "empty" (valid) status, not invalid `"All images failed to decode"`. Fix the empty guard before the `TotalValid > 0` check; mirror in Rust.
 - **[L3 + T-par] ComicInfo ghost-entry reporting** — `src/userviccomicinfo.pas` / rust `comicinfo.rs`
   - Change: if removal leaves **no real image entries**, mark result Invalid (total 0 images); skip writing an all-ComicInfo zip. Mirror in Rust.
+  - **Status: DONE.** Both ports now guard on image entries *before* writing: strip ComicInfo.xml, and if no surviving entry is an image (`.png/.jpg/.jpeg/.bmp/.gif/.webp/.tiff/.tif`), keep the archive untouched and report it as **skipped** (`Removed=False`, `ErrorMsg="No images to keep"`), leaving `HasComicInfo=True`. In Pascal this lives in `StripComicInfo`-adjacent logic in `uservicecomicinfo.pas:RemoveOne`; the extension check is a headless helper in `uzipcore.pas` (mirrors `uimgutil.IsImageExt`) so services don't drag in the LCL graphics stack. Rust reuses `zip_ops::is_image_entry`.
+  - Verify: Pascal `tests/test_uservicecomicinfo.pas` (`Remove_NoImages_Skipped`, metadata-only `.cbz` → skipped, original byte-identical); Rust `porting/tauri/rust-core/tests/comicinfo.rs` (5 cases incl. parallel-vs-sequential and no-backup-on-skip). `make test` = 206 tests / 0 errors; `cargo test -p rust-core --test comicinfo` = 5/5 pass.
 - **[L1 + T5] WebP quality ignored** — `src/userviceconvert.pas` (unused `Modified`) / `porting/tauri/{rust-core/src/convert_webp.rs:190, rust-core/src/image_util.rs}`
   - Change A: actually apply the passed quality to the encoder (libwebp `WebPEncodeBGRA` options in Pascal; pass a quality param through in Rust). Fix `IntfImageToWebP`/`encode_image` to honor it.
   - Change B: consume the `Modified` flag in `TConvertService.Convert` instead of discarding it.

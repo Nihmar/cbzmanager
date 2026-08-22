@@ -66,9 +66,10 @@ fn validate_deep_is_deterministic_across_threads() {
 }
 
 #[test]
-fn validate_deep_empty_archive_reports_no_images() {
+fn validate_deep_empty_archive_reports_valid() {
     let dir = tempdir("uservicevalidate_empty");
-    // CBZ with a non-image entry only (ComicInfo.xml is filtered out).
+    // CBZ with a non-image entry only (ComicInfo.xml is filtered out): entries
+    // present but no decodable images -> valid/empty, not a corruption failure.
     make_cbz(&dir, "Empty.cbz", &[]);
     let files = vec![dir.join("Empty.cbz")];
 
@@ -76,6 +77,23 @@ fn validate_deep_empty_archive_reports_no_images() {
     let r8 = validate_deep(&dir, &files, 8);
 
     assert_eq!(r1[0].image_count, 0);
-    assert!(!r1[0].valid);
+    // Entries-but-no-images is valid/empty (Python golden model), and threads
+    // must agree on that.
+    assert!(r1[0].valid, "entries-but-no-images should report valid");
+    assert_eq!(r1[0].error_msg, "No images found");
     assert!(results_equal(&r1, &r8), "thread count changed results");
+}
+
+#[test]
+fn validate_deep_all_images_corrupt_reports_invalid() {
+    let dir = tempdir("uservicevalidate_allcorrupt");
+    // A single non-image byte as the only page: images exist but none decode.
+    make_cbz(&dir, "AllCorrupt.cbz", &[b"this is not an image".to_vec()]);
+    let files = vec![dir.join("AllCorrupt.cbz")];
+
+    let r1 = validate_deep(&dir, &files, 1);
+    assert_eq!(r1[0].image_count, 0);
+    // Images were present but all failed to decode -> genuine failure.
+    assert!(!r1[0].valid, "all-corrupt archive should report invalid");
+    assert_eq!(r1[0].error_msg, "All images failed to decode");
 }

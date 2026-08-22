@@ -198,20 +198,12 @@ begin
       TotalValid := ValidateCBZImages(FullPath, Checks, AThreads);
       Result[i].ImageChecks := Checks;
       Result[i].ImageCount := TotalValid;
-      Result[i].Valid := TotalValid > 0;
 
-      if TotalValid = 0 then
+      if TotalValid > 0 then
       begin
-        { No image could be decoded — explain why }
-        if Length(Checks) = 0 then
-          Result[i].ErrorMsg := 'No images found'
-        else
-          Result[i].ErrorMsg := 'All images failed to decode';
-      end
-      else
-      begin
-        { At least one image passed.  Check if any individual image failed
-          so we can report a partial-failure summary. }
+        { At least one image decoded — valid.  Check whether any individual
+          image failed so we can report a partial-failure summary. }
+        Result[i].Valid := True;
         for j := 0 to High(Checks) do
           if not Checks[j].Valid then
           begin
@@ -219,6 +211,26 @@ begin
               Format('%d/%d images valid', [TotalValid, Length(Checks)]);
             Break;                          // one summary is enough
           end;
+      end
+      else
+      begin
+        { No image decoded.  Distinguish "no decodable images in this archive"
+          (entries present but none are images, e.g. only ComicInfo.xml) from
+          "images existed but every one failed to decode". }
+        if Length(Checks) = 0 then
+        begin
+          { Archive has entries but none could be decoded as images: report a
+            valid/empty status rather than a corruption failure, matching the
+            Python reference (an archive with no image files is still a CBZ). }
+          Result[i].Valid := True;
+          Result[i].ErrorMsg := 'No images found';
+        end
+        else
+        begin
+          { Images were present but all failed to decode — genuine failure. }
+          Result[i].Valid := False;
+          Result[i].ErrorMsg := 'All images failed to decode';
+        end;
       end;
     except
       on E: Exception do

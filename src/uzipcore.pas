@@ -49,6 +49,11 @@ function FindComicInfoIndex(const AEntries: TZipEntries): integer;
   entries removed. }
 function StripComicInfo(var AEntries: TZipEntries): integer;
 
+{ Returns True when at least one entry in AEntries has a raster image
+  extension (PNG/JPEG/BMP/GIF/WebP/TIFF), regardless of case.  Kept local to
+  uzipcore so headless services need not depend on the LCL graphics stack. }
+function HasImageEntries(const AEntries: TZipEntries): boolean;
+
 implementation
 
 uses
@@ -212,6 +217,22 @@ begin
   end;
   Result := Length(AEntries) - k;
   SetLength(AEntries, k);
+end;
+
+function HasImageEntries(const AEntries: TZipEntries): boolean;
+const
+  { Same raster set uimgutil.IsImageExt recognises; duplicated here to keep
+    this headless service independent of the LCL graphics stack. }
+  IMAGE_EXTS: array[0..7] of string = ('.png', '.jpg', '.jpeg', '.bmp',
+    '.gif', '.webp', '.tiff', '.tif');
+var
+  i, e: integer;
+begin
+  for i := 0 to High(AEntries) do
+    for e := 0 to High(IMAGE_EXTS) do
+      if SameText(ExtractFileExt(AEntries[i].Name), IMAGE_EXTS[e]) then
+        Exit(True);
+  Result := False;
 end;
 
 end.

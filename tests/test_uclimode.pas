@@ -34,6 +34,7 @@ type
     procedure RunHeadless_CbrToCbz_Threads;
     procedure RunHeadless_CbrToCbz_UsageError;
     procedure RunHeadless_CbrToCbz_SkipsExisting;
+    procedure RunHeadless_CbrToCbz_FailedFileExitCode;
 
     procedure RunHeadless_Merge;
     procedure RunHeadless_Merge_Force;
@@ -368,6 +369,33 @@ begin
   AssertEquals(EXIT_OK, RunHeadless(Args));
   AssertEquals('existing target untouched', 1,
     GetImageCount(FTempDir + 'skip.cbz'));
+end;
+
+{ Regression for bughunt L4: a hard per-file failure (unreadable archive)
+  must surface as a nonzero exit, not vanish into the "skipped" bucket. }
+procedure TClimodeTest.RunHeadless_CbrToCbz_FailedFileExitCode;
+var
+  Png: TMemoryStream;
+  FS: TFileStream;
+  Args: TStringArray;
+begin
+  AssertTrue('libarchive present', CbrSupported);
+  { One good file and one garbage .cbr that libarchive cannot open. }
+  Png := CreateMinimalPNGStream;
+  CreateCBZ(FTempDir + 'good.cbr', [Png], ['p1.png']);
+  Png.Free;
+  FS := TFileStream.Create(FTempDir + 'bad.cbr', fmCreate);
+  try
+    FS.WriteAnsiString('this is not an archive');
+  finally
+    FS.Free;
+  end;
+
+  SetLength(Args, 2);
+  Args[0] := 'cbr-to-cbz';
+  Args[1] := FTempDir;
+  AssertEquals('failed conversion -> exit 1', EXIT_ERROR, RunHeadless(Args));
+  AssertTrue('good file still converted', FileExists(FTempDir + 'good.cbz'));
 end;
 
 procedure TClimodeTest.RunHeadless_CbrToCbz_UsageError;

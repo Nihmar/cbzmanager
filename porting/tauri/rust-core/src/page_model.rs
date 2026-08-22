@@ -215,12 +215,14 @@ impl PageModel {
 
     /// Renumber all visible (non-deleted) pages to sequential names.
     pub fn renumber(&mut self) {
-        let padding = page_padding_for(self.visible_count());
+        // Pascal parity: upageeditmodel.PageRenumber uses the fixed
+        // PAGE_PAD_DEFAULT width, not the count-derived padding.
+        let padding = crate::types::PAGE_PAD_DEFAULT;
 
         let mut idx: usize = 1;
         for page in self.pages.iter_mut().filter(|p| !p.deleted) {
             let ext = format!(".{}", get_ext(&page.name));
-            page.name = format_page_name(idx, padding + 1, &ext);
+            page.name = format_page_name(idx, padding, &ext);
             idx += 1;
         }
     }
@@ -234,12 +236,15 @@ impl PageModel {
     pub fn insert_at(&mut self, index: usize, new_pages: Vec<PageState>) -> ChangeType {
         let snapshot = self.pages.clone();
         if index <= self.pages.len() {
+            // Placeholder width matches the Pascal editor's fixed pad; the
+            // caller renumbers afterwards with the same width.
+            let padding = crate::types::PAGE_PAD_DEFAULT;
             for (i, page) in new_pages.iter().enumerate() {
                 let ext = get_ext(&page.name);
                 let encoded_ext = encode_ext_for(&ext);
                 let mut p = page.clone();
-                p.orig_name = format!("page_{:04}.{}", i, encoded_ext);
-                p.name = format!("page_{:04}.{}", index + i, encoded_ext);
+                p.orig_name = format_page_name(i + 1, padding, &format!(".{}", encoded_ext));
+                p.name = format_page_name(index + i + 1, padding, &format!(".{}", encoded_ext));
                 self.pages.insert(index + i, p);
             }
         }

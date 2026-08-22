@@ -127,6 +127,20 @@ fn renumber_names_pages_sequentially() {
     assert_eq!(names[1], "page_0002.png");
 }
 
+// Regression for bughunt T2: the editor's renumber used page_padding_for(count)
+// + 1 — one digit wider than every other path (and than Pascal PageRenumber,
+// which uses the fixed PAGE_PAD_DEFAULT = 4). Lock the fixed width here.
+#[test]
+fn renumber_uses_fixed_editor_padding() {
+    let mut m = model_from(&[
+        "p1.png", "p2.png", "p3.png", "p4.png", "p5.png",
+        "p6.png", "p7.png", "p8.png", "p9.png",
+    ]);
+    m.renumber();
+    let names: Vec<String> = m.pages().iter().filter(|p| !p.deleted).map(|p| p.name.clone()).collect();
+    assert_eq!(names[8], "page_0009.png", "9 pages still pad to the fixed editor width");
+}
+
 #[test]
 fn save_edited_data_wins_over_archive() {
     let mut m = PageModel::from_pages(vec![

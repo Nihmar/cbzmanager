@@ -95,5 +95,8 @@ export interface ColorAdjustParams {
 export interface BatchEditParams {
   resize_percent: number;
   color_adjust: ColorAdjustParams;
-  cut_lines: number[][];
+  /** Uniform split lines (normalised 0-1), applied to every page. */
+  cut_lines: number[];
+  /** True = horizontal cut lines (top/bottom), false = vertical. */
+  horizontal_lines: boolean;
 }

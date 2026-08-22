@@ -129,3 +129,45 @@ fn remove_no_image_entries_skipped_parallel_and_sequential() {
     assert!(!r_seq[0].removed && r_seq[0].error_msg == "No images to keep");
     assert!(!r_par[0].removed && r_par[0].error_msg == "No images to keep");
 }
+
+#[test]
+fn remove_oversubscribed_threads_match_cap_and_sequential() {
+    // A caller that asks for far more workers than MAX_CBR_THREADS must still
+    // produce byte-identical output and not panic (GAPS 1.4).
+    let dir = tempdir("cap");
+    make_cbz_entries(&dir, "seq.cbz", &[
+        ("page_0001.png", &make_png(8, 8, 1)),
+        ("ComicInfo.xml", b"<ComicInfo/>"),
+        ("page_0002.png", &make_png(8, 8, 2)),
+    ]);
+
+    let r = rust_core::comicinfo::remove(&dir, &["seq.cbz"], false, 64);
+    assert_eq!(r.len(), 1);
+    assert!(r[0].removed, "oversubscribed run still strips ComicInfo.xml");
+}
+
+#[test]
+fn remove_thread_cap_is_idempotent_sequential_vs_cap() {
+    let dir = tempdir("cap2");
+    make_cbz_entries(&dir, "seq.cbz", &[
+        ("page_0001.png", &make_png(8, 8, 1)),
+        ("ComicInfo.xml", b"<ComicInfo/>"),
+        ("page_0002.png", &make_png(8, 8, 2)),
+    ]);
+
+    let r_seq = rust_core::comicinfo::remove(&dir, &["seq.cbz"], false, 1);
+    assert!(r_seq[0].removed);
+    let names_after_seq = cbz_names(&dir.join("seq.cbz"));
+
+    // Reset then run with threads=64.
+    make_cbz_entries(&dir, "seq.cbz", &[
+        ("page_0001.png", &make_png(8, 8, 1)),
+        ("ComicInfo.xml", b"<ComicInfo/>"),
+        ("page_0002.png", &make_png(8, 8, 2)),
+    ]);
+    let r_cap = rust_core::comicinfo::remove(&dir, &["seq.cbz"], false, 64);
+    assert!(r_cap[0].removed);
+    let names_after_cap = cbz_names(&dir.join("seq.cbz"));
+
+    assert_eq!(names_after_seq, names_after_cap, "cap does not change output");
+}

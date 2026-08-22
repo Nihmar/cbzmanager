@@ -96,8 +96,25 @@
   }
 
   function onKeydown(event: KeyboardEvent) {
-    // Space opens the full-res viewer for the highlighted page.
-    if (event.key === ' ' && $selectedFile && !viewerOpen) {
+    // Keyboard parity with the Lazarus main form (main.pas FormKeyDown):
+    // F4 preview toggle (no preview pane here — deferred), F5 reload,
+    // F8 validate, Ctrl+S save staged changes, Del mark page gone,
+    // Ctrl+A select all (no multi-select model yet — deferred).
+    if (event.key === 'F5') {
+      event.preventDefault();
+      revertChanges();
+    } else if (event.key === 'F8' && $currentDirectory) {
+      event.preventDefault();
+      showValidate = true;
+    } else if ((event.ctrlKey || event.metaKey) && event.key === 's' && $hasChanges) {
+      event.preventDefault();
+      saveChanges();
+    } else if (event.key === 'Delete' && $pagesStore.length > 0) {
+      event.preventDefault();
+      const pages = $pagesStore.map((p, i) => (i === highlighted ? { ...p, gone: true } : p));
+      pagesStore.set(pages);
+      hasChanges.set(true);
+    } else if (event.key === ' ' && $selectedFile && !viewerOpen) {
       event.preventDefault();
       openViewerAt(highlighted);
     }

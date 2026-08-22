@@ -10,8 +10,16 @@ pub struct BatchEditParams {
     pub resize_percent: f64,
     /// Colour adjustment parameters.
     pub color_adjust: ColorAdjustParams,
-    /// Split lines per page (normalised 0-1 positions, sorted ascending).
-    pub cut_lines: Vec<Vec<f64>>,
+    /// Uniform split lines (normalised 0-1 positions, sorted ascending),
+    /// applied to every page — same semantics as Lazarus ubatchedit.
+    pub cut_lines: Vec<f64>,
+    /// True = horizontal cut lines (top/bottom), false = vertical.
+    #[serde(default = "default_true")]
+    pub horizontal_lines: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,20 +89,13 @@ pub async fn apply_batch_edit(
         gamma: params.color_adjust.gamma,
     };
 
-    let cut_lines_flat: Vec<f64> = if !params.cut_lines.is_empty() {
-        // Use the first page's cut lines (simplified - each page can have different cut lines in the full impl)
-        params.cut_lines.first().cloned().unwrap_or_default()
-    } else {
-        Vec::new()
-    };
-
     let multi_edit_params = rust_core::batch_edit::MultiEditParams {
         resize: do_resize,
         percent: resize_percent,
         color_adj,
-        split: !cut_lines_flat.is_empty(),
-        horizontal_lines: true, // simplified
-        cut_lines: cut_lines_flat,
+        split: !params.cut_lines.is_empty(),
+        horizontal_lines: params.horizontal_lines,
+        cut_lines: params.cut_lines.clone(),
     };
 
     let mut results = Vec::new();

@@ -149,7 +149,10 @@ begin
         Translator.Free;
       end;
       try
-        if ConvertedCount > 0 then
+        { Write when anything changed: converted pages, but also a
+          renames-only pass (RenumberPages) or a stripped ComicInfo.xml
+          (RemoveComicInfo) — Modified covers all three. }
+        if (ConvertedCount > 0) or Modified then
         begin
           if Options.BackupOld then
             if not BackupFile(FullPath) then

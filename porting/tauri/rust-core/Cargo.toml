@@ -27,6 +27,11 @@ webp = { workspace = true }
 image = { workspace = true }
 proptest = "1"
 
+[[test]]
+name = "cbr_convert"
+path = "tests/cbr_convert.rs"
+required-features = ["cbr"]
+
 [features]
 default = []
 cbr = ["libloading"]

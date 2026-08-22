@@ -27,9 +27,11 @@
   // Resize percentage: 0 means "no resize".
   let resizePercent = 0;
 
-  // Split cut lines (normalised 0-1 positions).
+  // Split cut lines (normalised 0-1 positions) + orientation, mirroring
+  // Lazarus udlgbatchedit's direction radio.
   let newLine = '50';
   let cutLines: number[] = [];
+  let horizontalLines = true;
 
   let loading = false;
   let error = '';
@@ -51,7 +53,12 @@
   }
 
   function buildParams(): BatchEditParams {
-    return { resize_percent: resizePercent, color_adjust: colorAdjust(), cut_lines: cutLines.length > 0 ? [cutLines] : [] };
+    return {
+      resize_percent: resizePercent,
+      color_adjust: colorAdjust(),
+      cut_lines: cutLines,
+      horizontal_lines: horizontalLines,
+    };
   }
 
   function addLine() {
@@ -131,6 +138,10 @@
 
     <fieldset>
       <legend>Split (cut lines)</legend>
+      <div class="chk" role="radiogroup" aria-label="Cut direction">
+        <label><input type="radio" name="cutdir" checked={horizontalLines} on:change={() => (horizontalLines = true)} disabled={loading} /> Horizontal</label>
+        <label><input type="radio" name="cutdir" checked={!horizontalLines} on:change={() => (horizontalLines = false)} disabled={loading} /> Vertical</label>
+      </div>
       <div class="line-row">
         <input type="number" min="0" max="100" step="1" bind:value={newLine} placeholder="50%" disabled={loading} />
         <button type="button" class="add-btn" on:click={addLine} disabled={loading}>Add line</button>
@@ -142,7 +153,7 @@
           {/each}
         </ul>
       {/if}
-      <span class="hint">N lines split each page into N+1 pieces.</span>
+      <span class="hint">{cutLines.length} line(s) → {cutLines.length + 1} piece(s) per page.</span>
     </fieldset>
   </div>
 

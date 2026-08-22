@@ -89,10 +89,10 @@
 
 | # | Location | Issue | Severity |
 |---|---|---|---|
-| L1 | `userviceconvert.pas:126,147` | `Modified` is filled by `ConvertCBZToWebP` as an out-param but **never read** by `TConvertService.Convert`. The "was the file actually changed" flag is computed and discarded — dead output / half-baked feature (success is driven solely by `ConvertedCount`). | ⚠️ low-med |
+| L1 ✅fixed | `userviceconvert.pas:126,147` | `Modified` is filled by `ConvertCBZToWebP` as an out-param but **never read** by `TConvertService.Convert`. The "was the file actually changed" flag is computed and discarded — dead output / half-baked feature (success is driven solely by `ConvertedCount`). **Fixed:** Convert now writes whenever `(ConvertedCount > 0) or Modified`, so renames-only / ComicInfo-strip-only passes are persisted; regression test `Convert_RenamesOnly_StillWrites`. | ⚠️ low-med |
 | L2 | `uservicevalidate.pas:201,203-209` | **Zero-entry batch** → sets `Valid := TotalValid > 0` and returns invalid reason `"All images failed to decode"` instead of reporting an empty CBZ as *valid*. Diverges from the Python reference (empty = valid). | ⚠️ med (parity/correctness) |
 | L3 | `userviccomicinfo.pas` (~255) | Removing `ComicInfo.xml` from an archive that has ComicInfo **but no images** leaves a non-empty zip with one ghost entry, reported as `Removed=true / total 0`. Produces an effectively invalid CBZ silently. | ⚠️ med |
-| L4 | `uclimode.pas:485` | CBR convert path **always returns `EXIT_OK`** even when libarchive is missing at runtime — the nonzero failure exit code never propagates, so callers/scripts can't detect a failed CBR conversion. | ⚠️ med (matches Rust mirror) |
+| L4 ✅fixed | `uclimode.pas:485` | CBR convert path exit code. Correction on capture: the libarchive-missing guard **already** exited `EXIT_ERROR` (uclimode.pas:442) — the real gap was that per-file hard failures landed in the "skipped" bucket with `Result := EXIT_OK`. **Fixed:** failures now print to stderr and force exit 1 (`Summary: ... Failed: N`); skip-existing remains a benign exit 0. Rust CLI mirrored. Test: `RunHeadless_CbrToCbz_FailedFileExitCode`. | ⚠️ med |
 | L5 (stale) | AGIT.md/AUDIT "CRITICAL corrupted sort in `uzipeditor`" (`FindIndexToInsertPage`) | **Does NOT reproduce.** Current code captures `Key := SortedNames[i]` *before* the shift loop — correct insertion semantics. AUDIT claims describe a pre-fix version. Marked here as resolved/stale to avoid false alarms. | n/a (disproven) |
 
 **Threading hazard (documented, untested):** `uthreadservice.pas:306` uses `Synchronize`; the code comments warn that combining this with `FreeOnTerminate := True` can SIGSEGV via a self-freeing thread's queued stream. Descendants set `FreeOnTerminate := False`, but there is **no regression test** covering the hazard — it relies on discipline, not enforcement.
@@ -102,9 +102,9 @@
 | # | Location | Issue | Severity |
 |---|---|---|---|
 | T1 | `cbr_reader.rs:240-241` | `let size = (symbols.entry_size)(entry_ptr) as usize;` then `Vec::with_capacity(size)`. libarchive's `archive_entry_size` returns **`-1` for unknown entries**; casting `-1 i64 → usize` → huge capacity ⇒ **OOM/panic on malformed RARs**. Memory-safety-relevant. | ⚠️⚠️ high (crash) |
-| T2 | `page_model.rs:218-223, 241-242` | Renumber uses `page_padding_for(visible_count()) + 1` and `insert_at` hardcodes `{:04}` — the in-place editor renames pages **one zero-digit wider** than convert/merge/cbr paths (e.g. 9 pages → `page_01.jpg` here vs `page_1.jpg` there). Inconsistent numbering width across operations. | ⚠️ low-med |
-| T3 | `commands/batch_edit.rs:86,97` | Batch edit uses only the **first page's** cut-lines (`params.cut_lines.first()`, comment admits per-page geometry unimplemented) and hardcodes `horizontal_lines = true`. Per-page split geometry is dropped. | ⚠️ med (feature regression vs Lazarus) |
-| T4 | `logger.rs` defined, **inert** | `src-tauri/src/commands/logger.rs` implements `LogBuffer`/`LogEmitter`, but nothing calls it and no logger command is registered in `lib.rs`. JobMonitor's "log" is built purely from progress events, not the trace logger. Dead module; Rust logging to the monitor panel does not work as intended. | ⚠️ low (dead code + unfulfilled log) |
+| T2 ✅fixed | `page_model.rs:218-223, 241-242` | Renumber used `page_padding_for(visible_count()) + 1` and `insert_at` hardcoded `{:04}` — the in-place editor renamed pages **one zero-digit wider** than other paths. **Fixed:** both now use the fixed `PAGE_PAD_DEFAULT` (=4), matching Pascal `upageeditmodel.PageRenumber` exactly (Pascal's editor is pad-4 by design; convert/cbr keep their own count-derived rule). Tests: `renumber_uses_fixed_editor_padding`. | ⚠️ low-med |
+| T3 ✅fixed | `commands/batch_edit.rs:86,97` | Batch edit took only the first page's cut-lines (`params.cut_lines.first()`) and hardcoded `horizontal_lines = true`. Correction on capture: Lazarus batch edit is **uniform** too (one line set + one direction flag for all pages, `ubatchedit.pas`), so per-page geometry was never a Lazarus feature — but the vec-of-vec wire shape silently dropped everything but page 1. **Fixed:** IPC params are now flat `cut_lines: Vec<f64>` + explicit `horizontal_lines` (serde default true); Svelte dialog gained a Horizontal/Vertical radio mirroring `udlgbatchedit`'s direction group and a "N lines → N+1 pieces" hint. | ⚠️ med |
+| T4 ✅fixed | `logger.rs` defined, **inert** | Dead module removed (it wasn't even declared in `commands/mod.rs`). JobMonitor's log stays progress-event-driven, as designed. | ⚠️ low |
 | T5 | `convert_webp.rs:190-192` / `image_util.rs` | Passes `WEBP_QUALITY` (75) to `encode_image`, but the WebP encode branch ignores it (`buffer.write_to()` with no quality param). The caller's quality math is **dead**; output quality is fixed regardless. Shared with Lazarus L1. | ⚠️ low-med (parity bug) |
 | T6 | `PLAN.md` checkpoint 6 vs code | Docs say GUI is empty scaffold; actual GUI is substantially complete. Not a code bug but causes confusion/mis-triage for future contributors. | n/a (doc drift) |
 
@@ -184,24 +184,33 @@ Ordered by severity/value. Each item lists the concrete change, where to make it
 - **[L1 + T5] WebP quality ignored** — `src/userviceconvert.pas` (unused `Modified`) / `porting/tauri/{rust-core/src/convert_webp.rs:190, rust-core/src/image_util.rs}`
   - Change A: actually apply the passed quality to the encoder (libwebp `WebPEncodeBGRA` options in Pascal; pass a quality param through in Rust). Fix `IntfImageToWebP`/`encode_image` to honor it.
   - Change B: consume the `Modified` flag in `TConvertService.Convert` instead of discarding it.
+  - **Status: DONE.** T5 (Rust quality) landed in commit 2fb37dd; Pascal's `IntfImageToWebP` already honored quality via `WebPEncodeBGRA`. L1 Change B: `TConvertService.Convert` now writes when `(ConvertedCount > 0) or Modified`; regression test `tests/test_userviceconvert.pas:Convert_RenamesOnly_StillWrites` (all-WebP archive + ComicInfo → rewritten, stripped, renumbered).
 - **[renumber padding] T2** — `porting/tauri/rust-core/src/page_model.rs:218-242`, cross-check `src/uzipcore.pas:FormatPageName`
   - Change: standardize zero-padding across convert/merge/cbr/in-place editor. Pick one rule (`page_padding_for(count)` without the stray `+1`) and remove the `{:04}` hardcode in `insert_at`.
+  - **Status: DONE** (with a corrected rule): Pascal's editor is fixed pad-4 (`PAGE_PAD_DEFAULT`) by design, so the Rust page model now uses `PAGE_PAD_DEFAULT` for both `renumber` and the `insert_at` placeholders — exact parity with `upageeditmodel.PageRenumber` rather than forcing the count-derived rule onto the editor. Test: `tests/page_model.rs:renumber_uses_fixed_editor_padding`.
 - **CBR CLI exit code** — `src/uclimode.pas:485` / `porting/tauri/cbzmanager-cli/src/main.rs`
   - Change: propagate libarchive-missing as nonzero exit (`EXIT_RUNTIME = 1`) instead of always `EXIT_OK`.
+  - **Status: DONE.** Correction: the libarchive-missing guard already exited nonzero on both sides; what was actually fixed is per-file hard failure propagation (`Success=False` / non-empty `error_msg` → stderr + exit 1; skip-existing stays benign 0). Tests: `RunHeadless_CbrToCbz_FailedFileExitCode` (Pascal); Rust CLI mirrors the same summary/exit logic.
 
 ### P2 — GUI / feature parity details
 
 - **[T3] Batch-edit per-page split geometry** — `porting/tauri/src-tauri/src/commands/batch_edit.rs:86,97`
   - Change: iterate per-page cut-lines (drop `.first()`); remove the hardcoded `horizontal_lines = true`. Mirror Lazarus `ubatchedit.pas` per-page staging. Verify against a `test_ubatchedit.pas` parity case.
+  - **Status: DONE** (as uniform-lines parity, not per-page): Lazarus batch edit is uniform by design, so the fix flattened the IPC shape to `cut_lines: Vec<f64>` + `horizontal_lines: bool` (serde default) and removed `.first()`/the hardcoded flag; Svelte dialog gained the Horizontal/Vertical direction radio + pieces hint.
 - **[T4] Inert Rust logger** — `porting/tauri/src-tauri/src/commands/logger.rs`
   - Decision: either register a `log` command and wire `LogEmitter` into `JobMonitor.svelte`, **or** remove the dead module (preferred if no log panel is intended).
+  - **Status: DONE — removed.** The module was unreferenced (not even in `commands/mod.rs`); JobMonitor stays progress-event-driven.
 - **[shortcuts] Confirm keyboard-shortcut parity** — `web/src/App.svelte` vs TARGET.md Phase 3 (F4/F5/F8, Ctrl+S/Ctrl+A, Space, Del). Add missing handlers or file a deferred issue.
+  - **Status: DONE.** Wired F5 (reload), F8 (validate dialog), Ctrl+S/Cmd+S (save staged changes), Del (mark highlighted page gone), Space (page viewer — already present). Deferred with an inline note in `onKeydown`: F4 preview toggle and Ctrl+A select-all need UI that doesn't exist yet in the webview (no preview pane / multi-select model).
 
 ### P3 — docs & hygiene
 
 - **[T6] Reconcile PLAN.md checkpoint 6** — GUI is substantially implemented, not empty scaffold.
+  - **Status: DONE.** Checkpoint 6 in `porting/tauri/PLAN.md` now carries an implemented-status note listing the divergences from the original plan.
 - **[AGENTS.md test count]** update stale "13 test files" → actual count (25 for Lazarus).
+  - **Status: DONE** ("25 FPCUnit files (23 test units + shared helpers + runner)").
 - Add a **differential parity harness**: same fixture → compare output archive between Lazarus CLI and Rust CLI (`ZipFilesEqual`-style in Rust) to lock shared behaviors (§8 open question #2) and prevent independent drift.
+  - Status: OPEN — deferred; needs a common fixture generator callable from both toolchains.
 
 ### Verification matrix (after P0–P1 done)
 

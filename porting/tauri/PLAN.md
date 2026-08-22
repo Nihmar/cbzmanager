@@ -329,6 +329,15 @@ Exit codes: 0 success/benign-no-op, 1 runtime error, 2 usage error. Flags may pr
 
 ### Checkpoint 6 — Tauri commands + progress + settings + logging
 
+> **Status: ✅ Implemented** (reconciles the stale "empty scaffold" marker flagged as T6
+> in `COMPARISON-BUGHUNT.md`). 17 commands are registered in `src-tauri/src/lib.rs` and all
+> five operations are wired end-to-end through the Svelte frontend. Divergences from the
+> plan below: settings persist via a settings store command pair (`load_settings` /
+> `save_settings`) rather than `tauri-plugin-store`; page editing is stateless IPC
+> (`page_load` / `page_save`) with the model owned by the Svelte stores instead of one
+> command per mutation; there is no `LogObserver` — the dead `logger.rs` module was removed
+> (bughunt T4) and the job monitor builds its log from progress events.
+
 Each command wraps a rust-core function. Frontend communicates via `invoke<...>()`.
 
 **TauriProgress replacement:** Pascal uses `TThread.Queue` / `Synchronize`. Tauri uses its event system.

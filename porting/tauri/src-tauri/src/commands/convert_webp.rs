@@ -73,6 +73,7 @@ pub async fn cmd_convert_webp(
         // 0 = use the server default (q75). Tauri GUI will expose this as a knob.
         0,
         cb,
+        rust_core::convert_webp::ConvertOptions::default(),
     );
 
     let converted: Vec<String> = results

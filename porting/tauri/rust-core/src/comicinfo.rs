@@ -200,6 +200,9 @@ pub fn remove(
 ) -> ComicInfoResults {
     let progress = None; // CLI mode — no progress callback needed
 
+    // Per-file thread cap — mirrors Pascal's CBR removal pool bound.
+    let threads = std::cmp::min(threads.max(1), crate::types::MAX_CBR_THREADS);
+
     let total = files.len();
     report_service_start(progress, "Removing from", total);
 
@@ -252,6 +255,9 @@ pub fn remove_with_progress(
 
     // Emit start.
     cb.lock().unwrap()(0, &format!("Removing from 0/{} files", total));
+
+    // Per-file thread cap — mirrors Pascal's CBR removal pool bound.
+    let threads = std::cmp::min(threads.max(1), crate::types::MAX_CBR_THREADS);
 
     let full_paths: Vec<PathBuf> = files.iter().map(|&f| cbz_full_path(dir, f)).collect();
 

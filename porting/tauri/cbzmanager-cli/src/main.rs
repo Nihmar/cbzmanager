@@ -180,7 +180,14 @@ fn cmd_convert_webp(dir: &PathBuf, delete: bool, threads_opt: Option<usize>, qua
     // 0 = use the server default (q75); values >100 are clamped by the encoder.
     let quality = quality_opt.unwrap_or(0);
 
-    let results = rust_core::convert_webp::convert_webp(&dir, &files, threads, delete, quality);
+    let results = rust_core::convert_webp::convert_webp(
+        &dir,
+        &files,
+        threads,
+        delete,
+        quality,
+        rust_core::convert_webp::ConvertOptions::default(),
+    );
 
     let mut converted = 0usize;
     let mut skipped = 0usize;
@@ -255,7 +262,7 @@ fn cmd_merge(
     }
 }
 
-fn cmd_cbr_to_cbz(dir: &PathBuf, _delete: bool, threads_opt: Option<usize>) -> Result<i32> {
+fn cmd_cbr_to_cbz(dir: &PathBuf, delete: bool, threads_opt: Option<usize>) -> Result<i32> {
     let dir = dir.canonicalize().context("invalid directory")?;
     if !dir.is_dir() {
         return Err(anyhow::anyhow!("'{}' is not a valid directory", dir.display()));
@@ -278,24 +285,32 @@ fn cmd_cbr_to_cbz(dir: &PathBuf, _delete: bool, threads_opt: Option<usize>) -> R
 
     let threads = resolve_threads(threads_opt, rust_core::helpers::online_cpu_count(), rust_core::types::MAX_CBR_THREADS);
 
-    let results = rust_core::cbr_convert::convert_cbr_to_cbz(&dir, &file_paths, threads, false);
+    let results = rust_core::cbr_convert::convert_cbr_to_cbz(&dir, &file_paths, threads, delete, false);
 
     let mut converted = 0usize;
     let mut skipped = 0usize;
+    let mut failed = 0usize;
     for r in &results {
-        if r.converted {
+        if !r.error_msg.is_empty() {
+            // Hard failure (unreadable archive, write error): reported on
+            // stderr and reflected in the exit code — cbr-to-cbz has no
+            // Python reference contract forcing exit 0.
+            failed += 1;
+            eprintln!("  ! {}: {}", if r.file_name.is_empty() { "-" } else { &r.file_name }, r.error_msg);
+        } else if r.converted {
             converted += 1;
-            println!("  {}: {} page(s) -> .cbz", r.file_name, r.original_size);
+            println!("  {}: {} bytes -> .cbz", r.file_name, r.new_size);
         } else {
             skipped += 1;
-            if !r.error_msg.is_empty() {
-                println!("  -: {}: {}", r.file_name, r.error_msg);
-            }
         }
     }
-    println!("Summary: Converted: {}  Skipped: {}", converted, skipped);
+    println!("Summary: Converted: {}  Skipped: {}  Failed: {}", converted, skipped, failed);
 
-    Ok(0)
+    if failed > 0 {
+        Ok(1)
+    } else {
+        Ok(0)
+    }
 }
 
 fn main() {

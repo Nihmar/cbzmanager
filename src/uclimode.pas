@@ -437,7 +437,7 @@ var
   Options: TCbrConvertOptions;
   Results: TConvertResults;
   Progress: TCliProgress;
-  i, Converted, Skipped: integer;
+  i, Converted, Skipped, Failed: integer;
 begin
   if not CbrSupported then
   begin
@@ -469,8 +469,18 @@ begin
   end;
   Converted := 0;
   Skipped := 0;
+  Failed := 0;
   for i := 0 to High(Results) do
-    if Results[i].Success and (Results[i].PagesConverted > 0) then
+    if not Results[i].Success then
+    begin
+      { Hard failure (unreadable archive, write error): reported on stderr
+        and reflected in the exit code — unlike the Python-parity convert-webp
+        path, cbr-to-cbz has no reference contract forcing exit 0. }
+      Inc(Failed);
+      WriteLn(ErrOutput, Format('  ! %s: %s', [Results[i].FileName,
+        Results[i].ErrorMsg]));
+    end
+    else if Results[i].PagesConverted > 0 then
     begin
       Inc(Converted);
       WriteLn(Format('  %s: %d page(s) -> .cbz', [Results[i].FileName,
@@ -481,8 +491,12 @@ begin
       Inc(Skipped);
       WriteLn(Format('  - %s: %s', [Results[i].FileName, Results[i].ErrorMsg]));
     end;
-  WriteLn(Format('Summary: Converted: %d  Skipped: %d', [Converted, Skipped]));
-  Result := EXIT_OK;
+  WriteLn(Format('Summary: Converted: %d  Skipped: %d  Failed: %d',
+    [Converted, Skipped, Failed]));
+  if Failed > 0 then
+    Result := EXIT_ERROR
+  else
+    Result := EXIT_OK;
 end;
 
 { ---------------------------------------------------------------------------

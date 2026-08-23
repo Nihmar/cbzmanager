@@ -24,6 +24,11 @@ pub async fn cmd_merge(
     chapters: Option<String>,
     chapters_per_volume: Option<u32>,
     delete_source: bool,
+    // GAPS 1.10 — optional inclusive chapter range filter.
+    chapter_start: Option<u32>,
+    chapter_end: Option<u32>,
+    // GAPS 1.11 — embed a generated ComicInfo.xml in each volume.
+    generate_comicinfo: bool,
 ) -> Result<MergeResult, String> {
     // Parse config from CLI arguments (mutual exclusion handled by caller)
     let config = match (chapters, chapters_per_volume) {
@@ -78,9 +83,14 @@ pub async fn cmd_merge(
             _ => None,
         }),
         config.as_ref().and_then(|c| match c {
-            rust_core::types::MergeConfig::ChaptersPerVolume(n) => Some(*n),
+            rust_core::types::MergeConfig::ChaptersPerVolume(n) => Some(*n as f64),
             _ => None,
         }),
+        // GAPS 1.10 — pass the optional chapter range through (None = unbounded).
+        chapter_start.map(|s| s as usize),
+        chapter_end.map(|e| e as usize),
+        // GAPS 1.11 — optionally generate ComicInfo.xml per volume.
+        generate_comicinfo,
         cb,
     );
 

@@ -33,6 +33,18 @@ pub fn run() {
             // Page editing
             commands::page_edit::page_load,
             commands::page_edit::page_save,
+            commands::page_edit::page_move_up,
+            commands::page_edit::page_move_down,
+            commands::page_edit::page_move_to_start,
+            commands::page_edit::page_move_to_end,
+            commands::page_edit::page_sort_asc,
+            commands::page_edit::page_sort_desc,
+            commands::page_edit::page_reverse,
+            commands::page_edit::page_renumber,
+            commands::page_edit::page_undo,
+            commands::page_edit::page_insert_front,
+            commands::page_edit::page_insert_at,
+            commands::page_edit::page_drag_drop,
             // Batch editing
             commands::batch_edit::apply_batch_edit,
         ])

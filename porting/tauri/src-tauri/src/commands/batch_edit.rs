@@ -98,73 +98,48 @@ pub async fn apply_batch_edit(
         cut_lines: params.cut_lines.clone(),
     };
 
-    let mut results = Vec::new();
-    for (idx, entry) in entries.iter().enumerate() {
-        // Check progress
-        let total = entries.len();
-        if total > 0 && idx % 5 == 0 {
-            let pct = (idx as i32 * 95) / total as i32;
-            let _ = app.emit(
-                "progress",
-                crate::commands::ProgressEvent {
-                    percent: pct as u8,
-                    message: format!("Applying batch edit..."),
-                    phase: "batch_edit".to_string(),
-                },
-            );
-        }
+    // Build the per-page inputs from archive entries. Order is significant: each
+    // input's idx identifies its source page and pins where its results stage.
+    let inputs: Vec<rust_core::batch_edit::MultiEditPageInput> = entries
+        .iter()
+        .enumerate()
+        .map(|(idx, entry)| rust_core::batch_edit::MultiEditPageInput {
+            idx,
+            orig_name: entry.name.clone(),
+            data: Some(entry.data.clone()),
+            ext: entry.name.rsplit('.').next().unwrap_or("png").to_string(),
+        })
+        .collect();
 
-        // Decode image
-        let img = match rust_core::batch_edit::decode_page_input(
-            &rust_core::batch_edit::MultiEditPageInput {
-                idx: idx,
-                orig_name: entry.name.clone(),
-                data: Some(entry.data.clone()),
-                ext: entry.name.rsplit('.').next().unwrap_or("png").to_string(),
-            },
-        ) {
-            Some(img) => img,
-            None => {
-                // Failed to decode — keep original page state
-                results.push(rust_core::types::PageState {
-                    name: entry.name.clone(),
-                    orig_name: entry.name.clone(),
-                    gone: false,
-                    orig_index: idx as i32,
-                    data: Some(STANDARD.encode(&entry.data)),
-                });
-                continue;
-            }
-        };
+    // Parallel decode -> resize/colour/split -> encode. Byte-identical output for
+    // any thread count; undecodable/failed pages come back with no pieces.
+    let results = rust_core::batch_edit::apply_batch_to_inputs(&inputs, &multi_edit_params);
 
-        // Apply edit pipeline
-        let (pieces, success) = rust_core::batch_edit::apply_edit_to_image(
-            &img,
-            &multi_edit_params,
-            entry.name.rsplit('.').next().unwrap_or("png"),
-        );
+    let mut out: Vec<rust_core::types::PageState> = Vec::new();
+    for result in &results {
+        // Re-read the original entry by its pinned index.
+        let entry = &entries[result.idx];
 
-        if !success || pieces.is_empty() {
-            // Failed to apply edits — keep original page state
-            results.push(rust_core::types::PageState {
+        if result.pieces.is_empty() {
+            // Undecodable or failed to apply: keep the original page verbatim.
+            out.push(rust_core::types::PageState {
                 name: entry.name.clone(),
                 orig_name: entry.name.clone(),
                 gone: false,
-                orig_index: idx as i32,
+                orig_index: result.idx as i32,
                 data: Some(STANDARD.encode(&entry.data)),
             });
-            continue;
-        }
-
-        // Encode pieces and stage into results
-        for piece in &pieces {
-            results.push(rust_core::types::PageState {
-                name: format!("page_{}.{}", idx + 1, piece.ext),
-                orig_name: entry.name.clone(),
-                gone: false,
-                orig_index: idx as i32,
-                data: Some(STANDARD.encode(&piece.data)),
-            });
+        } else {
+            // Piece 0 replaces the page; extra split pieces insert after it.
+            for piece in &result.pieces {
+                out.push(rust_core::types::PageState {
+                    name: format!("page_{}.{}", result.idx + 1, piece.ext),
+                    orig_name: entry.name.clone(),
+                    gone: false,
+                    orig_index: result.idx as i32,
+                    data: Some(STANDARD.encode(&piece.data)),
+                });
+            }
         }
     }
 
@@ -178,5 +153,5 @@ pub async fn apply_batch_edit(
         },
     );
 
-    Ok(results)
+    Ok(out)
 }

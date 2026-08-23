@@ -15,6 +15,16 @@ pub async fn cmd_convert_webp(
     dir_path: String,
     _delete_source: bool,
     threads: Option<u32>,
+    // GAPS 1.5 — quality knob (0 / None => the reference default q75).
+    quality: Option<u32>,
+    // GAPS 1.6 — keep pages already in WebP without re-encoding.
+    skip_existing: Option<bool>,
+    // GAPS 1.7 — filter ComicInfo.xml out of the output.
+    remove_comicinfo: Option<bool>,
+    // GAPS 1.8 — rename surviving pages sequentially (page_NNNN.ext).
+    renumber: Option<bool>,
+    // GAPS 1.9 — only replace a page when its WebP encoding is smaller.
+    replace_only_if_smaller: Option<bool>,
 ) -> Result<ConvertWebpResult, String> {
     let files = rust_core::helpers::collect_cbz_files(Path::new(&dir_path));
 
@@ -65,15 +75,25 @@ pub async fn cmd_convert_webp(
     }));
 
     // Delete source option: if true, original is deleted; if false, renamed to "_OLD.cbz" backup.
+    // GAPS 1.5–1.9: build ConvertOptions from the caller-supplied knobs, falling back
+    // to the reference defaults for anything left unset (mirrors Lazarus checkbox state).
+    let base = rust_core::convert_webp::ConvertOptions::default();
+    let options = rust_core::convert_webp::ConvertOptions {
+        remove_comicinfo: remove_comicinfo.unwrap_or(base.remove_comicinfo),
+        renumber_pages: renumber.unwrap_or(base.renumber_pages),
+        replace_only_if_smaller: replace_only_if_smaller.unwrap_or(base.replace_only_if_smaller),
+        skip_existing_webp: skip_existing.unwrap_or(base.skip_existing_webp),
+    };
+    let quality_value = quality.unwrap_or(0); // 0 => use the server default (q75).
+
     let results = rust_core::convert_webp::convert_webp_with_progress(
         Path::new(&dir_path),
         &files,
         actual_threads,
         _delete_source,
-        // 0 = use the server default (q75). Tauri GUI will expose this as a knob.
-        0,
+        quality_value, // 0 => use the server default (q75).
         cb,
-        rust_core::convert_webp::ConvertOptions::default(),
+        options,
     );
 
     let converted: Vec<String> = results

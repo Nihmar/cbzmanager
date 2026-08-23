@@ -185,9 +185,15 @@ fn extract_captures(pattern: &str, name: &str) -> Option<Vec<String>> {
 // ---------------------------------------------------------------------------
 
 /// Merge multiple CBZ files into a single flat CBZ with sequential image names.
-/// Filters ComicInfo.xml, renames pages sequentially.
+/// Filters ComicInfo.xml, renames pages sequentially. When `generate_comicinfo`
+/// is true a generated `ComicInfo.xml` is embedded in the volume (mirrors
+/// Lazarus `Options.GenerateComicInfo`).
 /// Returns (number_of_images_written, error).
-fn merge_cbz_files(source_paths: &[PathBuf], output_path: &Path) -> Result<usize, String> {
+fn merge_cbz_files(
+    source_paths: &[PathBuf],
+    output_path: &Path,
+    generate_comicinfo: bool,
+) -> Result<usize, String> {
     // Count total images first (for padding).
     let mut total_images = 0usize;
     for cbz_path in source_paths {
@@ -230,6 +236,32 @@ fn merge_cbz_files(source_paths: &[PathBuf], output_path: &Path) -> Result<usize
         }
     }
 
+    if generate_comicinfo {
+        // Derive the volume title and number from the output filename ("Title V001.cbz").
+        let stem = output_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default();
+        let title = stem.split_whitespace().next().unwrap_or_default().to_string();
+        let vol_num: i32 = output_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .and_then(|s| s.rsplit_once(' '))
+            .and_then(|(_, t)| t.strip_prefix('V'))
+            .and_then(|v| v.parse::<i32>().ok())
+            .unwrap_or(0);
+        let mut ci = crate::comicinfo_xml::default_comicinfo();
+        ci.title = title;
+        ci.volume = vol_num;
+        ci.count = page_num as i32;
+        ci.page_count = page_num as i32;
+        let xml = crate::comicinfo_xml::generate_comicinfo_xml(&ci);
+        new_entries.push(crate::zip_ops::ZipEntry {
+            name: crate::types::COMICINFO_XML.to_string(),
+            data: xml,
+        });
+    }
+
     // Write ZIP entirely in RAM.
     zip_ops::write_zip_from_entries(output_path, &new_entries)
         .map_err(|e| format!("Failed to write: {}", e))?;
@@ -251,19 +283,149 @@ fn to_upper_ext(ext: &str) -> String {
 // Merge planning and execution
 // ---------------------------------------------------------------------------
 
+/// Build the per-series merge plans (Phase 1).
+///
+/// Shared by `merge_chapters` and `merge_chapters_with_progress` so all three
+/// knobs apply in exactly one place. Mirrors the Python reference:
+///
+/// - `chapters_list` (e.g. `[5, 6, 3]`) pins exact per-volume chapter counts and
+///   drives the volume count directly; volumes still numbered from the next tag.
+/// - `cpv_override` fixes chapters-per-volume instead of auto-calculating from
+///   existing volumes (`(lowest_chapter-1)/num_volumes`, defaulting to 7).
+/// - `force` appends any leftover chapters to the *last* volume once batches are
+///   laid out.
+///
+/// Returns the same `(series_name, cpv, next_vol, num_new_volumes, volumes)`
+/// tuple shape the execution loops already consume; `cpv` is `-1` for a pinned
+/// custom chapter list (no meaningful average).
+fn plan_series(
+    dir: &Path,
+    chapters: &[ChapterFile],
+    volumes: &[VolumeFile],
+    force: bool,
+    chapters_list: Option<Vec<usize>>,
+    cpv_override: Option<f64>,
+) -> Vec<(String, f64, i32, usize, Vec<VolumeSpec>)> {
+    let mut series_map: std::collections::HashMap<String, Vec<ChapterFile>> = std::collections::HashMap::new();
+    for ch in chapters {
+        series_map.entry(ch.series.clone()).or_default().push(ch.clone());
+    }
+    let mut volume_map: std::collections::HashMap<String, Vec<VolumeFile>> = std::collections::HashMap::new();
+    for vo in volumes {
+        volume_map.entry(vo.series.clone()).or_default().push(vo.clone());
+    }
+
+    // Sorted union of series names.
+    let mut all_series: Vec<String> = series_map.keys().chain(volume_map.keys())
+        .cloned().collect();
+    all_series.sort();
+
+    let mut plans: Vec<(String, f64, i32, usize, Vec<VolumeSpec>)> = Vec::new();
+    for series_name in &all_series {
+        let ch_list = series_map.get(series_name).cloned().unwrap_or_default();
+        if ch_list.is_empty() { continue; }
+
+        let vo_list = volume_map.get(series_name).cloned().unwrap_or_default();
+        let num_chapters = ch_list.len();
+
+        if chapters_list.is_some() {
+            let list = chapters_list.as_ref().unwrap();
+            let total_requested: usize = list.iter().sum();
+            // Python exits with code 1 here; rust-core just creates no volumes
+            // for this series rather than aborting the whole batch.
+            if total_requested > num_chapters { continue; }
+
+            let next_vol = if vo_list.is_empty() { 1i32 } else { max_volume_number(&vo_list) + 1 };
+            let mut volumes: Vec<VolumeSpec> = Vec::new();
+            let mut ch_index = 0usize;
+            for (vol_idx, &count) in list.iter().enumerate() {
+                if ch_index + count > num_chapters { break; }
+                let vol_num = next_vol + vol_idx as i32;
+                let output_path = dir.join(format!("{} V{:03}.cbz", series_name, vol_num));
+                let batch: Vec<PathBuf> = ch_list[ch_index..ch_index + count]
+                    .iter().map(|ch| ch.path.clone()).collect();
+                volumes.push(VolumeSpec { output_path, chapter_paths: batch, num_pages: 0 });
+                ch_index += count;
+            }
+
+            if !volumes.is_empty() {
+                plans.push((series_name.clone(), -1.0, next_vol, volumes.len(), volumes));
+            }
+        } else {
+            let chapters_per_volume = match cpv_override {
+                Some(o) => o,
+                None if vo_list.is_empty() => 7.0,
+                None => {
+                    let lowest_chapter = ch_list.first().map(|c| c.chapter_num).unwrap_or(1);
+                    (lowest_chapter - 1) as f64 / vo_list.len() as f64
+                }
+            };
+
+            if chapters_per_volume < 1.0 { continue; }
+
+            let next_vol = if vo_list.is_empty() { 1i32 } else { max_volume_number(&vo_list) + 1 };
+            let num_new_volumes = (num_chapters as f64 / chapters_per_volume) as usize;
+            if num_new_volumes == 0 { continue; }
+
+            let mut volumes: Vec<VolumeSpec> = Vec::new();
+            let mut ch_index = 0usize;
+            for vol_idx in 0..num_new_volumes {
+                let vol_num = next_vol + vol_idx as i32;
+                let output_path = dir.join(format!("{} V{:03}.cbz", series_name, vol_num));
+                let start = ch_index;
+                let end = cmp::min(ch_index + chapters_per_volume as usize, num_chapters);
+                if start >= end { break; }
+                let batch: Vec<PathBuf> = ch_list[start..end].iter().map(|ch| ch.path.clone()).collect();
+                volumes.push(VolumeSpec { output_path, chapter_paths: batch, num_pages: 0 });
+                ch_index = end;
+            }
+
+            // force: absorb the leftover chapters into the last volume so nothing is dropped.
+            let remaining = num_chapters - ch_index;
+            if remaining > 0 && force {
+                let per_volumes = chapters_per_volume as usize;
+                if let Some(last) = volumes.last_mut() {
+                    let start = ch_index.saturating_sub(per_volumes);
+                    last.chapter_paths = ch_list[start..ch_index + remaining]
+                        .iter().map(|ch| ch.path.clone()).collect();
+                }
+            }
+
+            if !volumes.is_empty() {
+                plans.push((series_name.clone(), chapters_per_volume, next_vol, volumes.len(), volumes));
+            }
+        }
+    }
+
+    plans
+}
+
+// ---------------------------------------------------------------------------
+// Merge planning and execution
+// ---------------------------------------------------------------------------
+
 /// Merge chapter CBZ files into volumes.
+///
+/// `chapter_start` / `chapter_end` optionally restrict the chapters that are
+/// considered (inclusive); `None` means unbounded on that side. When
+/// `generate_comicinfo` is true each output volume embeds a generated
+/// `ComicInfo.xml`.
 pub fn merge_chapters(
     dir: &Path,
     delete: bool,
-    _force: bool,
-    _chapters_list: Option<Vec<usize>>,
-    _chapters_per_volume: Option<usize>,
+    force: bool,
+    chapters_list: Option<Vec<usize>>,
+    cpv_override: Option<f64>,
+    chapter_start: Option<usize>,
+    chapter_end: Option<usize>,
+    generate_comicinfo: bool,
 ) -> MergeResults {
     let progress = None; // CLI mode — no progress callback needed
 
     report_service_start(progress, "Merging", 1);
 
-    let (chapters, volumes) = parse_cbz_files(dir);
+    let (chapters0, volumes) = parse_cbz_files(dir);
+    let chapters = filter_chapter_range(&chapters0, chapter_start, chapter_end);
 
     if chapters.is_empty() {
         return vec![SeriesMergeResult {
@@ -286,56 +448,8 @@ pub fn merge_chapters(
         volume_map.entry(vo.series.clone()).or_default().push(vo.clone());
     }
 
-    // Collect all series names and sort.
-    let mut all_series: Vec<String> = series_map.keys().chain(volume_map.keys())
-        .cloned().collect();
-    all_series.sort();
-
-    // Build plans per series (reuse logic above but keep volumes).
-    let mut all_series_names: Vec<String> = Vec::new();
-    for s in series_map.keys() {
-        if !all_series_names.contains(s) { all_series_names.push(s.clone()); }
-    }
-    for v in volume_map.keys() {
-        if !all_series_names.contains(v) { all_series_names.push(v.clone()); }
-    }
-    all_series_names.sort();
-
-    // Collect series plans for execution.
-    let mut series_plans: Vec<(String, f64, i32, usize, Vec<VolumeSpec>)> = Vec::new();
-    for series_name in &all_series_names {
-        let ch_list = series_map.get(series_name).cloned().unwrap_or_default();
-        if ch_list.is_empty() { continue; }
-
-        let vo_list = volume_map.get(series_name).cloned().unwrap_or_default();
-        let chapters_per_volume = if vo_list.is_empty() { 7.0 } else {
-            let lowest_chapter = ch_list.first().map(|c| c.chapter_num).unwrap_or(1);
-            (lowest_chapter - 1) as f64 / vo_list.len() as f64
-        };
-
-        if chapters_per_volume < 1.0 { continue; }
-
-        let next_vol = if vo_list.is_empty() { 1i32 } else { max_volume_number(&vo_list) + 1 };
-        let num_new_volumes = (ch_list.len() as f64 / chapters_per_volume) as usize;
-        if num_new_volumes == 0 { continue; }
-
-        let mut volumes: Vec<VolumeSpec> = Vec::new();
-        let mut ch_index = 0usize;
-        for vol_idx in 0..num_new_volumes {
-            let vol_num = next_vol + vol_idx as i32;
-            let output_path = dir.join(format!("{} V{:03}.cbz", series_name, vol_num));
-            let start = ch_index;
-            let end = cmp::min(ch_index + chapters_per_volume as usize, ch_list.len());
-            if start >= end { break; }
-            let batch: Vec<PathBuf> = ch_list[start..end].iter().map(|ch| ch.path.clone()).collect();
-            volumes.push(VolumeSpec { output_path, chapter_paths: batch, num_pages: 0 });
-            ch_index = end;
-        }
-
-        if !volumes.is_empty() {
-            series_plans.push((series_name.clone(), chapters_per_volume, next_vol, num_new_volumes, volumes));
-        }
-    }
+    // Phase-1 plan for all series (force / chapters list / manual CPV handled in one place).
+    let series_plans = plan_series(dir, &chapters, &volumes, force, chapters_list, cpv_override);
 
     // Execute merges.
     let mut results: Vec<SeriesMergeResult> = Vec::new();
@@ -346,7 +460,7 @@ pub fn merge_chapters(
         let mut total_pages = 0usize;
         let mut vol_results: Vec<MergeVolumeResult> = Vec::new();
         for vol in volumes {
-            match merge_cbz_files(&vol.chapter_paths, &vol.output_path) {
+            match merge_cbz_files(&vol.chapter_paths, &vol.output_path, generate_comicinfo) {
                 Ok(page_count) => {
                     total_pages += page_count;
                     // Delete source chapters after successful merge.
@@ -398,13 +512,35 @@ fn max_volume_number(volumes: &[VolumeFile]) -> i32 {
     }).max().unwrap_or(0)
 }
 
+/// Restrict chapters to those whose chapter number lies in `[start, end]`
+/// (inclusive). `None` leaves that bound unbounded. Mirrors Lazarus
+/// `TMergeOptions.ChapterStart / ChapterEnd`. Returns the same vector when no
+/// restriction is requested so the caller can keep the parse result unchanged.
+fn filter_chapter_range(
+    chapters: &[ChapterFile],
+    start: Option<usize>,
+    end: Option<usize>,
+) -> Vec<ChapterFile> {
+    match (start, end) {
+        (Some(s), Some(e)) => chapters
+            .iter()
+            .filter(|c| c.chapter_num as usize >= s && c.chapter_num as usize <= e)
+            .cloned()
+            .collect(),
+        _ => chapters.to_vec(),
+    }
+}
+
 /// Merge chapter CBZ files into volumes with progress callback.
 pub fn merge_chapters_with_progress(
     dir: &Path,
     delete: bool,
-    _force: bool,
-    _chapters_list: Option<Vec<usize>>,
-    _chapters_per_volume: Option<usize>,
+    force: bool,
+    chapters_list: Option<Vec<usize>>,
+    cpv_override: Option<f64>,
+    chapter_start: Option<usize>,
+    chapter_end: Option<usize>,
+    generate_comicinfo: bool,
     on_progress: Option<Box<dyn Fn(i32, &str) + Send + Sync>>,
 ) -> MergeResults {
     let progress = on_progress;
@@ -414,12 +550,22 @@ pub fn merge_chapters_with_progress(
     }
 
     if progress.is_none() {
-        return merge_chapters(dir, delete, _force, _chapters_list, _chapters_per_volume);
+        return merge_chapters(
+            dir,
+            delete,
+            force,
+            chapters_list,
+            cpv_override,
+            chapter_start,
+            chapter_end,
+            generate_comicinfo,
+        );
     }
 
     let cb = progress.as_ref().unwrap();
 
-    let (chapters, volumes) = parse_cbz_files(dir);
+    let (chapters0, volumes) = parse_cbz_files(dir);
+    let chapters = filter_chapter_range(&chapters0, chapter_start, chapter_end);
 
     if chapters.is_empty() {
         cb(0, "No chapter files found");
@@ -443,51 +589,8 @@ pub fn merge_chapters_with_progress(
         volume_map.entry(vo.series.clone()).or_default().push(vo.clone());
     }
 
-    // Collect all series names and sort.
-    let mut all_series_names: Vec<String> = Vec::new();
-    for s in series_map.keys() {
-        if !all_series_names.contains(s) { all_series_names.push(s.clone()); }
-    }
-    for v in volume_map.keys() {
-        if !all_series_names.contains(v) { all_series_names.push(v.clone()); }
-    }
-    all_series_names.sort();
-
-    // Build plans per series.
-    let mut series_plans: Vec<(String, f64, i32, usize, Vec<VolumeSpec>)> = Vec::new();
-    for series_name in &all_series_names {
-        let ch_list = series_map.get(series_name).cloned().unwrap_or_default();
-        if ch_list.is_empty() { continue; }
-
-        let vo_list = volume_map.get(series_name).cloned().unwrap_or_default();
-        let chapters_per_volume = if vo_list.is_empty() { 7.0 } else {
-            let lowest_chapter = ch_list.first().map(|c| c.chapter_num).unwrap_or(1);
-            (lowest_chapter - 1) as f64 / vo_list.len() as f64
-        };
-
-        if chapters_per_volume < 1.0 { continue; }
-
-        let next_vol = if vo_list.is_empty() { 1i32 } else { max_volume_number(&vo_list) + 1 };
-        let num_new_volumes = (ch_list.len() as f64 / chapters_per_volume) as usize;
-        if num_new_volumes == 0 { continue; }
-
-        let mut volumes: Vec<VolumeSpec> = Vec::new();
-        let mut ch_index = 0usize;
-        for vol_idx in 0..num_new_volumes {
-            let vol_num = next_vol + vol_idx as i32;
-            let output_path = dir.join(format!("{} V{:03}.cbz", series_name, vol_num));
-            let start = ch_index;
-            let end = std::cmp::min(ch_index + chapters_per_volume as usize, ch_list.len());
-            if start >= end { break; }
-            let batch: Vec<PathBuf> = ch_list[start..end].iter().map(|ch| ch.path.clone()).collect();
-            volumes.push(VolumeSpec { output_path, chapter_paths: batch, num_pages: 0 });
-            ch_index = end;
-        }
-
-        if !volumes.is_empty() {
-            series_plans.push((series_name.clone(), chapters_per_volume, next_vol, num_new_volumes, volumes));
-        }
-    }
+    // Phase-1 plan for all series (force / chapters list / manual CPV handled in one place).
+    let series_plans = plan_series(dir, &chapters, &volumes, force, chapters_list, cpv_override);
 
     // Execute merges with progress.
     let mut results: Vec<SeriesMergeResult> = Vec::new();
@@ -505,7 +608,11 @@ pub fn merge_chapters_with_progress(
         let mut total_pages = 0usize;
         let mut vol_results: Vec<MergeVolumeResult> = Vec::new();
         for vol in volumes {
-            match merge_cbz_files(&vol.chapter_paths, &vol.output_path) {
+            match merge_cbz_files(
+                &vol.chapter_paths,
+                &vol.output_path,
+                generate_comicinfo,
+            ) {
                 Ok(page_count) => {
                     total_pages += page_count;
                     if delete {

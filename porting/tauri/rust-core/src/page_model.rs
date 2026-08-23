@@ -31,6 +31,8 @@ pub enum ChangeType {
     Deleted(usize),
     MovedUp(usize),
     MovedDown(usize),
+    /// The page was dragged/reordered from one visible slot to another.
+    Dragged(usize),
     SortedAsc,
     SortedDesc,
     Reversed,
@@ -183,6 +185,73 @@ impl PageModel {
         let snapshot = self.pages.clone();
         self.pages.sort_by(|a, b| b.name.to_lowercase().cmp(&a.name.to_lowercase()));
         let change_type = ChangeType::SortedDesc;
+        self.changes.push(Change {
+            change_type: change_type.clone(),
+            snapshot,
+        });
+        change_type
+    }
+
+    /// Move a visible page to the very start (before every other page).
+    /// `index` is a slot index that must refer to a non-deleted page. Visible
+    /// slots are preserved in order; any leading deleted slots stay ahead.
+    pub fn move_to_start(&mut self, index: usize) -> ChangeType {
+        let snapshot = self.pages.clone();
+        if index < self.pages.len() && !self.pages[index].deleted {
+            let page = self.pages.remove(index);
+            // Insert after any leading deleted slots so grouping is preserved.
+            let mut insert = 0;
+            while insert < self.pages.len() && self.pages[insert].deleted {
+                insert += 1;
+            }
+            self.pages.insert(insert, page);
+        }
+        let change_type = ChangeType::MovedUp(index);
+        self.changes.push(Change {
+            change_type: change_type.clone(),
+            snapshot,
+        });
+        change_type
+    }
+
+    /// Move a visible page to the very end (after every other page).
+    /// `index` is a slot index that must refer to a non-deleted page.
+    pub fn move_to_end(&mut self, index: usize) -> ChangeType {
+        let snapshot = self.pages.clone();
+        if index < self.pages.len() && !self.pages[index].deleted {
+            let page = self.pages.remove(index);
+            // Append after the last non-deleted slot so trailing deleted slots
+            // that follow a deleted page are not accidentally pulled forward.
+            let mut insert = self.pages.len();
+            while insert > 0 && self.pages[insert - 1].deleted {
+                insert -= 1;
+            }
+            self.pages.insert(insert, page);
+        }
+        let change_type = ChangeType::MovedDown(index);
+        self.changes.push(Change {
+            change_type: change_type.clone(),
+            snapshot,
+        });
+        change_type
+    }
+
+    /// Reorder a visible page from `from` to `to` among the visible pages
+    /// (mirrors Pascal PageDragDrop). Both indices are slot indices that must
+    /// refer to non-deleted pages; the target snaps past any deleted slots.
+    pub fn drag_drop(&mut self, from: usize, to: usize) -> ChangeType {
+        let snapshot = self.pages.clone();
+        if from < self.pages.len() && !self.pages[from].deleted {
+            let page = self.pages.remove(from);
+            // Find the destination slot, skipping over deleted entries.
+            let target = to.min(self.pages.len());
+            let mut insert = target;
+            while insert < self.pages.len() && self.pages[insert].deleted {
+                insert += 1;
+            }
+            self.pages.insert(insert.min(self.pages.len() + 1), page);
+        }
+        let change_type = ChangeType::Dragged(from);
         self.changes.push(Change {
             change_type: change_type.clone(),
             snapshot,

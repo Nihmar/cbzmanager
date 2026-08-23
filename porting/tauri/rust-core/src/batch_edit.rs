@@ -5,6 +5,7 @@
 /// Pure pipeline, no GUI: decodes current page state, applies edits, encodes output.
 
 use image::DynamicImage;
+use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 use crate::image_edit;
 use crate::image_util;
@@ -198,6 +199,43 @@ pub fn decode_page_input(input: &MultiEditPageInput) -> Option<DynamicImage> {
     } else {
         None
     }
+}
+
+/// Derive the output extension for one input's current format. Prefer the
+/// archive entry name when present (so a page is tagged by its on-disk form),
+/// otherwise fall back to the caller-supplied extension, else "png".
+fn page_ext(input: &MultiEditPageInput) -> String {
+    if !input.orig_name.is_empty() {
+        input.orig_name.rsplit('.').next().unwrap_or("png").to_string()
+    } else {
+        input.ext.clone()
+    }
+}
+
+/// Apply the batch-edit pipeline to many pages and return indexed results.
+///
+/// This replaces `ubatchedit.pas`'s sequential single-threaded worker with a
+/// rayon parallel loop over the independent per-page decode → resize/colour/split
+/// → encode steps. One `MultiEditPageResult` is produced per input, in input
+/// order; undecodable or failed-to-apply inputs yield empty `pieces` so callers
+/// can keep the original page. Output bytes are byte-identical for any thread
+/// count: each page encodes deterministically, results never share mutable state,
+/// and slots are assembled in index order.
+pub fn apply_batch_to_inputs(
+    inputs: &[MultiEditPageInput],
+    params: &MultiEditParams,
+) -> Vec<MultiEditPageResult> {
+    inputs
+        .par_iter()
+        .enumerate()
+        .map(|(idx, input)| match decode_page_input(input) {
+            Some(img) => match apply_edit_to_image(&img, params, &page_ext(input)) {
+                (pieces, true) if !pieces.is_empty() => MultiEditPageResult { idx, pieces },
+                _ => MultiEditPageResult { idx, pieces: Vec::new() },
+            },
+            None => MultiEditPageResult { idx, pieces: Vec::new() },
+        })
+        .collect()
 }
 
 /// Stage batch-edit results into the page model.

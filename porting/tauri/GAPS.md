@@ -37,6 +37,7 @@ the gap lives, and the Lazarus file+line for expected behaviour.
 - **Tauri**: `src-tauri/src/commands/comicinfo.rs:94` -- `threads.unwrap_or(0).max(1)` -- no cap
 - **Lazarus**: `src/uservicecomicinfo.pas:316-317` -- `Min(OnlineCpuCount, MAX_CBR_CONVERT_THREADS)` (cap 4)
 - **Fix**: Cap at `min(cpu_count, MAX_CBR_THREADS)`.
+- **Resolved** (2026-08-24): `cmd_remove_comicinfo` now caps `actual_threads` at `rust_core::types::MAX_CBR_THREADS` before calling `remove_with_progress`. Matches Pascal.
 
 ### 1.5 Convert-WebP: quality hardcoded to 0 (q75 default)
 
@@ -60,6 +61,7 @@ the gap lives, and the Lazarus file+line for expected behaviour.
 - **Lazarus**: `src/udlgwebp.pas:19` -- `CbRemoveComicInfo: TCheckBox` (default on, can disable)
 - **Impact**: Minor -- default matches, but user cannot keep ComicInfo.
 - **Fix**: Add `remove_comicinfo: Option<bool>`, conditionally filter.
+- **Resolved** (2026-08-24): `cmd_convert_webp` accepts `quality`/`skip_existing`/`remove_comicinfo`/`renumber`/`replace_only_if_smaller` and builds a `ConvertOptions` struct (with sensible default fallbacks) forwarded to `convert_webp_with_progress`; rust-core already threaded these knobs through the pipeline.
 
 ### 1.8 Convert-WebP: renumber not user-configurable
 
@@ -82,6 +84,7 @@ the gap lives, and the Lazarus file+line for expected behaviour.
 - **Lazarus**: `src/udlgmerge.pas:24-25` -- `EditChapterStart` / `EditChapterEnd` spin edits
 - **Lazarus**: `src/uservicemerge.pas` -- `TMergeOptions.ChapterStart/ChapterEnd` filters chapters
 - **Fix**: Add `chapter_start: Option<usize>` and `chapter_end: Option<usize>` to command and rust-core.
+- **Resolved** (2026-08-24): `merge_chapters` / `merge_chapters_with_progress` now take `chapter_start`/`chapter_end` and filter the parsed chapters via `filter_chapter_range` (inclusive, both bounds optional = unbounded) before planning. CLI passes `None`/`None` (full range). Covered by `merge_respects_chapter_range` in `rust-core/tests/merge.rs`.
 
 ### 1.11 Merge: generate_comicinfo not passed
 
@@ -90,6 +93,7 @@ the gap lives, and the Lazarus file+line for expected behaviour.
 - **Lazarus**: `src/udlgmerge.pas:20` -- `CbGenerateComicInfo: TCheckBox` (default checked)
 - **Lazarus**: `src/uservicemerge.pas` -- `Options.GenerateComicInfo` triggers per-volume ComicInfo
 - **Fix**: Add `generate_comicinfo: Option<bool>` to command; generate and embed ComicInfo.xml in each volume.
+- **Resolved** (2026-08-24): `merge_cbz_files` now takes a `generate_comicinfo` flag and, when set, prepends a generated `ComicInfo.xml` (`default_comicinfo()` with Title/Volume/Count/PageCount filled from the volume) before writing. Threaded through both merge entry points + `cmd_merge`. Covered by `merge_generates_comicinfo_per_volume` in `rust-core/tests/merge.rs`.
 
 ### 1.12 Merge: force partially implemented
 
@@ -97,6 +101,7 @@ the gap lives, and the Lazarus file+line for expected behaviour.
 - **Rust-core**: `rust-core/src/merge.rs:258` -- `_force: bool` (underscore prefix, unused)
 - **Lazarus**: `src/uservicemerge.pas` -- force absorbs remainder chapters into the last volume
 - **Fix**: Implement force logic in `merge_chapters` (absorb leftover chapters into final volume).
+- **Resolved** (2026-08-22): `plan_series()` now centralizes the force/chapters-list/manual-CPV Phase-1 planning; both `merge_chapters` and `merge_chapters_with_progress` delegate to it. `force` absorbs leftover chapters into the last volume when batches are laid out (mirrors `chapters_per_volume_int` + `force`). Covered by new tests in `rust-core/tests/merge.rs`.
 
 ### 1.13 Merge: chapters list (specific chapters) partially implemented
 
@@ -104,6 +109,7 @@ the gap lives, and the Lazarus file+line for expected behaviour.
 - **Rust-core**: `rust-core/src/merge.rs:259` -- `_chapters_list: Option<Vec<usize>>` (unused)
 - **Lazarus**: `src/udlgmerge.pas` -- chapter list allows selecting specific chapters to merge
 - **Fix**: Implement specific-chapters merge in rust-core.
+- **Resolved** (2026-08-22): `chapters_list` now pins exact per-volume chapter counts and drives the volume count directly via `plan_series()` (`num_new_volumes = len(list)`), mirroring Python; skipped when the requested sum exceeds available chapters. Covered by new tests in `rust-core/tests/merge.rs`.
 
 ### 1.14 Merge: chapters_per_volume partially implemented
 
@@ -112,6 +118,7 @@ the gap lives, and the Lazarus file+line for expected behaviour.
 - **Lazarus**: `src/udlgmerge.pas:26` -- `EditCPV` spin edit + `CbManualCPV` checkbox
 - **Lazarus**: `src/uservicemerge.pas` -- manual CPV overrides auto-calculated float
 - **Fix**: Implement manual CPV override in rust-core.
+- **Resolved** (2026-08-22): `cpv_override` now fixes chapters-per-volume directly via `plan_series()` when set, overriding the auto-calculated `(lowest_chapter-1)/num_volumes`; both functions delegate to the helper. CLI/tauri callers widen the param to `Option<f64>`. Covered by new tests in `rust-core/tests/merge.rs`.
 
 ### 1.15 Batch edit: sequential, not parallel
 
@@ -119,6 +126,7 @@ the gap lives, and the Lazarus file+line for expected behaviour.
 - **Lazarus**: `src/ubatchedit.pas` -- `TMultiEditWorker` runs on background thread
 - **Rust-core**: `rust-core/src/batch_edit.rs` -- sequential processing
 - **Fix**: Use `rayon` parallel iterator for the page decode-edit-encode pipeline.
+- **Resolved** (2026-08-22): added `apply_batch_to_inputs(inputs, params)` in `rust-core/src/batch_edit.rs`, a rayon `.par_iter().enumerate()` fan-out that decodes → resize/colour/split → encodes one page per worker and collects results in index order. Undecodable/failed pages yield empty pieces (caller keeps the original). Output is byte-identical for any thread count (per-page encode is deterministic; slots never share state). The Tauri command (`apply_batch_edit`) was refactored to call it; `rust-core/tests/batch_edit.rs` asserts parallel output matches a sequential reference and preserves indices.
 
 ---
 
@@ -131,6 +139,7 @@ the gap lives, and the Lazarus file+line for expected behaviour.
 - **Rust-core**: `rust-core/src/page_model.rs:142,156` -- `move_up` / `move_down` implemented
 - **Tauri**: `src-tauri/src/lib.rs:15-38` -- no `page_move_up` / `page_move_down` commands
 - **Fix**: Add `page_move_up(pages, index)` and `page_move_down(pages, index)` Tauri commands.
+- **Resolved** (2026-08-24): added `page_move_up` / `page_move_down` to `page_edit.rs`, registered in `lib.rs`; they build a `PageModel`, apply the swap, and return the reordered (base64) page list.
 
 ### 2.2 Page move to start / move to end
 
@@ -138,6 +147,7 @@ the gap lives, and the Lazarus file+line for expected behaviour.
 - **Lazarus**: `src/upageeditmodel.pas` -- `PageMoveToStart` / `PageMoveToEnd`
 - **Rust-core**: `rust-core/src/page_model.rs` -- not implemented (only move_up/move_down)
 - **Fix**: Add `move_to_start` / `move_to_end` to rust-core and expose as commands.
+- **Resolved** (2026-08-24): added `PageModel::move_to_start` / `move_to_end` (operating on visible, non-deleted pages) plus Tauri commands `page_move_to_start` / `page_move_to_end`, registered in `lib.rs`. See also 2.7.
 
 ### 2.3 Page sort (alphabetical) / reverse
 
@@ -146,6 +156,7 @@ the gap lives, and the Lazarus file+line for expected behaviour.
 - **Rust-core**: `rust-core/src/page_model.rs:170,182,194` -- `sort_asc` / `sort_desc` / `reverse` implemented
 - **Tauri**: `src-tauri/src/lib.rs:15-38` -- no sort/reverse commands
 - **Fix**: Add `page_sort(pages)` and `page_reverse(pages)` commands.
+- **Resolved** (2026-08-24): added `page_sort_asc` / `page_sort_desc` / `page_reverse`, registered in `lib.rs`.
 
 ### 2.4 Page renumber
 
@@ -154,6 +165,7 @@ the gap lives, and the Lazarus file+line for expected behaviour.
 - **Rust-core**: `rust-core/src/page_model.rs:217` -- `renumber` implemented
 - **Tauri**: no renumber command
 - **Fix**: Add `page_renumber(pages)` command.
+- **Resolved** (2026-08-24): added `page_renumber`, registered in `lib.rs`.
 
 ### 2.5 Page undo
 
@@ -161,6 +173,7 @@ the gap lives, and the Lazarus file+line for expected behaviour.
 - **Rust-core**: `rust-core/src/page_model.rs:206` -- `undo` implemented
 - **Tauri**: no undo command
 - **Fix**: Add `page_undo(pages, changes)` command.
+- **Resolved** (2026-08-24): added `page_undo`, registered in `lib.rs`.
 
 ### 2.6 Page insert front / insert at
 
@@ -169,12 +182,14 @@ the gap lives, and the Lazarus file+line for expected behaviour.
 - **Rust-core**: `rust-core/src/page_model.rs` -- `insert_at` implemented
 - **Tauri**: no insert commands
 - **Fix**: Add `page_insert_front(pages, file_data, ext)` and `page_insert_at(pages, index, file_data, ext)`.
+- **Resolved** (2026-08-24): added `page_insert_front` / `page_insert_at`, registered in `lib.rs`.
 
 ### 2.7 Page drag-drop reorder
 
 - **Lazarus**: `src/upageeditmodel.pas` -- `PageDragDrop(APages, AChanges, AFromIdx, AToIdx)`
 - **Rust-core**: not implemented
 - **Fix**: Add `drag_drop` to rust-core and expose as command.
+- **Resolved** (2026-08-24): added `PageModel::drag_drop(from, to)` (reorders visible pages, snapping past deleted slots) plus Tauri command `page_drag_drop`, registered in `lib.rs`. Covered by `drag_drop_moves_between_visible_slots` / `drag_drop_snap_past_deleted_slots` / `undo_reverts_drag_drop` in `rust-core/tests/page_model.rs`.
 
 ### 2.8 Single-page editor
 

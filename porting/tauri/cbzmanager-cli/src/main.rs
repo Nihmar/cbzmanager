@@ -231,7 +231,17 @@ fn cmd_merge(
         None => None,
     };
 
-    let results = rust_core::merge::merge_chapters(&dir, delete, force, chapters_list, chapters_per_volume_opt);
+    // Headless merge: full chapter range (ChapterStart=0), no ComicInfo generation.
+    let results = rust_core::merge::merge_chapters(
+        &dir,
+        delete,
+        force,
+        chapters_list,
+        chapters_per_volume_opt.map(|v| v as f64),
+        None, // chapter_start
+        None, // chapter_end
+        false, // generate_comicinfo
+    );
 
     if results.is_empty() {
         println!("No chapter files found (pattern: 'Title - NNNN.cbz' or 'Title - SP01.cbz')");

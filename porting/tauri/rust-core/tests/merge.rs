@@ -97,7 +97,7 @@ fn default_cpv_creates_single_volume_and_renumbers_pages() {
         make_chapter(&dir, "Saga", n as i32, 3);
     }
 
-    let results = rust_core::merge::merge_chapters(&dir, false, false, None, None);
+    let results = rust_core::merge::merge_chapters(&dir, false, false, None, None, None, None, false);
     assert_eq!(results.len(), 1);
     let series = &results[0];
     assert_eq!(series.series_name, "Saga");
@@ -125,7 +125,7 @@ fn not_enough_chapters_creates_no_volume() {
         make_chapter(&dir, "Mini", n as i32, 2);
     }
 
-    let results = rust_core::merge::merge_chapters(&dir, false, false, None, None);
+    let results = rust_core::merge::merge_chapters(&dir, false, false, None, None, None, None, false);
     assert!(results.is_empty(), "skipped series yields no plan");
     assert_eq!(volume_files(&dir, "Mini").len(), 0, "no volume file written");
 }
@@ -144,7 +144,7 @@ fn deletion_removes_source_chapters_after_merge() {
         .collect();
     assert_eq!(sources.len(), 7);
 
-    rust_core::merge::merge_chapters(&dir, true /* delete */, false, None, None);
+    rust_core::merge::merge_chapters(&dir, true /* delete */, false, None, None, None, None, false);
 
     assert_eq!(volume_files(&dir, "Del").len(), 1, "one volume produced");
     let remaining: Vec<_> = std::fs::read_dir(&dir)
@@ -338,7 +338,7 @@ fn merge_chapters_matches_reference_on_random_inputs() {
             // Compute the expected plan independently of the implementation.
             let exp = expected_results(&specs);
 
-            let res = rust_core::merge::merge_chapters(&dir, false, false, None, None);
+            let res = rust_core::merge::merge_chapters(&dir, false, false, None, None, None, None, false);
             assert_eq!(res.len(), exp.len());
 
             for (i, ((name, pe), actual)) in exp.iter().zip(res.iter()).enumerate() {
@@ -379,4 +379,201 @@ fn merge_chapters_matches_reference_on_random_inputs() {
             }
         }
     }
+}
+
+/// GAPS 1.10–1.14 — manual CPV override pins chapters-per-volume instead of the
+/// auto-calculated value; `force` then absorbs leftover chapters into the last
+/// volume rather than dropping them. These mirror the Python reference
+/// (`chapters_per_volume_int`, `force`) exactly.
+
+#[test]
+fn manual_cpv_override_uses_fixed_count() {
+    // 6 chapters of 2 pages, fixed CPV 3 → int(6 / 3) = 2 full volumes, no leftover.
+    let dir = tempdir("manualcpv");
+    for n in 1..=7u32 {
+        make_chapter(&dir, "Cpv", n as i32, 2);
+    }
+
+    let results = rust_core::merge::merge_chapters(&dir, false, false, None, Some(3.0), None, None, false);
+    assert_eq!(results.len(), 1);
+    let series = &results[0];
+    assert_eq!(series.series_name, "Cpv");
+    assert_eq!(series.volumes_created, 2);
+
+    let vols = sorted_volume_files(&dir, "Cpv");
+    assert_eq!(vols.len(), 2);
+    assert_eq!(vol_title(&vols[0]), "Cpv V001.cbz");
+    assert_eq!(vol_title(&vols[1]), "Cpv V002.cbz");
+
+    // chapter_count per volume (entries are renumbered to pages, so 3 entries) and
+    // total across the batch.
+    assert_eq!(cbz_names(&vols[0]).len(), 6);
+    assert_eq!(cbz_names(&vols[1]).len(), 6);
+    assert_eq!(series.total_pages, 12);
+}
+
+#[test]
+fn force_absorbs_leftover_into_last_volume() {
+    // 5 chapters of 2 pages, fixed CPV 2 → int(5 / 2) = 2 volumes with one leftover.
+    // Without force that leftover is dropped; with `force` it joins the last volume.
+    let dir = tempdir("manualcpv_force");
+    for n in 1..=5u32 {
+        make_chapter(&dir, "Cpv", n as i32, 2);
+    }
+
+    let results = rust_core::merge::merge_chapters(&dir, false, true /* force */, None, Some(2.0), None, None, false);
+    assert_eq!(results.len(), 1);
+    let series = &results[0];
+    assert_eq!(series.volumes_created, 2);
+
+    let vols = sorted_volume_files(&dir, "Cpv");
+    assert_eq!(vols.len(), 2);
+    // First batch still [ch1, ch2]; the last batch grew to absorb the leftover.
+    assert_eq!(cbz_names(&vols[0]).len(), 4, "first volume: 2 chapters * 2 pages");
+    assert_eq!(cbz_names(&vols[1]).len(), 6, "last volume absorbs ch3-5 (3 chapters * 2)");
+    assert_eq!(series.total_pages, 10);
+}
+
+#[test]
+fn no_force_drops_leftover_when_manual_cpv() {
+    // Same inputs as force_absorbs_... but with `force = false`: the single leftover
+    // chapter is dropped and only two full volumes are produced.
+    let dir = tempdir("manualcpv_noforce");
+    for n in 1..=5u32 {
+        make_chapter(&dir, "Cpv", n as i32, 2);
+    }
+
+    let results = rust_core::merge::merge_chapters(&dir, false, false /* no force */, None, Some(2.0), None, None, false);
+    assert_eq!(results.len(), 1);
+    let series = &results[0];
+    assert_eq!(series.volumes_created, 2);
+
+    let vols = sorted_volume_files(&dir, "Cpv");
+    assert_eq!(vols.len(), 2);
+    assert_eq!(cbz_names(&vols[0]).len(), 4);
+    assert_eq!(cbz_names(&vols[1]).len(), 4, "leftover dropped without force");
+    assert_eq!(series.total_pages, 8, "only first four chapters kept");
+}
+
+#[test]
+fn specific_chapters_list_pins_volume_counts() {
+    // Exact per-volume chapter counts `[2, 2]` drive the volume count directly.
+    let dir = tempdir("list");
+    for n in 1..=6u32 {
+        make_chapter(&dir, "List", n as i32, 2);
+    }
+
+    let results = rust_core::merge::merge_chapters(&dir, false, false, Some(vec![2, 2]), None, None, None, false);
+    assert_eq!(results.len(), 1);
+    let series = &results[0];
+    // len(list) = 2 volumes regardless of the chapter count.
+    assert_eq!(series.volumes_created, 2);
+
+    let vols = sorted_volume_files(&dir, "List");
+    assert_eq!(vols.len(), 2);
+    assert_eq!(vol_title(&vols[0]), "List V001.cbz");
+    assert_eq!(vol_title(&vols[1]), "List V002.cbz");
+    assert_eq!(cbz_names(&vols[0]).len(), 4, "[2] chapters * 2 pages");
+    assert_eq!(cbz_names(&vols[1]).len(), 4, "[2] chapters * 2 pages");
+    assert_eq!(series.total_pages, 8);
+
+    // Sequential renumbering within each produced volume.
+    let names: Vec<String> = cbz_names(&vols[0]);
+    assert_eq!(&names[0], "page_001.png");
+    assert_eq!(&names[3], "page_004.png");
+
+    // No ComicInfo.xml inside merged output (matches the merge filter behaviour).
+    assert!(!names.iter().any(|n| n == "ComicInfo.xml"));
+}
+
+#[test]
+fn chapters_list_exceeding_creates_no_volume() {
+    // Exact counts summing to more than available chapters: no volumes produced.
+    let dir = tempdir("list_over");
+    for n in 1..=6u32 {
+        make_chapter(&dir, "Over", n as i32, 2);
+    }
+
+    let results = rust_core::merge::merge_chapters(&dir, false, false, Some(vec![5, 5]), None, None, None, false);
+    assert!(results.is_empty(), "sum of requested (10) > chapters (6) → skipped");
+    assert_eq!(volume_files(&dir, "Over").len(), 0);
+}
+
+fn vol_title(path: &Path) -> String {
+    path.file_name().and_then(|s| s.to_str()).unwrap_or("").to_string()
+}
+
+/// `volume_files` reads the directory in filesystem order; sort by name so
+/// `vols[0]`/`[1]` are deterministically V001/V002 across runs.
+fn sorted_volume_files(dir: &Path, series: &str) -> Vec<PathBuf> {
+    let mut v = volume_files(dir, series);
+    v.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
+    v
+}
+
+
+/// GAPS 1.10: `chapter_start`/`chapter_end` restrict which chapters feed a merge.
+#[test]
+fn merge_respects_chapter_range() {
+    let dir = tempdir("range");
+    // Alpha has chapters 1..=4 (1 page each). Only merge chapters 2..=3.
+    for n in 1..=4u32 {
+        make_chapter(&dir, "Alpha", n as i32, 1);
+    }
+
+    let results = rust_core::merge::merge_chapters(
+        &dir, false, false, None, Some(2.0), Some(2), Some(3), false,
+    );
+    assert_eq!(results.len(), 1);
+    let vols = sorted_volume_files(&dir, "Alpha");
+    assert_eq!(vols.len(), 1);
+
+    // The volume must contain exactly the two in-range pages (ch 2 and 3).
+    let names = rust_core::zip_ops::get_entry_names(&vols[0]).unwrap();
+    let pages: Vec<_> = names.iter().filter(|n| n.contains("page_")).collect();
+    assert_eq!(pages.len(), 2, "only chapters 2 and 3 should be merged");
+    // Pages are renumbered sequentially regardless of source chapter numbers.
+    assert_eq!(*pages[0], "page_001.png".to_string());
+    assert_eq!(*pages[1], "page_002.png".to_string());
+
+    // Chapters outside the range must NOT have been consumed.
+    let remaining: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_str().unwrap().to_string())
+        .filter(|n| n.ends_with(".cbz") && n.contains("Alpha"))
+        .collect();
+    assert!(contains(&remaining, "Alpha - 0001.cbz"), "chapter 1 kept");
+    assert!(contains(&remaining, "Alpha - 0004.cbz"), "chapter 4 kept");
+}
+
+/// GAPS 1.11: `generate_comicinfo` embeds a ComicInfo.xml in each volume.
+#[test]
+fn merge_generates_comicinfo_per_volume() {
+    let dir = tempdir("comicinfo");
+    make_chapter(&dir, "Gamma", 1, 2);
+    make_chapter(&dir, "Gamma", 2, 3);
+
+    let _results = rust_core::merge::merge_chapters(
+        &dir, false, false, None, Some(2.0), None, None, true,
+    );
+    let vols = sorted_volume_files(&dir, "Gamma");
+    assert_eq!(vols.len(), 1);
+
+    // A generated ComicInfo.xml is present and parses back with the volume number.
+    let ci_bytes = rust_core::zip_ops::read_entry(&vols[0], "ComicInfo.xml").unwrap();
+    let ci = rust_core::comicinfo_xml::parse_comicinfo_xml(&ci_bytes);
+    assert_eq!(ci.title, "Gamma", "volume title derived from the series");
+    assert_eq!(ci.volume, 1, "volume number parsed from filename V001");
+    assert_eq!(ci.page_count, 5, "total pages across both chapters");
+
+    // Every page is still present and sequentially renumbered.
+    let names = rust_core::zip_ops::get_entry_names(&vols[0]).unwrap();
+    let pages: Vec<_> = names.iter().filter(|n| n.contains("page_")).collect();
+    assert_eq!(pages.len(), 5);
+}
+
+/// Small helper to keep the range-test assertions readable.
+fn contains(haystack: &[String], needle: &str) -> bool {
+    haystack.iter().any(|s| s == needle)
 }

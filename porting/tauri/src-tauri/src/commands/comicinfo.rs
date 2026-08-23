@@ -91,7 +91,12 @@ pub async fn cmd_remove_comicinfo(
         .filter_map(|f| f.file_name().and_then(|n| n.to_str()))
         .collect();
 
-    let actual_threads = threads.unwrap_or(0).max(1) as usize;
+    // GAPS 1.4: cap the worker count at MAX_CBR_THREADS (mirrors
+    // uservicecomicinfo.pas Min(OnlineCpuCount, MAX_CBR_CONVERT_THREADS)).
+    let actual_threads = std::cmp::min(
+        threads.unwrap_or(0).max(1) as usize,
+        rust_core::types::MAX_CBR_THREADS,
+    );
 
     // Set up progress channel
     let (tx, rx) = crossbeam_channel::bounded::<(i32, String)>(64);

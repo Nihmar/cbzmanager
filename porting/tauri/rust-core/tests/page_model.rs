@@ -158,6 +158,72 @@ fn save_edited_data_wins_over_archive() {
 }
 
 #[test]
+fn move_to_start_and_end_reorder_visible_pages() {
+    let mut m = model_from(&["a.png", "b.png", "c.png"]);
+    m.move_to_start(2); // c -> front
+    assert_eq!(
+        m.pages().iter().map(|p| p.name.as_str()).collect::<Vec<_>>(),
+        vec!["c.png", "a.png", "b.png"]
+    );
+    m.move_to_end(0); // c -> back
+    assert_eq!(
+        m.pages().iter().map(|p| p.name.as_str()).collect::<Vec<_>>(),
+        vec!["a.png", "b.png", "c.png"]
+    );
+}
+
+#[test]
+fn move_to_start_skips_leading_deleted_slots() {
+    let mut m = model_from(&["a.png", "b.png", "c.png"]);
+    m.delete_at(0); // [GONE a, b, c]
+    m.move_to_start(2); // c to the front of the visible order
+    // The deleted placeholder (a) stays as a skipped slot; the visible order is c,b.
+    let visible: Vec<&str> = m
+        .pages()
+        .iter()
+        .filter(|p| !p.deleted)
+        .map(|p| p.name.as_str())
+        .collect();
+    assert_eq!(visible, vec!["c.png", "b.png"]);
+}
+
+#[test]
+fn drag_drop_moves_between_visible_slots() {
+    let mut m = model_from(&["a.png", "b.png", "c.png", "d.png"]);
+    let ch = m.drag_drop(0, 3); // a -> after d
+    assert_eq!(ch, ChangeType::Dragged(0));
+    assert_eq!(
+        m.pages().iter().map(|p| p.name.as_str()).collect::<Vec<_>>(),
+        vec!["b.png", "c.png", "d.png", "a.png"]
+    );
+}
+
+#[test]
+fn drag_drop_snap_past_deleted_slots() {
+    let mut m = model_from(&["a.png", "b.png", "c.png"]);
+    m.delete_at(1); // [a, GONE b, c]
+    m.drag_drop(2, 1); // move c to slot 1, which snaps past the deleted b
+    // Visible order is a,c (the placeholder for b remains skipped).
+    let visible: Vec<&str> = m
+        .pages()
+        .iter()
+        .filter(|p| !p.deleted)
+        .map(|p| p.name.as_str())
+        .collect();
+    assert_eq!(visible, vec!["a.png", "c.png"]);
+}
+
+#[test]
+fn undo_reverts_drag_drop() {
+    let mut m = model_from(&["a.png", "b.png", "c.png"]);
+    m.drag_drop(0, 2);
+    let undone = m.undo();
+    assert!(undone.is_some());
+    assert_eq!(m.pages()[0].name, "a.png");
+    assert_eq!(m.pages()[2].name, "c.png");
+}
+
+#[test]
 fn save_empty_model_writes_valid_empty_cbz() {
     let m = model_from(&[]);
     assert!(!m.has_changes());

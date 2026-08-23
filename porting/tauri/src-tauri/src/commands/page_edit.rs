@@ -1,6 +1,47 @@
 use std::path::Path;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 
+use rust_core::page_model::{PageModel, PageState as InternalPageState};
+use rust_core::types::PageState as ApiPageState;
+
+/// Convert API page states (base64 data) into the internal editing model.
+fn to_internal(pages: &[ApiPageState]) -> Vec<InternalPageState> {
+    pages
+        .iter()
+        .map(|p| InternalPageState {
+            orig_name: p.orig_name.clone(),
+            name: p.name.clone(),
+            data: p.data.as_ref().map(|b64| STANDARD.decode(b64).unwrap_or_default()),
+            deleted: p.gone,
+        })
+        .collect()
+}
+
+/// Convert the internal model back into API page states for the frontend.
+fn to_api(model: &PageModel) -> Vec<ApiPageState> {
+    model
+        .pages()
+        .iter()
+        .enumerate()
+        .map(|(i, p)| ApiPageState {
+            name: p.name.clone(),
+            orig_name: p.orig_name.clone(),
+            gone: p.deleted,
+            orig_index: i as i32,
+            data: p.data.as_ref().map(|d| STANDARD.encode(d)),
+        })
+        .collect()
+}
+
+/// Shared helper that applies an in-place reorder/transform to a page model and
+/// returns the resulting (base64-serialized) page list.
+fn with_model(pages: Vec<ApiPageState>, f: impl FnOnce(&mut PageModel)) -> Vec<ApiPageState> {
+    let internal = to_internal(&pages);
+    let mut model = PageModel::from_pages(internal);
+    f(&mut model);
+    to_api(&model)
+}
+
 #[tauri::command]
 pub async fn page_load(file_path: String) -> Result<Vec<rust_core::types::PageState>, String> {
     let entries = rust_core::zip_ops::collect_zip_entries(Path::new(&file_path))
@@ -17,6 +58,123 @@ pub async fn page_load(file_path: String) -> Result<Vec<rust_core::types::PageSt
             data: Some(STANDARD.encode(&entry.data)),
         })
         .collect())
+}
+
+// ---------------------------------------------------------------------------
+// Reorder / transform commands (GAPS 2.1–2.7). These mirror the Pascal page
+// context-menu actions and operate on an in-memory PageModel.
+//
+// Each command receives the current page list, applies the operation, and
+// returns the reordered list so the frontend can re-render without a reload.
+// ---------------------------------------------------------------------------
+
+/// GAPS 2.1: move a page up one visible slot.
+#[tauri::command]
+pub async fn page_move_up(pages: Vec<ApiPageState>, index: usize) -> Vec<ApiPageState> {
+    with_model(pages, |m| {
+        m.move_up(index);
+    })
+}
+
+/// GAPS 2.1: move a page down one visible slot.
+#[tauri::command]
+pub async fn page_move_down(pages: Vec<ApiPageState>, index: usize) -> Vec<ApiPageState> {
+    with_model(pages, |m| {
+        m.move_down(index);
+    })
+}
+
+/// GAPS 2.2: move a page to the start of the list.
+#[tauri::command]
+pub async fn page_move_to_start(pages: Vec<ApiPageState>, index: usize) -> Vec<ApiPageState> {
+    with_model(pages, |m| {
+        m.move_to_start(index);
+    })
+}
+
+/// GAPS 2.2: move a page to the end of the list.
+#[tauri::command]
+pub async fn page_move_to_end(pages: Vec<ApiPageState>, index: usize) -> Vec<ApiPageState> {
+    with_model(pages, |m| {
+        m.move_to_end(index);
+    })
+}
+
+/// GAPS 2.3: sort pages ascending by name.
+#[tauri::command]
+pub async fn page_sort_asc(pages: Vec<ApiPageState>) -> Vec<ApiPageState> {
+    with_model(pages, |m| {
+        m.sort_asc();
+    })
+}
+
+/// GAPS 2.3: sort pages descending by name.
+#[tauri::command]
+pub async fn page_sort_desc(pages: Vec<ApiPageState>) -> Vec<ApiPageState> {
+    with_model(pages, |m| {
+        m.sort_desc();
+    })
+}
+
+/// GAPS 2.3: reverse the page order.
+#[tauri::command]
+pub async fn page_reverse(pages: Vec<ApiPageState>) -> Vec<ApiPageState> {
+    with_model(pages, |m| {
+        m.reverse();
+    })
+}
+
+/// GAPS 2.4: renumber visible pages to sequential page_NNNN names.
+#[tauri::command]
+pub async fn page_renumber(pages: Vec<ApiPageState>) -> Vec<ApiPageState> {
+    with_model(pages, |m| {
+        m.renumber();
+    })
+}
+
+/// GAPS 2.5: undo the last recorded change.
+#[tauri::command]
+pub async fn page_undo(pages: Vec<ApiPageState>) -> Vec<ApiPageState> {
+    with_model(pages, |m| {
+        m.undo();
+    })
+}
+
+/// GAPS 2.6: insert new pages at the front (becomes page 0).
+#[tauri::command]
+pub async fn page_insert_front(
+    pages: Vec<ApiPageState>,
+    new_pages: Vec<ApiPageState>,
+) -> Vec<ApiPageState> {
+    with_model(pages, |m| {
+        let internal = to_internal(&new_pages);
+        let _ = m.insert_at(0, internal);
+    })
+}
+
+/// GAPS 2.6: insert new pages at a given index.
+#[tauri::command]
+pub async fn page_insert_at(
+    pages: Vec<ApiPageState>,
+    index: usize,
+    new_pages: Vec<ApiPageState>,
+) -> Vec<ApiPageState> {
+    with_model(pages, |m| {
+        let internal = to_internal(&new_pages);
+        let _ = m.insert_at(index, internal);
+    })
+}
+
+/// GAPS 2.7: drag-drop reorder from one visible slot to another.
+#[tauri::command]
+pub async fn page_drag_drop(
+    pages: Vec<ApiPageState>,
+    from: usize,
+    to: usize,
+) -> Vec<ApiPageState> {
+    with_model(pages, |m| {
+        m.drag_drop(from, to);
+    })
 }
 
 #[tauri::command]

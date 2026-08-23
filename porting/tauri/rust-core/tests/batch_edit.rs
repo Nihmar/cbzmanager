@@ -113,3 +113,98 @@ fn decode_prefers_data_stream_over_archive_entry() {
     };
     assert!(rust_core::batch_edit::decode_page_input(&empty).is_none());
 }
+
+fn make_inputs(count: usize) -> Vec<rust_core::batch_edit::MultiEditPageInput> {
+    (0..count)
+        .map(|i| rust_core::batch_edit::MultiEditPageInput {
+            idx: i,
+            orig_name: String::new(),
+            data: Some(make_png(16, 16, ((i % 7) as u8) + 1)),
+            ext: "png".to_string(),
+        })
+        .collect()
+}
+
+#[test]
+fn parallel_run_matches_sequential_reference_and_preserves_indices() {
+    let inputs = make_inputs(24);
+
+    let mut params = rust_core::batch_edit::MultiEditParams::neutral();
+    params.resize = true;
+    params.percent = 75;
+    params.split = true;
+    params.cut_lines = vec![0.33, 0.66]; // three pieces each
+
+    let parallel = rust_core::batch_edit::apply_batch_to_inputs(&inputs, &params);
+
+    assert_eq!(parallel.len(), inputs.len());
+
+    // Results stay in input order (index is authoritative even with a rayon
+    // worker pool), and each page's bytes match an explicit single-threaded run.
+    for (pos, result) in parallel.iter().enumerate() {
+        assert_eq!(result.idx, pos);
+
+        let reference = rust_core::batch_edit::decode_page_input(&inputs[pos]).map(|img| {
+            rust_core::batch_edit::apply_edit_to_image(&img, &params, "png").0
+        });
+        match reference {
+            Some(ref_pieces) => {
+                assert_eq!(result.pieces.len(), ref_pieces.len());
+                for (got, want) in result.pieces.iter().zip(ref_pieces.iter()) {
+                    assert_eq!(got.data, want.data);
+                    assert_eq!(got.ext, want.ext);
+                }
+            }
+            None => panic!("input {} should decode deterministically", pos),
+        }
+    }
+
+    // Byte-identical regardless of how often / in which order the pool runs.
+    let again = rust_core::batch_edit::apply_batch_to_inputs(&inputs, &params);
+    assert_eq!(again.len(), parallel.len());
+    for (a, b) in parallel.iter().zip(again.iter()) {
+        assert_eq!(a.idx, b.idx);
+        assert_eq!(a.pieces.len(), b.pieces.len());
+        for (x, y) in a.pieces.iter().zip(b.pieces.iter()) {
+            assert_eq!(x.data, y.data);
+            assert_eq!(x.ext, y.ext);
+        }
+    }
+}
+
+#[test]
+fn parallel_run_reports_failed_pages_as_empty_pieces() {
+    let inputs = vec![
+        rust_core::batch_edit::MultiEditPageInput {
+            idx: 0,
+            orig_name: String::new(),
+            data: Some(make_png(16, 16, 9)),
+            ext: "png".to_string(),
+        },
+        rust_core::batch_edit::MultiEditPageInput {
+            idx: 1,
+            orig_name: "page_0002.png".to_string(), // no data stream → undecodable
+            data: None,
+            ext: "png".to_string(),
+        },
+    ];
+    let params = rust_core::batch_edit::MultiEditParams::neutral();
+
+    let results = rust_core::batch_edit::apply_batch_to_inputs(&inputs, &params);
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].idx, 0);
+    assert_eq!(results[1].idx, 1);
+    assert_eq!(results[0].pieces.len(), 1, "decodable page yields a piece");
+    assert!(results[1].pieces.is_empty(), "undecodable page yields none");
+}
+
+#[test]
+fn parallel_run_is_neutral_noop() {
+    let inputs = make_inputs(8);
+    let results = rust_core::batch_edit::apply_batch_to_inputs(&inputs, &rust_core::batch_edit::MultiEditParams::neutral());
+    assert_eq!(results.len(), 8);
+    for r in &results {
+        assert_eq!(r.pieces.len(), 1);
+        assert_eq!(r.pieces[0].ext, "png");
+    }
+}

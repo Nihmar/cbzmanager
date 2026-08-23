@@ -9,6 +9,7 @@
   export let startIndex = 0;
 
   let stage: HTMLDivElement;
+  let imgEl: HTMLImageElement | null = null;
   let src: string | null = null;
   let loading = false;
   let error = '';
@@ -26,10 +27,47 @@
     return () => stage.removeEventListener('wheel', onWheelNative);
   });
 
+  // Zoom model parity with Lazarus udlgpageview + uimgutil.CenterAnchorScrollPos
+  // (GAPS 6.2):
+  //   - Ctrl+wheel : zoom anchored under the cursor, scale clamp 1.0-5.0
+  //   - plain wheel: vertical pan (top-to-bottom)
+  //   - Shift+wheel: horizontal pan
   function onWheelNative(event: WheelEvent) {
     event.preventDefault();
-    const factor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
-    scale = Math.min(8, Math.max(0.1, scale * factor));
+    const step = sign(event.deltaY);
+
+    if (event.ctrlKey) {
+      if (!imgEl || !stage) return;
+      const factor = step > 0 ? 1.1 : 1 / 1.1;
+      const newScale = Math.min(5, Math.max(1, scale * factor));
+      if (newScale === scale) return; // no-op at clamp boundary
+
+      // Cursor offset from stage centre (CSS px).
+      const rect = stage.getBoundingClientRect();
+      const cx = event.clientX - rect.left - rect.width / 2;
+      const cy = event.clientY - rect.top - rect.height / 2;
+      // Rendered image size at the CURRENT scale.
+      const curW = imgEl.offsetWidth;
+      const curH = imgEl.offsetHeight;
+      if (curW <= 0 || curH <= 0) { scale = newScale; return; }
+
+      // Keep the image point under the cursor fixed: its normalised position is
+      // (cx - panX) / curW, which after zooming maps to a new centre offset.
+      const ratio = newScale / scale;
+      panX = cx - (cx - panX) * ratio;
+      panY = cy - (cy - panY) * ratio;
+      scale = newScale;
+    } else if (event.shiftKey) {
+      // Horizontal pan.
+      panX -= step * 40;
+    } else {
+      // Vertical pan (scroll down scrolls the page upward).
+      panY += step * 40;
+    }
+  }
+
+  function sign(v: number): number {
+    return v < 0 ? -1 : 1;
   }
 
   $: if (open) {
@@ -115,7 +153,7 @@
         {:else if error}
           <div class="err">{error}</div>
         {:else if src}
-          <img class="page" src={src} alt={pageNames[idx]} style="transform: scale({scale}) translate({panX / scale}px, {panY / scale}px);" draggable="false" />
+          <img class="page" bind:this={imgEl} src={src} alt={pageNames[idx]} style="transform: scale({scale}) translate({panX / scale}px, {panY / scale}px);" draggable="false" />
           <div class="idx">{idx + 1} / {pageNames.length}</div>
         {/if}
       </div>

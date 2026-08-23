@@ -369,6 +369,7 @@ the gap lives, and the Lazarus file+line for expected behaviour.
 - **Lazarus**: `src/udlgpageview.pas` -- Ctrl+wheel zoom (1.0-5.0), wheel pan, Shift+wheel horizontal pan
 - **Tauri**: `web/src/components/PageViewer.svelte:29-33` -- simple scale factor, pointer-drag pan only
 - **Fix**: Implement center-anchored zoom and shift+wheel horizontal pan.
+- **Resolved** (2026-08-24): PageViewer wheel handler now mirrors Lazarus udlgpageview/uimgutil.CenterAnchorScrollPos: Ctrl+wheel zooms anchored under the cursor with a 1.0-5.0 clamp (anchor kept fixed from the rendered image size), plain wheel pans vertically and Shift+wheel pans horizontally.
 
 ### 6.3 CBR preview is read-only
 

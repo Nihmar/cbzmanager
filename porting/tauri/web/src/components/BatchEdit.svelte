@@ -1,5 +1,11 @@
 <script lang="ts">
-  import { pageDataUrl, applyBatchEdit } from '../lib/api';
+  import {
+    pageDataUrl,
+    applyBatchEdit,
+    listEntries,
+    readEntryBytes,
+    mimeFromBytes,
+  } from '../lib/api';
   import type { BatchEditParams, ColorAdjustParams, PageState } from '../lib/types';
 
   export let open = false;
@@ -32,6 +38,57 @@
   let newLine = '50';
   let cutLines: number[] = [];
   let horizontalLines = true;
+
+  // Page-count header (GAPS 3.7): input page count comes from the archive entry
+  // listing; output pieces = pages × (cutLines + 1) when any split lines exist.
+  let pageCount = 0;
+
+  $: pieceFactor = cutLines.length > 0 ? cutLines.length + 1 : 1;
+  $: outputPages = pageCount * pieceFactor;
+  $: applyHeader =
+    outputPages === pageCount
+      ? `Apply to ${pageCount} page(s)`
+      : `Apply to ${pageCount} pages \u2192 ${outputPages} pieces`;
+
+  // Live preview of the first page under the current transform (GAPS 3.6). The
+  // archive bytes are fetched once per entry name; colour/resize changes are then
+  // applied with cheap CSS so dragging sliders never re-reads the file.
+  let previewUrl = '';
+  let previewLoading = false;
+  let previewName = '';
+  let previewLoadedKey = -1;
+
+  $: previewFilter = [
+    grayscale ? 'grayscale(1)' : '',
+    sepia ? 'sepia(1)' : '',
+    invert ? 'invert(1)' : '',
+    saturation !== 1 ? `saturation(${saturation})` : '',
+    contrast !== 1 ? `contrast(${contrast})` : '',
+    brightness !== 1 ? `brightness(${brightness})` : '',
+  ]
+    .filter((t) => t.length > 0)
+    .join(' ');
+
+  $: previewScale = resizePercent === 0 || resizePercent === 100 ? undefined : `${resizePercent / 100}`;
+  $: previewTransform = previewScale ? `scale(${previewScale})` : '';
+
+  async function loadPreviewImage(name: string) {
+    const key = ++previewLoadedKey;
+    previewName = name;
+    previewUrl = '';
+    previewLoading = true;
+    try {
+      const { data } = await readEntryBytes(filePath, name);
+      if (key !== previewLoadedKey) return; // stale fetch
+      const mime = mimeFromBytes(data);
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      previewUrl = URL.createObjectURL(new Blob([data as unknown as BlobPart], { type: mime }));
+    } catch (e) {
+      previewUrl = '';
+    } finally {
+      previewLoading = false;
+    }
+  }
 
   let loading = false;
   let error = '';
@@ -74,6 +131,29 @@
     cutLines = cutLines.filter((_, idx) => idx !== i);
   }
 
+  // Re-fetch the preview when the dialog opens or the target file changes.
+  let dirKey = '';
+  $: if (filePath !== dirKey) {
+    dirKey = filePath;
+    syncFirstEntry();
+  }
+
+  async function syncFirstEntry() {
+    previewName = '';
+    pageCount = 0;
+    if (!open || !filePath) return;
+    try {
+      const entries = await listEntries(filePath);
+      pageCount = entries.length;
+      if (entries[0]) {
+        previewName = entries[0].name;
+        loadPreviewImage(previewName);
+      }
+    } catch {
+      pageCount = 0;
+    }
+  }
+
   function close() {
     onClose();
   }
@@ -82,6 +162,12 @@
     resultPages = [];
     error = '';
     loading = false;
+  }
+
+  // Tear down the live preview when the dialog closes.
+  $: if (!open) {
+    previewUrl = '';
+    previewLoading = false;
   }
 
   async function run() {
@@ -105,7 +191,10 @@
   <div class="panel" role="dialog" aria-label="Batch edit" on:click|stopPropagation>
     <div class="head">
       <h2>Batch edit pages</h2>
-      <span class="dim">Runs on every page of <code>{filePath}</code></span>
+      <div class="head-sub">
+        <span class="dim">All pages in <code>{filePath}</code></span>
+        <span class="apply-header">{applyHeader}</span>
+      </div>
       <button class="icon-btn" aria-label="Close" on:click={close}>×</button>
     </div>
 
@@ -155,6 +244,24 @@
       {/if}
       <span class="hint">{cutLines.length} line(s) → {cutLines.length + 1} piece(s) per page.</span>
     </fieldset>
+  </div>
+
+  <div class="preview-wrap">
+    <div class="preview-head">Live preview</div>
+    {#if previewLoading}
+      <div class="preview-status">Reading first page…</div>
+    {:else if previewUrl}
+      <div class="preview-stage">
+        <img
+          class="preview-img"
+          src={previewUrl}
+          alt="First page (approximate preview)"
+          style="transform:{previewTransform};filter:{previewFilter};"
+        />
+      </div>
+    {:else}
+      <div class="preview-status">No pages to preview.</div>
+    {/if}
   </div>
 
   <button class="run-btn" on:click={run} disabled={loading}>
@@ -216,7 +323,54 @@
   .lines { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: 12px; }
   .lines li { display: flex; align-items: center; gap: 3px; color: #555; }
 
-  .run-btn { padding: 6px 14px; border: 1px solid #2b6cb0; background: #2b6cb0; color: #fff; border-radius: 4px; cursor: pointer; align-self: flex-start; }
+  .head-sub {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .apply-header {
+    font-size: 12px;
+    font-weight: 600;
+    color: #2b6cb0;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .preview-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .preview-head {
+    font-size: 12px;
+    color: #888;
+  }
+
+  .preview-stage {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 160px;
+    background: #fafafa;
+    border: 1px solid #eee;
+    border-radius: 6px;
+    padding: 8px;
+  }
+
+  .preview-img {
+    max-width: 100%;
+    max-height: 200px;
+    display: block;
+    border-radius: 3px;
+  }
+
+  .preview-status {
+    color: #888;
+    font-size: 12px;
+    padding: 20px;
+  }
   .run-btn:disabled { opacity: 0.7; }
 
   .summary { margin: 2px 0; font-size: 13px; }

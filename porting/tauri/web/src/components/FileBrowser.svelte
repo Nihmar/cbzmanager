@@ -1,9 +1,16 @@
 <script lang="ts">
   import type { DirEntry } from '../lib/types';
+  import { thumbnailSize } from '../stores/thumbnail';
 
   export let entries: DirEntry[] = [];
   export let selectedFile: string | null = null;
   export let loading = false;
+
+  // Scale the browser thumbs with the shared zoom slider (Lazarus ZoomScroll
+  // affects both panes). Base size 32×40 at default 128px resolution.
+  $: s = Math.max(0.5, $thumbnailSize / 128);
+  $: thumbW = Math.round(32 * s);
+  $: thumbH = Math.round(40 * s);
 
   // Parent provides this callback; event name mirrors Svelte convention.
   export let onSelect: (entry: DirEntry) => void = () => {};
@@ -25,7 +32,7 @@
         title={entry.name}
       >
         {#if entry.thumbnail}
-          <img src={entry.thumbnail} alt="" class="thumb" loading="lazy" />
+          <img src={entry.thumbnail} style="width:{thumbW}px;height:{thumbH}px;" class="thumb" loading="lazy" alt="" />}
         {/if}
         <span class="name">{entry.name}</span>
       </li>

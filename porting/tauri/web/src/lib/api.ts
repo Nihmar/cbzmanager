@@ -31,6 +31,16 @@ const CMD = {
    PAGE_LOAD: 'page_load',
    PAGE_SAVE: 'page_save',
    BATCH_EDIT: 'apply_batch_edit',
+   PAGE_MOVE_UP: 'page_move_up',
+   PAGE_MOVE_DOWN: 'page_move_down',
+   PAGE_MOVE_TO_START: 'page_move_to_start',
+   PAGE_MOVE_TO_END: 'page_move_to_end',
+   PAGE_SORT_ASC: 'page_sort_asc',
+   PAGE_SORT_DESC: 'page_sort_desc',
+   PAGE_REVERSE: 'page_reverse',
+   PAGE_RENUMBER: 'page_renumber',
+   PAGE_UNDO: 'page_undo',
+   PAGE_DRAG_DROP: 'page_drag_drop',
  };
 
 export async function listDirectory(dirPath: string): Promise<DirEntry[]> {
@@ -136,6 +146,54 @@ export async function applyBatchEdit(
   params: BatchEditParams,
 ): Promise<PageState[]> {
   return invoke<PageState[]>(CMD.BATCH_EDIT, { file_path: filePath, params });
+}
+
+// In-memory page reorder / transform commands (GAPS 2.1–2.7). Each returns the
+// reordered PageState[] so the UI can re-render without a reload.
+export async function pageMoveUp(pages: PageState[], index: number): Promise<PageState[]> {
+  return invoke<PageState[]>(CMD.PAGE_MOVE_UP, { pages, index });
+}
+
+export async function pageMoveDown(pages: PageState[], index: number): Promise<PageState[]> {
+  return invoke<PageState[]>(CMD.PAGE_MOVE_DOWN, { pages, index });
+}
+
+export async function pageMoveToStart(pages: PageState[], index: number): Promise<PageState[]> {
+  return invoke<PageState[]>(CMD.PAGE_MOVE_TO_START, { pages, index });
+}
+
+export async function pageMoveToEnd(pages: PageState[], index: number): Promise<PageState[]> {
+  return invoke<PageState[]>(CMD.PAGE_MOVE_TO_END, { pages, index });
+}
+
+export async function pageSortAsc(pages: PageState[]): Promise<PageState[]> {
+  return invoke<PageState[]>(CMD.PAGE_SORT_ASC, { pages });
+}
+
+export async function pageSortDesc(pages: PageState[]): Promise<PageState[]> {
+  return invoke<PageState[]>(CMD.PAGE_SORT_DESC, { pages });
+}
+
+export async function pageReverse(pages: PageState[]): Promise<PageState[]> {
+  return invoke<PageState[]>(CMD.PAGE_REVERSE, { pages });
+}
+
+export async function pageRenumber(pages: PageState[]): Promise<PageState[]> {
+  return invoke<PageState[]>(CMD.PAGE_RENUMBER, { pages });
+}
+
+export async function pageUndo(pages: PageState[]): Promise<PageState[]> {
+  return invoke<PageState[]>(CMD.PAGE_UNDO, { pages });
+}
+
+// HTML5 drag-drop reorders between two visible slots; from/to are zero-based
+// visible-page indices into the currently loaded list.
+export async function pageDragDrop(
+  pages: PageState[],
+  from: number,
+  to: number,
+): Promise<PageState[]> {
+  return invoke<PageState[]>(CMD.PAGE_DRAG_DROP, { pages, from, to });
 }
 
 export function onProgress(callback: (event: ProgressEvent) => void): () => void {

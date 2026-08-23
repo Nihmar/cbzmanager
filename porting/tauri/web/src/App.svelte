@@ -4,6 +4,7 @@
   import { listDirectory, firstImage, pageLoad, pageSave } from './lib/api';
   import { files, selectedFile, currentDirectory } from './stores/files';
   import { pages as pagesStore, hasChanges } from './stores/pages';
+  import { thumbnailSize } from './stores/thumbnail';
 
   import FileBrowser from './components/FileBrowser.svelte';
   import PagePreview from './components/PagePreview.svelte';
@@ -142,6 +143,20 @@
     <button class="btn" on:click={() => (showCbr = true)}>CBR → CBZ</button>
     <button class="btn" on:click={() => (showMerge = true)}>Merge</button>
     <button class="btn" on:click={() => (showComicinfo = true)}>ComicInfo</button>
+
+    <span class="zoom-group">
+      <label for="zoom">Zoom</label>
+      <input
+        id="zoom"
+        type="range"
+        min="48"
+        max="320"
+        step="16"
+        value={$thumbnailSize}
+        on:input={(e) => thumbnailSize.set(Number(e.currentTarget.value))}
+      />
+      <span class="zoom-val">{Math.round($thumbnailSize)}px</span>
+    </span>
   </header>
 
   <main class="content">
@@ -210,6 +225,23 @@
   .dir-input { width: 360px; padding: 5px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; }
 
   .spacer { flex: 1; }
+
+  .zoom-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #555;
+  }
+
+  .zoom-group input[type="range"] { width: 130px; }
+
+  .zoom-val {
+    min-width: 34px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: #888;
+  }
 
   .content { display: flex; flex: 1; overflow: hidden; }
 

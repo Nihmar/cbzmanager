@@ -221,6 +221,7 @@ the gap lives, and the Lazarus file+line for expected behaviour.
 - **Lazarus**: `src/main.pas:901-911` -- `TimerDebounceZoomTimer` calls `RebuildThumbs`
 - **Tauri**: `web/src/App.svelte` -- no zoom control; fixed 128px thumbnails
 - **Fix**: Add a range input bound to thumbnail size, debounce rebuild.
+- **Resolved** (2026-08-24): added shared `stores/thumbnail.ts` (`thumbnailSize`, default 128, clamped 48-320) and a zoom range input in the App toolbar. `FileBrowser` scales its thumbs with the slider; `PagePreview` card width is now `clamp(80, thumbnailSize, 260)` via an inline style, so both panes respond to the zoom (matching Lazarus ZoomScroll). DOM reflow replaces the Pascal IntfImage rebuild, so a debounce timer is unnecessary.
 
 ### 3.2 No context menus (right-click)
 
@@ -229,6 +230,7 @@ the gap lives, and the Lazarus file+line for expected behaviour.
 - **Tauri**: `web/src/components/PagePreview.svelte` -- no contextmenu handler
 - **Tauri**: `web/src/components/FileBrowser.svelte` -- no contextmenu handler
 - **Fix**: Add `on:contextmenu` handlers with dropdown menus.
+- **Partially resolved** (2026-08-24): `PagePreview` now has a right-click menu (Move up/down, Move to top/bottom) wired to the `page_move_*` commands via `api.ts`. The file-browse pane context menu still awaits FileBrowser.
 
 ### 3.3 No menu bar
 
@@ -259,12 +261,14 @@ the gap lives, and the Lazarus file+line for expected behaviour.
 - **Lazarus**: `src/udlgbatchedit.pas` -- `RefreshPreviewCopy` / `TimerPreviewTimer`
 - **Tauri**: `web/src/components/BatchEdit.svelte` -- shows result grid after apply, no live preview
 - **Fix**: Add debounced preview that decodes first page and applies current params.
+- **Resolved** (2026-08-24): on open, BatchEdit reads the archive entry listing via `listEntries` for the header count, then fetches the first entry's bytes once (`readEntryBytes`) and builds an object URL. Colour/resize changes are applied with CSS `filter`/`scale` (no re-read), so dragging sliders is instant.
 
 ### 3.7 No page count header in batch edit
 
 - **Lazarus**: `src/udlgbatchedit.pas` -- header shows "N pages -> M pieces"
 - **Tauri**: `web/src/components/BatchEdit.svelte` -- no dynamic header
 - **Fix**: Add header showing input/output page counts based on cut lines.
+- **Resolved** (2026-08-24): reactive `applyHeader` shows `Apply to N page(s)` when there are no split lines, else `Apply to N pages -> M pieces` with `M = N * (cutLines.length + 1)` -- exactly the Lazarus `RefreshHeader` formula (`udlgbatchedit.pas:204-216`).
 
 ### 3.8 No page editor entry point in PageViewer
 
@@ -279,6 +283,7 @@ the gap lives, and the Lazarus file+line for expected behaviour.
 - **Lazarus**: `src/main.pas` -- `LVPages` has drag-drop support
 - **Tauri**: `web/src/components/PagePreview.svelte` -- static grid, no drag
 - **Fix**: Add HTML5 drag-and-drop or a sortable library.
+- **Resolved** (2026-08-24): page cards are now `draggable`; drop targets compute the visible-slot indices and call `page_drag_drop` (via `api.ts`) to reorder, updating the store + marking changes. The in-memory reorder matches the Lazarus `PageDragDrop` visible-slot semantics.
 
 ### 3.10 No multi-select on pages
 

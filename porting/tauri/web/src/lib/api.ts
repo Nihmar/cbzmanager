@@ -8,6 +8,7 @@ import type {
   FileValidationResult,
   ProgressEvent,
   SaveChangesResult,
+   ComicInfo,
    ComicInfoResult,
    CbrConversionResult,
    MergeResult,
@@ -28,6 +29,8 @@ const CMD = {
   CBR_TO_CBZ: 'cmd_cbr_to_cbz',
   SCAN_COMICINFO: 'cmd_scan_comicinfo',
   REMOVE_COMICINFO: 'cmd_remove_comicinfo',
+   GET_COMICINFO: 'cmd_get_comicinfo',
+   EDIT_COMICINFO: 'cmd_edit_comicinfo',
    PAGE_LOAD: 'page_load',
    PAGE_SAVE: 'page_save',
    BATCH_EDIT: 'apply_batch_edit',
@@ -127,6 +130,22 @@ export async function removeComicinfo(
     dir_path: dirPath,
     backup,
     threads,
+  });
+}
+
+// Read an archive's ComicInfo.xml as structured metadata (null when absent).
+export async function getComicinfo(filePath: string): Promise<ComicInfo | null> {
+  return invoke<ComicInfo | null>(CMD.GET_COMICINFO, { file_path: filePath });
+}
+
+// Update the ComicInfo.xml inside a single CBZ archive.
+export async function editComicinfo(
+  filePath: string,
+  comicInfo: ComicInfo,
+): Promise<ComicInfoResult> {
+  return invoke<ComicInfoResult>(CMD.EDIT_COMICINFO, {
+    file_path: filePath,
+    comicinfo: comicInfo,
   });
 }
 

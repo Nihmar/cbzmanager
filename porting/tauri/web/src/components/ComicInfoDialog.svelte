@@ -1,5 +1,6 @@
 <script lang="ts">
   import BaseDialog from './BaseDialog.svelte';
+  import ComicInfoEditor from './ComicInfoEditor.svelte';
   import { scanComicinfo, removeComicinfo, readEntry } from '../lib/api';
   import type { ComicInfoResult } from '../lib/types';
 
@@ -13,6 +14,7 @@
   let backup = true;
 
   let viewingName = '';
+  let editingName = '';
   let viewingXml = '';
   let viewingError = '';
 
@@ -65,6 +67,11 @@
   function close() {
     open = false;
   }
+
+  async function applied() {
+    await view(editingName);
+    editingName = '';
+  }
 </script>
 
 <BaseDialog
@@ -116,13 +123,20 @@
 
   {#if viewingName}
     <div class="view">
-      <div class="view-head">ComicInfo.xml in {viewingName}</div>
+      <div class="view-head">
+        ComicInfo.xml in {viewingName}
+        <button class="link" on:click={() => { editingName = viewingName; }}>Edit metadata…</button>
+      </div>
       {#if viewingError}
         <p class="err">{viewingError}</p>
       {:else}
         <pre class="xml">{viewingXml}</pre>
       {/if}
     </div>
+  {/if}
+
+  {#if editingName}
+    <ComicInfoEditor open={!!editingName} filePath={`${dirPath}/${editingName}`} onApplied={applied} />
   {/if}
 </BaseDialog>
 

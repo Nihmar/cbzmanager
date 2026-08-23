@@ -54,6 +54,51 @@ export interface ComicInfoResult {
   message?: string;
 }
 
+// Mirrors rust_core::comicinfo_xml::ComicInfo (serde snake_case). Unset numeric fields
+// arrive as -1 / -1.0 (sentinel == Rust UNSET_INT / UNSET_RATING); the form treats those
+// as blank and sends them back as sentinels so GenerateComicInfoXML omits them.
+export interface ComicInfo {
+  title: string;
+  series: string;
+  number: string;
+  count: number;
+  volume: number;
+  alternate_series: string;
+  alternate_number: number;
+  alternate_count: number;
+  summary: string;
+  notes: string;
+  year: number;
+  month: number;
+  day: number;
+  writer: string;
+  penciller: string;
+  inker: string;
+  colorist: string;
+  letterer: string;
+  cover_artist: string;
+  editor: string;
+  publisher: string;
+  imprint: string;
+  genre: string;
+  tags: string;
+  web: string;
+  page_count: number;
+  language_iso: string;
+  format: string;
+  black_and_white: string;
+  manga: string;
+  characters: string;
+  teams: string;
+  locations: string;
+  scan_information: string;
+  story_arc: string;
+  story_arc_number: string;
+  series_group: string;
+  age_rating: string;
+  community_rating: number;
+}
+
 export interface CbrConversionResult {
   input: string;
   output: string | null;

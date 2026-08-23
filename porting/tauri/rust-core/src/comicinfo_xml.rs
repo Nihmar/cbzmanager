@@ -11,7 +11,7 @@ const UNSET_INT: i32 = -1;
 const UNSET_RATING: f64 = -1.0;
 
 /// ComicInfo metadata fields — mirrors Pascal `TComicInfo` record.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct ComicInfo {
     pub title: String,
     pub series: String,

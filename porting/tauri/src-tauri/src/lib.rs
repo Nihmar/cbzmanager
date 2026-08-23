@@ -30,6 +30,8 @@ pub fn run() {
             commands::cbr_to_cbz::cmd_cbr_to_cbz,
             commands::comicinfo::cmd_scan_comicinfo,
             commands::comicinfo::cmd_remove_comicinfo,
+            commands::comicinfo::cmd_get_comicinfo,
+            commands::comicinfo::cmd_edit_comicinfo,
             // Page editing
             commands::page_edit::page_load,
             commands::page_edit::page_save,

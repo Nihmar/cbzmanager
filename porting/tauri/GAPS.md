@@ -246,8 +246,11 @@ the gap lives, and the Lazarus file+line for expected behaviour.
 - **Lazarus**: `src/udlgcomicinfoeditor.pas:21,43,65,81` -- 4 tabs (General/Story/Credits/Publishing)
 - **Lazarus**: `src/udlgcomicinfoeditor.pas:133-201` -- `DataToUI` populates ~30 fields
 - **Lazarus**: `src/udlgcomicinfoeditor.pas:203-268` -- `UIToData` reads back
-- **Tauri**: `web/src/components/ComicInfoDialog.svelte:117-126` -- raw XML view only
-- **Fix**: Create `ComicInfoEditor.svelte` with form fields matching the 4-tab layout.
+- **Lazarus**: `src/ucomicinfo.pas` + `rust_core::comicinfo_xml.rs` (already ported: parse/generate ~40 fields, sentinel defaults)
+- **Fix (backend)**: Added `cmd_get_comicinfo(file_path)` -> parsed metadata (or null) and `cmd_edit_comicinfo(file_path, ci)` -> updates the archive's ComicInfo.xml in RAM (drops existing entry, re-adds generated one first). Registered in lib.rs.
+- **Fix (frontend)**: `web/src/components/ComicInfoEditor.svelte` -- self-contained 4-tab panel (General/Story/Credits/Publishing) with all fields; wired into `ComicInfoDialog` behind an "Edit metadata…" button. Sentinels (-1/-1.0) round-trip as blank, so empty fields are omitted again.
+
+**-Resolved** (2026-08-25): ComicInfo view/edit is now in place. `cmd_get_comicinfo` + `cmd_edit_comicinfo` read/write a single archive's ComicInfo.xml in RAM; `ComicInfoEditor.svelte` implements the full 4-tab form and opens from the ComicInfoDialog "Edit metadata…" button for the currently-viewed file (GAPS 3.4).
 
 ### 3.5 No sequence builder
 

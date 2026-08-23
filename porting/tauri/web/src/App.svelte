@@ -21,6 +21,58 @@
   let dirText = '';
   let listing = false;
   let loadingPages = false;
+
+  // Subdirectory navigation (GAPS 3.11): ordered breadcrumb trail of full paths,
+  // plus an in-memory cache so jumping back restores the cached listing instantly.
+  let history: string[] = [];
+  const dirCache = new Map<string, DirEntry[]>();
+
+  function basename(path: string): string {
+    if (!path) return '';
+    const clean = path.endsWith('/') ? path.slice(0, -1) : path;
+    const parts = clean.split('/').filter((p) => p.length > 0);
+    return parts.length ? parts[parts.length - 1] : clean;
+  }
+
+  function listInto(path: string) {
+    const cached = dirCache.get(path);
+    if (cached) { files.set(cached); return; }
+    files.set([]);
+    listing = true;
+    listDirectory(path)
+      .then((entries) => {
+        dirCache.set(path, entries);
+        files.set(entries);
+      })
+      .catch(() => {})
+      .finally(() => (listing = false));
+  }
+
+  function openDirectory() {
+    const dir = $currentDirectory.trim() || dirText.trim();
+    if (!dir) return;
+    currentDirectory.set(dir);
+    history = [dir];
+    dirCache.clear();
+    listInto(dir);
+  }
+
+  function enterSubdir(entry: DirEntry) {
+    const child = `${$currentDirectory}/${entry.name}`;
+    history = [...history, child];
+    currentDirectory.set(child);
+    dirCache.delete(child);
+    listInto(child);
+  }
+
+  function jumpToLevel(i: number) {
+    history = history.slice(0, i + 1);
+    const target = history[i];
+    if (!target) return;
+    currentDirectory.set(target);
+    dirCache.delete(target);
+    listInto(target);
+  }
   let viewerOpen = false;
   let viewerIndex = 0;
 
@@ -33,14 +85,6 @@
 
   // Track the page the user is hovering/clicking so Space can open it.
   let highlighted = 0;
-
-  function openDirectory() {
-    const dir = $currentDirectory.trim();
-    if (!dir) return;
-    listing = true;
-    files.set([]);
-    listDirectory(dir).then((entries) => files.set(entries)).catch(() => {}).finally(() => (listing = false));
-  }
 
   async function selectFile(entry: DirEntry) {
     selectedFile.set(entry.name);
@@ -161,11 +205,23 @@
 
   <main class="content">
     <div class="file-browser-pane">
+      {#if history.length}
+        <nav class="breadcrumb" aria-label="Navigation path">
+          {#each history as level, i (level)}
+            <button
+              type="button"
+              class="crumb{i === history.length - 1 ? ' current' : ''}"
+              on:click={() => jumpToLevel(i)}
+            >{basename(level)}</button>{#if i !== history.length - 1}<span class="sep">/</span>{/if}
+          {/each}
+        </nav>
+      {/if}
       <FileBrowser
         entries={$files}
         selectedFile={$selectedFile}
         loading={listing}
         onSelect={selectFile}
+        onOpenSubdir={enterSubdir}
       />
     </div>
 
@@ -252,6 +308,49 @@
     overflow: hidden;
     background: #fafafa;
   }
+
+  .file-browser-pane {
+    width: 280px;
+    min-width: 200px;
+    border-right: 1px solid #ddd;
+    overflow: hidden;
+    background: #fafafa;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .breadcrumb {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 2px;
+    padding: 6px 8px;
+    font-size: 12px;
+    border-bottom: 1px solid #eee;
+    background: #f0f0f0;
+    min-height: 26px;
+  }
+
+  .crumb {
+    border: none;
+    background: transparent;
+    color: #2b6cb0;
+    cursor: pointer;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 12px;
+  }
+
+  .crumb:hover { background: #e2e8f0; }
+
+  .crumb.current {
+    color: #444;
+    cursor: default;
+    font-weight: 600;
+    background: transparent;
+  }
+
+  .sep { color: #bbb; user-select: none; }
 
   .preview-pane {
     flex: 1;

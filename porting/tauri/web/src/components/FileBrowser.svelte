@@ -12,8 +12,10 @@
   $: thumbW = Math.round(32 * s);
   $: thumbH = Math.round(40 * s);
 
-  // Parent provides this callback; event name mirrors Svelte convention.
+  // Parent provides these callbacks; event names mirror Svelte convention.
+  // Single-click selects a file, double-click enters a subdirectory (GAPS 3.11).
   export let onSelect: (entry: DirEntry) => void = () => {};
+  export let onOpenSubdir: (entry: DirEntry) => void = () => {};
 </script>
 
 {#if loading}
@@ -25,13 +27,17 @@
     {#each entries as entry (entry.name)}
       <li
         class:selected={selectedFile === entry.name}
-        on:click={() => onSelect(entry)}
+        class:dir={entry.is_dir}
+        on:click={() => !entry.is_dir && onSelect(entry)}
+        on:dblclick={() => entry.is_dir && onOpenSubdir(entry)}
         role="button"
         tabindex="0"
-        on:keydown={(e) => e.key === 'Enter' && onSelect(entry)}
-        title={entry.name}
+        on:keydown={(e) => e.key === 'Enter' && !entry.is_dir && onSelect(entry)}
+        title={entry.is_dir ? `${entry.name} (folder)` : entry.name}
       >
-        {#if entry.thumbnail}
+        {#if entry.is_dir}
+          <span class="dir-icon">📁</span>
+        {:else if entry.thumbnail}
           <img src={entry.thumbnail} style="width:{thumbW}px;height:{thumbH}px;" class="thumb" loading="lazy" alt="" />}
         {/if}
         <span class="name">{entry.name}</span>
@@ -75,6 +81,16 @@
     object-fit: cover;
     border-radius: 2px;
     flex-shrink: 0;
+  }
+
+  li.dir { cursor: pointer; }
+
+  .dir-icon {
+    width: 32px;
+    flex-shrink: 0;
+    text-align: center;
+    line-height: 40px;
+    font-size: 15px;
   }
 
   .name {

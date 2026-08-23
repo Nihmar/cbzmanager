@@ -297,6 +297,7 @@ the gap lives, and the Lazarus file+line for expected behaviour.
 - **Tauri**: `web/src/components/FileBrowser.svelte` -- flat file list only
 - **Tauri**: `web/src/App.svelte:129-136` -- directory path typed manually
 - **Fix**: Handle `is_dir` entries in FileBrowser, navigate on double-click.
+- **Resolved** (2026-08-24): FileBrowser rows are now clickable for files and double-clickable to enter folders (📁 indicator; single-click is ignored on dirs so it never tries a `pageLoad` on a path). App keeps an ordered `history` breadcrumb trail plus an in-memory `dirCache`; `enterSubdir` pushes a level and lists the child, while clicking a breadcrumb chip `jumpToLevel`s back to that cached listing. Mirrors the Lazarus double-click-enters-subdirectory + breadcrumb flow.
 
 ### 3.12 No native file/folder picker
 

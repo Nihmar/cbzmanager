@@ -143,8 +143,9 @@
   function onKeydown(event: KeyboardEvent) {
     // Keyboard parity with the Lazarus main form (main.pas FormKeyDown):
     // F4 preview toggle (no preview pane here — deferred), F5 reload,
-    // F8 validate, Ctrl+S save staged changes, Del mark page gone,
-    // Ctrl+A select all (no multi-select model yet — deferred).
+    // F8 validate, Ctrl+S save staged changes, Del mark page gone.
+    // Ctrl+A select-all + Delete-selected are handled locally in PagePreview
+    // (multi-select model) and stopPropagation so they don't hijack text fields.
     if (event.key === 'F5') {
       event.preventDefault();
       revertChanges();

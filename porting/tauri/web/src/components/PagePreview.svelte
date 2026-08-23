@@ -76,6 +76,66 @@
   function onDragStart(index: number) {
     draggingIndex = index;
   }
+
+  // Multi-select (GAPS 3.10, Lazarus main.pas:580-587 Ctrl+A / shift-click):
+  // selectedSet holds the *global* page indices chosen; Delete marks every one of
+  // them gone and persists via the whole-list save.
+  let selectedSet = new Set<number>();
+  let focusSlot = -1;
+
+  function clearSelection() {
+    selectedSet = new Set();
+    focusSlot = -1;
+  }
+
+  function selectOne(globalIndex: number, slot: number, multi: boolean, extend: boolean) {
+    if (extend && focusSlot >= 0 && focusSlot !== slot) {
+      const a = Math.min(focusSlot, slot);
+      const b = Math.max(focusSlot, slot);
+      for (let k = a; k <= b; k++) selectedSet.add(slots[k].globalIndex);
+    } else if (multi) {
+      if (selectedSet.has(globalIndex)) selectedSet.delete(globalIndex); else selectedSet.add(globalIndex);
+    } else {
+      selectedSet = new Set([globalIndex]);
+    }
+    focusSlot = slot;
+  }
+
+  function selectAll() {
+    selectedSet = new Set(slots.map((s) => s.globalIndex));
+    focusSlot = slots.length ? 0 : -1;
+  }
+
+  // Delete every selected page in one store update.
+  function deleteSelected() {
+    const next = pages.map((page, globalIndex) =>
+      selectedSet.has(globalIndex) ? { ...page, gone: true } : page,
+    );
+    selectedSet = new Set();
+    focusSlot = -1;
+    pagesStore.set(next);
+    hasChanges.set(true);
+  }
+
+  // Multi-select keys live on the focusable card (role=button + tabindex) so we
+  // avoid a container-level ARIA role. Ctrl+A select-all; Delete removes the
+  // whole selection in one store update via the existing whole-list save.
+  function onCardKeydown(e: KeyboardEvent, globalIndex: number) {
+    const multi = e.ctrlKey || e.metaKey;
+    if (e.key === 'Enter') {
+      onOpenViewer(globalIndex);
+    } else if (multi && (e.key === 'a' || e.key === 'A')) {
+      e.preventDefault();
+      e.stopPropagation();
+      selectAll();
+    } else if (!multi && e.key === 'Delete') {
+      if (selectedSet.size > 0) {
+        e.preventDefault();
+        e.stopPropagation();
+        deleteSelected();
+      }
+    }
+  }
 </script>
 
 <svelte:window on:click={closeMenu} />
@@ -92,6 +152,7 @@
       {#if !page.gone}
         <div
           class="page-card"
+          class:selected={selectedSet.has(globalIndex)}
           style="width:{cardW}px;"
           draggable="true"
           on:dragstart={() => onDragStart(slot)}
@@ -99,7 +160,9 @@
           on:drop={(e) => onDropPage(e, slot)}
           on:dragleave={() => (draggingIndex = -1)}
           on:pointerdown={() => onHighlight(globalIndex)}
+          on:click={(e) => selectOne(globalIndex, slot, e.ctrlKey || e.metaKey, e.shiftKey)}
           on:dblclick={() => onOpenViewer(globalIndex)}
+          on:keydown={(e) => onCardKeydown(e, globalIndex)}
           on:contextmenu={(e) => onContextMenu(e, globalIndex, slot)}
           role="button"
           tabindex="0"
@@ -114,6 +177,10 @@
       {/if}
     {/each}
   </div>
+
+  {#if selectedSet.size}
+    <div class="sel-status">{selectedSet.size} selected — press Del to delete</div>
+  {/if}
 
   {#if menuIndex >= 0}
     <div class="menu" role="menu" style="left:{menuX}px;top:{menuY}px;">
@@ -156,6 +223,11 @@
 
   .page-card:hover { border-color: #2b6cb0; box-shadow: 0 1px 6px rgba(43, 108, 176, 0.2); }
 
+  .page-card.selected {
+    outline: 2px solid #2b6cb0;
+    outline-offset: -2px;
+    background: #f4f8ff;
+  }
   .page-card img {
     width: 100%;
     height: auto;
@@ -170,6 +242,13 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .sel-status {
+    padding: 6px 12px;
+    font-size: 12px;
+    color: #2b6cb0;
+    font-weight: 600;
   }
 
   .menu {

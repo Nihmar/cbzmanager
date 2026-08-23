@@ -290,6 +290,7 @@ the gap lives, and the Lazarus file+line for expected behaviour.
 - **Lazarus**: `src/main.pas:580-587` -- `Ctrl+A` selects all pages
 - **Tauri**: `web/src/App.svelte:102` -- comment: "no multi-select model yet -- deferred"
 - **Fix**: Add selection model to PagePreview (shift-click range, ctrl-click toggle).
+- **Resolved** (2026-08-24): `PagePreview` now carries a `selectedSet` (global page indices). Ctrl/Cmd-click toggles a page, Shift-click ranges from the last focus slot, and Ctrl+A select-all (grid-local keydown, gated so it never hijacks text fields elsewhere); a {N} selected status line shows while anything is chosen. Delete marks every selected page gone in one store update and persists via the existing whole-list save, then clears the selection -- matching Lazarus Ctrl+A semantics without any new backend command.
 
 ### 3.11 No subdirectory navigation
 

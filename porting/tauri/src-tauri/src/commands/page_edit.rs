@@ -1,6 +1,8 @@
 use std::path::Path;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 
+use crate::commands::batch_edit::BatchEditParams;
+
 use rust_core::page_model::{PageModel, PageState as InternalPageState};
 use rust_core::types::PageState as ApiPageState;
 
@@ -174,6 +176,68 @@ pub async fn page_drag_drop(
 ) -> Vec<ApiPageState> {
     with_model(pages, |m| {
         m.drag_drop(from, to);
+    })
+}
+
+/// GAPS 2.8: single-page editor command. Applies an in-place resize / colour /
+/// split edit to one page (by its global index into the working list) and returns
+/// the updated list. Reuses the proven batch pipeline so output is byte-identical
+/// and obeys Data-stream precedence: an already-edited page is edited on top of its
+/// current bytes rather than the archive copy. Piece 0 replaces the source page and
+/// extra split pieces insert after it; visible pages are renumbered to page_NNNN.ext.
+#[tauri::command]
+pub async fn page_edit_single(
+    pages: Vec<ApiPageState>,
+    index: usize,
+    params: BatchEditParams,
+) -> Vec<ApiPageState> {
+    let resize_percent = if params.resize_percent > 0.0 {
+        std::cmp::max(1, std::cmp::min(200, params.resize_percent as i32))
+    } else {
+        100
+    };
+    let do_resize = resize_percent != 100;
+    let color_adjust = params.color_adjust.clone();
+    let cut_lines = params.cut_lines.clone();
+    let horizontal_lines = params.horizontal_lines;
+
+    with_model(pages, |m| {
+        if index >= m.pages().len() {
+            return;
+        }
+
+        // Operate on the page's current Data (edited bytes win over the archive).
+        let src = &m.pages()[index];
+        let ext = src.name.rsplit('.').next().unwrap_or("png").to_string();
+        let input = rust_core::batch_edit::MultiEditPageInput {
+            idx: index,
+            orig_name: String::new(),
+            data: src.data.clone(),
+            ext,
+        };
+
+        let multi = rust_core::batch_edit::MultiEditParams {
+            resize: do_resize,
+            percent: resize_percent,
+            color_adj: rust_core::image_edit::ColorAdjust {
+                grayscale: color_adjust.grayscale,
+                sepia: color_adjust.sepia,
+                invert: color_adjust.invert,
+                r_gain: color_adjust.red_gain,
+                g_gain: color_adjust.green_gain,
+                b_gain: color_adjust.blue_gain,
+                saturation: color_adjust.saturation,
+                contrast: color_adjust.contrast,
+                brightness: color_adjust.brightness,
+                gamma: color_adjust.gamma,
+            },
+            split: !cut_lines.is_empty(),
+            horizontal_lines,
+            cut_lines,
+        };
+
+        let results = rust_core::batch_edit::apply_batch_to_inputs(&[input], &multi);
+        rust_core::batch_edit::stage_results(m, &results);
     })
 }
 

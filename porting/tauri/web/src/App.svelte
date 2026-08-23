@@ -17,6 +17,7 @@
   import MergeDialog from './components/MergeDialog.svelte';
   import ComicInfoDialog from './components/ComicInfoDialog.svelte';
   import PageViewer from './components/PageViewer.svelte';
+  import PageEditor from './components/PageEditor.svelte';
 
   let dirText = '';
   let listing = false;
@@ -76,6 +77,11 @@
   let viewerOpen = false;
   let viewerIndex = 0;
 
+  // Single-page editor (GAPS 3.8 / 2.8): modal opened from the PageViewer
+  // toolbar's Edit button, positioned by the edited page's index.
+  let editOpen = false;
+  let editIndex = 0;
+
   let showValidate = false;
   let showConvert = false;
   let showCbr = false;
@@ -116,6 +122,12 @@
   function openViewerAt(index: number) {
     viewerIndex = index;
     viewerOpen = true;
+  }
+
+  // GAPS 3.8: open the single-page editor for a chosen page.
+  function onRequestEdit(index: number) {
+    editIndex = index;
+    editOpen = true;
   }
 
   function onBatchApply(pages: PageState[]) {
@@ -255,7 +267,17 @@
     filePath={currentFilePath()}
     pageNames={$pagesStore.filter((p) => !p.gone).map((p) => p.name)}
     startIndex={viewerIndex}
+    onRequestEdit={onRequestEdit}
   />
+
+      <PageEditor
+        open={editOpen}
+        filePath={currentFilePath()}
+        pages={$pagesStore}
+        index={editIndex}
+        onClose={() => (editOpen = false)}
+        onApply={onBatchApply}
+      />
 </div>
 
 <JobMonitor />

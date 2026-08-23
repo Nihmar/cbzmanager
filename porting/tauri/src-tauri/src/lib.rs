@@ -45,6 +45,7 @@ pub fn run() {
             commands::page_edit::page_insert_front,
             commands::page_edit::page_insert_at,
             commands::page_edit::page_drag_drop,
+            commands::page_edit::page_edit_single,
             // Batch editing
             commands::batch_edit::apply_batch_edit,
         ])

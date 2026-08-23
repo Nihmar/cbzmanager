@@ -41,6 +41,7 @@ const CMD = {
    PAGE_RENUMBER: 'page_renumber',
    PAGE_UNDO: 'page_undo',
    PAGE_DRAG_DROP: 'page_drag_drop',
+   PAGE_EDIT_SINGLE: 'page_edit_single',
  };
 
 export async function listDirectory(dirPath: string): Promise<DirEntry[]> {
@@ -184,6 +185,18 @@ export async function pageRenumber(pages: PageState[]): Promise<PageState[]> {
 
 export async function pageUndo(pages: PageState[]): Promise<PageState[]> {
   return invoke<PageState[]>(CMD.PAGE_UNDO, { pages });
+}
+
+// GAPS 2.8: apply an in-place resize / colour / split edit to a single page by
+// its global index in the working list. The edited piece (or first split piece)
+// replaces that page and any extra pieces insert after it; other pages pass
+// through untouched. Returns the updated PageState[] for the store.
+export async function pageEditSingle(
+  pages: PageState[],
+  index: number,
+  params: BatchEditParams,
+): Promise<PageState[]> {
+  return invoke<PageState[]>(CMD.PAGE_EDIT_SINGLE, { pages, index, params });
 }
 
 // HTML5 drag-drop reorders between two visible slots; from/to are zero-based

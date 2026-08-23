@@ -8,11 +8,19 @@
   export let pageNames: string[] = [];
   export let startIndex = 0;
 
+  // GAPS 3.8 / 2.8: floating PageViewer has an Edit button that opens the
+  // single-page editor modal (hosted by App).
+  export let onRequestEdit: (index: number) => void = () => {};
+
   let stage: HTMLDivElement;
   let imgEl: HTMLImageElement | null = null;
   let src: string | null = null;
   let loading = false;
   let error = '';
+
+  // The single-page editor rewrites the archive, so it is unavailable for CBR
+  // (RAR cannot be rewritten in place) and when no file is loaded.
+  $: canEdit = !!(filePath && !/\.cbr$/i.test(filePath));
   let idx = startIndex;
   let scale = 1;
   let panX = 0;
@@ -127,6 +135,10 @@
     dragging = false;
   }
 
+  function openEditor() {
+    onRequestEdit(idx);
+  }
+
   function windowKeydown(event: KeyboardEvent) {
     if (!open) return;
     if (event.key === 'Escape') close();
@@ -140,6 +152,10 @@
 {#if open}
   <div class="backdrop" on:click={close}>
     <div class="viewer" on:click|stopPropagation>
+
+      {#if canEdit && src}
+        <button class="edit-btn" on:click={openEditor} title="Edit this page">Edit</button>
+      {/if}
 
       {#if pageNames.length > 1}
         <button class="nav prev" on:click={prev} aria-label="Previous page">‹</button>
@@ -183,6 +199,22 @@
   }
 
   .viewer:active { cursor: grabbing; }
+
+  .edit-btn {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 5;
+    background: rgba(0, 0, 0, 0.5);
+    color: #fff;
+    border: none;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .edit-btn:hover { background: rgba(43, 108, 176, 0.85); }
 
   .stage {
     display: flex;

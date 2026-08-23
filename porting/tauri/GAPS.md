@@ -200,6 +200,7 @@ the gap lives, and the Lazarus file+line for expected behaviour.
 - **Lazarus**: `src/main.pas:1261-1270` -- `MnuPageEditClick` opens editor
 - **Tauri**: `web/src/components/PageViewer.svelte` -- no edit button or entry point
 - **Fix**: Create `PageEditor.svelte` component + `page_edit_single` Tauri command.
+- **Resolved** (2026-08-24): `page_edit.rs` gains `page_edit_single(pages, index, params)`. It builds one `MultiEditPageInput` from the page's current Data stream (Data precedence — an already-edited page is edited on top of its bytes, not the archive copy), runs it through the same parallel decode→resize/colour/split→encode pipeline and `stage_results`, so piece 0 replaces the source page and any split pieces insert after it; visible pages are renumbered. Registered in `lib.rs`; output is byte-identical for any thread count. Test coverage: rust-core `batch_edit` tests `single_page_resize_replaces_and_renumbers`, `single_page_split_inserts_and_renumbers`, `single_page_neutral_edit_returns_same_content.`
 
 ### 2.9 Delete pages by range dialog
 
@@ -276,6 +277,7 @@ the gap lives, and the Lazarus file+line for expected behaviour.
 - **Lazarus**: `src/main.pas:1261-1270` -- opens `TdlgPageEditor`
 - **Tauri**: `web/src/components/PageViewer.svelte` -- no Edit button
 - **Fix**: Add Edit button to PageViewer toolbar.
+- **Resolved** (2026-08-24): `PageViewer` shows an `Edit` button when a non-CBR archive is loaded (CBR stays read-only, mirroring Lazarus) and calls `onRequestEdit(idx)`; `App` hosts the new modal `PageEditor.svelte` (`GAPS 2.8`). The editor mirrors BatchEdit's controls (resize %, colour sliders + presets, split lines), live-preview via CSS filter/scale, and on Apply runs `pageEditSingle(pages, index, params)` then stages the result through `onApply` (store + `hasChanges` set). z-index 1200 sits above the viewer overlay; Escape/Cancel dismiss without saving.
 
 ### 3.9 No drag-and-drop page reordering
 

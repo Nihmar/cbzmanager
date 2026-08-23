@@ -208,3 +208,95 @@ fn parallel_run_is_neutral_noop() {
         assert_eq!(r.pieces[0].ext, "png");
     }
 }
+
+// ---------------------------------------------------------------------------
+// Single-page editor path (GAPS 2.8): one input applied to the source page and
+// staged via stage_results, mirroring what page_edit_single wires up in Rust.
+// ---------------------------------------------------------------------------
+
+fn build_one_page(name: &str, seed: u8) -> rust_core::page_model::PageState {
+    use rust_core::page_model::PageState;
+    PageState {
+        orig_name: format!("{}.png", name),
+        name: format!("{}.png", name),
+        data: Some(make_png(8, 8, seed)), // raw PNG bytes as the page's Data stream
+        deleted: false,
+    }
+}
+
+fn single_input(state: &rust_core::page_model::PageState) -> rust_core::batch_edit::MultiEditPageInput {
+    rust_core::batch_edit::MultiEditPageInput {
+        idx: 0,
+        orig_name: String::new(),
+        data: state.data.clone(),
+        ext: "png".to_string(),
+    }
+}
+
+#[test]
+fn single_page_resize_replaces_and_renumbers() {
+    use rust_core::page_model::{PageModel, PageState};
+
+    let mut model = PageModel::from_pages(vec![
+        build_one_page("sing", 7),
+        PageState { orig_name: "1.png".into(), name: "1.png".into(), data: None, deleted: false },
+    ]);
+
+    let input = single_input(&model.pages()[0]);
+    let mut params = rust_core::batch_edit::MultiEditParams::neutral();
+    params.resize = true;
+    params.percent = 50;
+    let results = rust_core::batch_edit::apply_batch_to_inputs(&[input], &params);
+    rust_core::batch_edit::stage_results(&mut model, &results);
+
+    let pages = model.pages();
+    assert_eq!(pages.len(), 2);
+    // Resized piece replaces page 0 and visible pages are renumbered from 1.
+    assert_eq!(pages[0].name, "page_0001.png");
+    let decoded = image::load_from_memory(pages[0].data.as_ref().unwrap()).unwrap();
+    assert_eq!((decoded.width(), decoded.height()), (4, 4));
+    assert_eq!(pages[1].name, "page_0002.png");
+}
+
+#[test]
+fn single_page_split_inserts_and_renumbers() {
+    use rust_core::page_model::{PageModel};
+
+    let mut model = PageModel::from_pages(vec![build_one_page("spli", 9)]);
+
+    let input = single_input(&model.pages()[0]);
+    let mut params = rust_core::batch_edit::MultiEditParams::neutral();
+    params.split = true;
+    params.cut_lines = vec![0.5];
+    params.horizontal_lines = true;
+    let results = rust_core::batch_edit::apply_batch_to_inputs(&[input], &params);
+    rust_core::batch_edit::stage_results(&mut model, &results);
+
+    // Split into 2 pieces: source piece + one inserted after it → 2 visible pages.
+    let pages = model.pages();
+    assert_eq!(pages.len(), 2);
+    assert_eq!(pages[0].name, "page_0001.png");
+    assert_eq!(pages[1].name, "page_0002.png");
+    let d0 = image::load_from_memory(pages[0].data.as_ref().unwrap()).unwrap();
+    assert_eq!((d0.width(), d0.height()), (8, 4));
+}
+
+#[test]
+fn single_page_neutral_edit_returns_same_content() {
+    use rust_core::page_model::{PageModel};
+
+    let before = build_one_page("keep", 3);
+    let mut model = PageModel::from_pages(vec![before.clone()]);
+
+    let input = single_input(&model.pages()[0]);
+    let results = rust_core::batch_edit::apply_batch_to_inputs(&[input], &rust_core::batch_edit::MultiEditParams::neutral());
+    rust_core::batch_edit::stage_results(&mut model, &results);
+
+    let pages = model.pages();
+    assert_eq!(pages.len(), 1);
+    assert_eq!(pages[0].name, "page_0001.png");
+    // Neutral edit still decodes to the original content (lossless for PNG).
+    let out = image::load_from_memory(pages[0].data.as_ref().unwrap()).unwrap();
+    let ref_img = image::load_from_memory(before.data.as_ref().unwrap()).unwrap();
+    assert_eq!(out.to_rgba8().as_raw(), ref_img.to_rgba8().as_raw());
+}

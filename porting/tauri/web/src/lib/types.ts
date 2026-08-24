@@ -99,6 +99,10 @@ export interface ComicInfo {
   community_rating: number;
 }
 
+// File-browse context menu actions (GAPS 3.2). Mirrors the Lazarus PMFiles popup
+// subset that maps to backend operations available without new filesystem APIs.
+export type FileMenuAction = 'open' | 'comicinfo' | 'validate' | 'convert' | 'merge';
+
 export interface CbrConversionResult {
   input: string;
   output: string | null;

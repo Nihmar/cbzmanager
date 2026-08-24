@@ -7,6 +7,10 @@
   export let open: boolean = false;
   export let dirPath: string = '';
 
+  // When set, opens the metadata editor directly for this file (GAPS 3.2 per-file
+  // entry point from the FileBrowser context menu) instead of the dir scan.
+  export let openEditFile: string | null = null;
+
   let results: ComicInfoResult[] = [];
   let loading = false;
   let error = '';
@@ -25,6 +29,13 @@
     viewingError = '';
     loading = true;
     error = '';
+    editingName = '';
+  }
+
+  // GAPS 3.2: open the editor straight for a specific archive when requested.
+  $: if (open && openEditFile) {
+    viewingName = openEditFile;
+    editingName = openEditFile;
   }
 
   async function scan() {

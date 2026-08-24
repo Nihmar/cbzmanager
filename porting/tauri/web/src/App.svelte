@@ -1,6 +1,6 @@
 <script lang="ts">
   import './app.css';
-  import type { DirEntry, PageState } from './lib/types';
+  import type { DirEntry, PageState, FileMenuAction } from './lib/types';
   import { listDirectory, firstImage, pageLoad, pageSave } from './lib/api';
   import { files, selectedFile, currentDirectory } from './stores/files';
   import { pages as pagesStore, hasChanges } from './stores/pages';
@@ -87,10 +87,37 @@
   let showCbr = false;
   let showMerge = false;
   let showComicinfo = false;
+  // GAPS 3.2: when set, ComicInfoDialog opens its editor for this specific file.
+  let comicinfoEditFile: string | null = null;
   let showBatch = false;
 
   // Track the page the user is hovering/clicking so Space can open it.
   let highlighted = 0;
+
+  // GAPS 3.2: clear the scoped-file editor request when the dialog is not shown.
+  $: if (!showComicinfo) comicinfoEditFile = null;
+
+  // GAPS 3.2: FileBrowser right-click actions.
+  function handleFileAction(action: FileMenuAction, entry: DirEntry) {
+    switch (action) {
+      case 'open':
+        selectFile(entry);
+        break;
+      case 'comicinfo':
+        comicinfoEditFile = entry.name;
+        showComicinfo = true;
+        break;
+      case 'validate':
+        showValidate = true;
+        break;
+      case 'convert':
+        showConvert = true;
+        break;
+      case 'merge':
+        showMerge = true;
+        break;
+    }
+  }
 
   async function selectFile(entry: DirEntry) {
     selectedFile.set(entry.name);
@@ -235,6 +262,7 @@
         loading={listing}
         onSelect={selectFile}
         onOpenSubdir={enterSubdir}
+        onAction={handleFileAction}
       />
     </div>
 
@@ -258,7 +286,7 @@
   <ConvertDialog open={showConvert} dirPath={$currentDirectory} />
   <CbrDialog open={showCbr} dirPath={$currentDirectory} />
   <MergeDialog open={showMerge} dirPath={$currentDirectory} />
-  <ComicInfoDialog open={showComicinfo} dirPath={$currentDirectory} />
+  <ComicInfoDialog open={showComicinfo} dirPath={$currentDirectory} openEditFile={comicinfoEditFile} />
 
   <BatchEdit open={showBatch} filePath={currentFilePath()} onApply={onBatchApply} onClose={() => (showBatch = false)} />
 

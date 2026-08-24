@@ -233,6 +233,10 @@ the gap lives, and the Lazarus file+line for expected behaviour.
 - **Fix**: Add `on:contextmenu` handlers with dropdown menus.
 - **Partially resolved** (2026-08-24): `PagePreview` now has a right-click menu (Move up/down, Move to top/bottom) wired to the `page_move_*` commands via `api.ts`. The file-browse pane context menu still awaits FileBrowser.
 
+**-Resolved** (2026-08-25): Added the FileBrowser right-click dropdown. `FileBrowser.svelte` now carries an `on:contextmenu` on each row + a cursor-positioned `.menu` (same shape as PagePreview's), gated by a shared `<svelte:window on:click=closeMenu>`. Actions (`open`, `comicinfo`, `validate`, `convert`, `merge`) route through a parent `onAction` callback; App wires them to existing operations. The `comicinfo` action opens the ComicInfo dialog straight into its editor for the chosen file (new `openEditFile` prop on `ComicInfoDialog`).
+
+**Out of scope** (would need new backend/API): Rename file, Delete file, and "Open in directory" are not wired — rename/delete need filesystem commands; open-in-dir needs a native picker plugin.
+
 ### 3.3 No menu bar
 
 - **Lazarus**: `src/main.pas:127` -- `MainMenu: TMainMenu`

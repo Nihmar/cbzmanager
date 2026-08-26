@@ -304,16 +304,19 @@ begin
   if Assigned(FSearchThread) then
   begin
     FSearchThread.OnTerminate := nil;
+    FSearchThread.Terminate;
     FSearchThread := nil;
   end;
   if Assigned(FPreviewThread) then
   begin
     FPreviewThread.OnTerminate := nil;
+    FPreviewThread.Terminate;
     FPreviewThread := nil;
   end;
   if Assigned(FFetchThread) then
   begin
     FFetchThread.OnTerminate := nil;
+    FFetchThread.Terminate;
     FFetchThread := nil;
   end;
 end;

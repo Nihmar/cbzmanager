@@ -678,6 +678,7 @@ begin
   MnuPageRenumber.Enabled := AEnabled;
   MnuPageAddInternet.Enabled := AEnabled;
   MnuPgAddInternet.Enabled := AEnabled;
+  BtnPgAddInternet.Enabled := AEnabled;
   MniMoreRenumber.Enabled := AEnabled;
 end;
 
@@ -1463,6 +1464,7 @@ begin
   LVPages.LargeImages := ILPages;
 
   FPageFile := IncludeTrailingPathDelimiter(FDir) + ItemFileName(AItem);
+  FAddFrontSeq := 0;
   SetPageOpsEnabled(False);
   FPagesThread := TPagesThread.Create(FPageFile);
   FPagesThread.OnTerminate := @PagesThreadTerminated;

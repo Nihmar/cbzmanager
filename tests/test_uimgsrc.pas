@@ -19,22 +19,22 @@ type
     procedure GuessExtUnknown;
     procedure UrlProviderSingleResult;
     procedure UrlProviderRejectsNonHttp;
-     procedure ParseOpenverseBasic;
-     procedure ParseOpenverseFallsBackThumbnail;
-     procedure ParseOpenverseSkipsBad;
-     procedure ParseOpenverseInvalidJson;
-     procedure ParseOpenverseMissingResults;
-     procedure ParseOpenverseEmptyResults;
-     procedure ParseWikimediaBasic;
-     procedure ParseWikimediaLicense;
-     procedure ParseWikimediaSkipsMissingImageinfo;
-     procedure ParseWikimediaInvalidJson;
-     procedure ParseWikimediaMissingPages;
-     procedure ParseWikimediaEmptyPages;
-     procedure GuessExtCombined;
-     procedure UrlProviderRejectsLoose;
-     procedure SearchRejectsEmpty;
-   end;
+    procedure ParseOpenverseBasic;
+    procedure ParseOpenverseFallsBackThumbnail;
+    procedure ParseOpenverseSkipsBad;
+    procedure ParseOpenverseInvalidJson;
+    procedure ParseOpenverseMissingResults;
+    procedure ParseOpenverseEmptyResults;
+    procedure ParseWikimediaBasic;
+    procedure ParseWikimediaLicense;
+    procedure ParseWikimediaSkipsMissingImageinfo;
+    procedure ParseWikimediaInvalidJson;
+    procedure ParseWikimediaMissingPages;
+    procedure ParseWikimediaEmptyPages;
+    procedure GuessExtCombined;
+    procedure UrlProviderRejectsLoose;
+    procedure SearchRejectsEmpty;
+  end;
 
 implementation
 

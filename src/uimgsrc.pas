@@ -72,7 +72,7 @@ const
     ('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tif', '.tiff');
 
 { Tiny object whose OnDataReceived callback enforces the download cap.
-  Stored on the stack; the TFPHTTPClient holds only a plain-method pointer. }
+  Heap-allocated; the TFPHTTPClient holds only a plain-method pointer. }
 type
   TDownloadGuard = class
     procedure Check(Sender: TObject; const ContentLength, CurrentPos: Int64);
@@ -150,6 +150,7 @@ var
 begin
   Result := False;
   Body := '';
+  ErrMsg := '';
   guard := TDownloadGuard.Create;
   http := TFPHTTPClient.Create(nil);
   try

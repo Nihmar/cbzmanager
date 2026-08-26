@@ -33,7 +33,7 @@ inherited dlgAddImage: TdlgAddImage
     Anchors = [akLeft, akTop, akRight]
     BorderSpacing.Around = 4
     TabOrder = 0
-    Text = 'EdQuery'
+    Text = ''
   end
   object CbProvider: TComboBox[2]
     Left = 8
@@ -144,7 +144,7 @@ inherited dlgAddImage: TdlgAddImage
       Height = 32
       Top = 8
       Width = 80
-      Align = alNone
+      Align = alRight
       Anchors = [akTop, akRight]
       BorderSpacing.Around = 4
       Caption = 'Add'

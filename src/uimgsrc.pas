@@ -19,7 +19,11 @@ interface
 uses
   Classes, SysUtils, StrUtils, fpjson, jsonparser, fphttpclient, opensslsockets;
 
+const
+  MAX_DOWNLOAD_SIZE = 20 * 1024 * 1024; { 20 MB }
+
 type
+  EMaxDownloadSize = class(Exception);
   { Search backends exposed in the UI. }
   TImageSearchProvider = (ispOpenverse, ispWikimedia, ispUrl);
 
@@ -66,6 +70,19 @@ const
   WIKIMEDIA_API = 'https://commons.wikimedia.org/w/api.php';
   IMAGE_EXTS: array[0..7] of string =
     ('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tif', '.tiff');
+
+{ Tiny object whose OnDataReceived callback enforces the download cap.
+  Stored on the stack; the TFPHTTPClient holds only a plain-method pointer. }
+type
+  TDownloadGuard = class
+    procedure Check(Sender: TObject; const ContentLength, CurrentPos: Int64);
+  end;
+
+procedure TDownloadGuard.Check(Sender: TObject; const ContentLength, CurrentPos: Int64);
+begin
+  if CurrentPos > MAX_DOWNLOAD_SIZE then
+    raise EMaxDownloadSize.Create('Download exceeds 20 MB limit');
+end;
 
 function ProviderToName(P: TImageSearchProvider): string;
 begin
@@ -129,9 +146,11 @@ function HttpGetString(const URL: string; out Body: string;
   out ErrMsg: string): boolean;
 var
   http: TFPHTTPClient;
+  guard: TDownloadGuard;
 begin
   Result := False;
   Body := '';
+  guard := TDownloadGuard.Create;
   http := TFPHTTPClient.Create(nil);
   try
     http.AllowRedirect := True;
@@ -139,6 +158,7 @@ begin
     http.IOTimeout := 30000;
     http.AddHeader('User-Agent', USER_AGENT);
     http.AddHeader('Accept', 'application/json');
+    http.OnDataReceived := @guard.Check;
     try
       Body := http.Get(URL);
       if http.ResponseStatusCode = 200 then
@@ -151,6 +171,7 @@ begin
     end;
   finally
     http.Free;
+    guard.Free;
   end;
 end;
 
@@ -158,16 +179,19 @@ function DownloadImage(const URL: string; out Stream: TMemoryStream;
   out ErrMsg: string): boolean;
 var
   http: TFPHTTPClient;
+  guard: TDownloadGuard;
 begin
   Result := False;
   Stream := nil;
   ErrMsg := '';
+  guard := TDownloadGuard.Create;
   http := TFPHTTPClient.Create(nil);
   try
     http.AllowRedirect := True;
     http.ConnectTimeout := 15000;
     http.IOTimeout := 60000;
     http.AddHeader('User-Agent', USER_AGENT);
+    http.OnDataReceived := @guard.Check;
     try
       Stream := TMemoryStream.Create;
       http.Get(URL, Stream);
@@ -192,6 +216,7 @@ begin
     end;
   finally
     http.Free;
+    guard.Free;
   end;
 end;
 

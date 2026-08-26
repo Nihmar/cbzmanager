@@ -330,7 +330,7 @@ object frmMain: TfrmMain
           Caption = 'Edit'
           ParentShowHint = False
           ShowHint = True
-          TabOrder = 2
+          TabOrder = 3
           OnClick = MnuPageEditClick
         end
         object BtnPgMoveUp: TButton
@@ -345,7 +345,7 @@ object frmMain: TfrmMain
           Caption = '▲'
           ParentShowHint = False
           ShowHint = True
-          TabOrder = 3
+          TabOrder = 4
           OnClick = MnuPageMoveUpClick
         end
         object BtnPgMoveDown: TButton
@@ -359,7 +359,7 @@ object frmMain: TfrmMain
           Caption = '▼'
           ParentShowHint = False
           ShowHint = True
-          TabOrder = 4
+          TabOrder = 5
           OnClick = MnuPageMoveDownClick
         end
         object BtnPgMoveStart: TButton
@@ -373,7 +373,7 @@ object frmMain: TfrmMain
           Caption = '⏮'
           ParentShowHint = False
           ShowHint = True
-          TabOrder = 5
+          TabOrder = 6
           OnClick = MnuPageMoveStartClick
         end
         object BtnPgMoveEnd: TButton
@@ -387,7 +387,7 @@ object frmMain: TfrmMain
           Caption = '⏭'
           ParentShowHint = False
           ShowHint = True
-          TabOrder = 6
+          TabOrder = 7
           OnClick = MnuPageMoveEndClick
         end
         object BtnPgSort: TButton
@@ -402,7 +402,7 @@ object frmMain: TfrmMain
           Caption = '▲▼'
           ParentShowHint = False
           ShowHint = True
-          TabOrder = 7
+          TabOrder = 8
           OnClick = MnuPageSortClick
         end
         object BtnPgReverse: TButton
@@ -416,7 +416,7 @@ object frmMain: TfrmMain
           Caption = '⇆'
           ParentShowHint = False
           ShowHint = True
-          TabOrder = 8
+          TabOrder = 9
           OnClick = MnuPageReverseClick
         end
         object BtnPgMore: TButton
@@ -431,7 +431,7 @@ object frmMain: TfrmMain
           Caption = '⋯'
           ParentShowHint = False
           ShowHint = True
-          TabOrder = 9
+          TabOrder = 10
           OnClick = BtnPgMoreClick
         end
       end

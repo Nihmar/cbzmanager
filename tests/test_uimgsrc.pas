@@ -22,9 +22,15 @@ type
      procedure ParseOpenverseBasic;
      procedure ParseOpenverseFallsBackThumbnail;
      procedure ParseOpenverseSkipsBad;
+     procedure ParseOpenverseInvalidJson;
+     procedure ParseOpenverseMissingResults;
+     procedure ParseOpenverseEmptyResults;
      procedure ParseWikimediaBasic;
      procedure ParseWikimediaLicense;
      procedure ParseWikimediaSkipsMissingImageinfo;
+     procedure ParseWikimediaInvalidJson;
+     procedure ParseWikimediaMissingPages;
+     procedure ParseWikimediaEmptyPages;
      procedure GuessExtCombined;
      procedure UrlProviderRejectsLoose;
      procedure SearchRejectsEmpty;
@@ -197,6 +203,64 @@ begin
   AssertEquals('msg', 'Enter search terms', Err);
   AssertFalse('url empty', SearchImages('   ', ispUrl, R, Err));
   AssertEquals('msg2', 'Enter search terms', Err);
+end;
+
+procedure TImgSrcTest.ParseOpenverseInvalidJson;
+var
+  R: TSearchResults;
+  Err: string;
+begin
+  AssertFalse('malformed json', ParseOpenverseResults('not json!!!', R, Err));
+  AssertEquals('error prefix', 'Invalid JSON: ', Copy(Err, 1, 14));
+  AssertEquals('no results', 0, Length(R));
+end;
+
+procedure TImgSrcTest.ParseOpenverseMissingResults;
+var
+  R: TSearchResults;
+  Err: string;
+begin
+  AssertFalse('no results key', ParseOpenverseResults('{"foo":"bar"}', R, Err));
+  AssertTrue('error', Pos('results', Err) > 0);
+  AssertEquals('no results', 0, Length(R));
+end;
+
+procedure TImgSrcTest.ParseOpenverseEmptyResults;
+var
+  R: TSearchResults;
+  Err: string;
+begin
+  AssertTrue('empty array', ParseOpenverseResults('{"results":[]}', R, Err));
+  AssertEquals('zero results', 0, Length(R));
+end;
+
+procedure TImgSrcTest.ParseWikimediaInvalidJson;
+var
+  R: TSearchResults;
+  Err: string;
+begin
+  AssertFalse('malformed json', ParseWikimediaResults('{bad', R, Err));
+  AssertEquals('error prefix', 'Invalid JSON: ', Copy(Err, 1, 14));
+  AssertEquals('no results', 0, Length(R));
+end;
+
+procedure TImgSrcTest.ParseWikimediaMissingPages;
+var
+  R: TSearchResults;
+  Err: string;
+begin
+  AssertFalse('no pages', ParseWikimediaResults('{"query":{}}', R, Err));
+  AssertTrue('error', Pos('query.pages', Err) > 0);
+  AssertEquals('no results', 0, Length(R));
+end;
+
+procedure TImgSrcTest.ParseWikimediaEmptyPages;
+var
+  R: TSearchResults;
+  Err: string;
+begin
+  AssertTrue('empty pages', ParseWikimediaResults('{"query":{"pages":{}}}', R, Err));
+  AssertEquals('zero results', 0, Length(R));
 end;
 
 initialization

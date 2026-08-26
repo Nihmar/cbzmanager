@@ -17,6 +17,7 @@ inherited dlgAddImage: TdlgAddImage
     Top = 8
     Width = 544
     Align = alNone
+    Anchors = [akLeft, akTop, akRight]
     BorderSpacing.Around = 4
     Caption = 'Search query (or image URL):'
     Font.Height = -13
@@ -29,6 +30,7 @@ inherited dlgAddImage: TdlgAddImage
     Top = 30
     Width = 544
     Align = alNone
+    Anchors = [akLeft, akTop, akRight]
     BorderSpacing.Around = 4
     TabOrder = 0
     Text = 'EdQuery'
@@ -39,6 +41,7 @@ inherited dlgAddImage: TdlgAddImage
     Top = 64
     Width = 440
     Align = alNone
+    Anchors = [akLeft, akTop, akRight]
     BorderSpacing.Around = 4
     ItemIndex = 0
     Items.Strings = (
@@ -57,6 +60,7 @@ inherited dlgAddImage: TdlgAddImage
     Top = 64
     Width = 96
     Align = alNone
+    Anchors = [akTop, akRight]
     BorderSpacing.Around = 4
     Caption = 'Search'
     Default = True
@@ -69,6 +73,7 @@ inherited dlgAddImage: TdlgAddImage
     Top = 100
     Width = 300
     Align = alNone
+    Anchors = [akLeft, akTop, akRight, akBottom]
     BorderSpacing.Around = 4
     OnClick = LstResultsClick
     TabOrder = 3
@@ -79,6 +84,7 @@ inherited dlgAddImage: TdlgAddImage
     Top = 100
     Width = 232
     Align = alNone
+    Anchors = [akTop, akRight, akBottom]
     BorderSpacing.Around = 4
     Stretch = True
     Proportional = True
@@ -89,11 +95,13 @@ inherited dlgAddImage: TdlgAddImage
     Top = 404
     Width = 232
     Align = alNone
+    Anchors = [akTop, akRight, akBottom]
     BorderSpacing.Around = 4
     Caption = ''
     Font.Height = -11
     ParentFont = False
     ShowHint = True
+    WordWrap = True
   end
   object LabelInfo: TLabel[7]
     Left = 8
@@ -101,6 +109,7 @@ inherited dlgAddImage: TdlgAddImage
     Top = 504
     Width = 544
     Align = alNone
+    Anchors = [akLeft, akRight, akBottom]
     BorderSpacing.Around = 4
     Caption = ''
     Font.Height = -11
@@ -122,7 +131,8 @@ inherited dlgAddImage: TdlgAddImage
       Height = 32
       Top = 8
       Width = 80
-      Align = alNone
+      Align = alRight
+      Anchors = [akTop, akRight]
       BorderSpacing.Around = 4
       Cancel = True
       Caption = 'Cancel'
@@ -135,6 +145,7 @@ inherited dlgAddImage: TdlgAddImage
       Top = 8
       Width = 80
       Align = alNone
+      Anchors = [akTop, akRight]
       BorderSpacing.Around = 4
       Caption = 'Add'
       Enabled = False

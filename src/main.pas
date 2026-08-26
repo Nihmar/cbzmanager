@@ -2726,8 +2726,11 @@ begin
       Exit;
     end;
     { Scaled thumbnail for the preview cache (owned by FPagePreviews). }
-    Thumb := ScaleIntfImage(Img, CacheW, CacheH);
-    Img.Free;
+    try
+      Thumb := ScaleIntfImage(Img, CacheW, CacheH);
+    finally
+      Img.Free;
+    end;
     if Thumb = nil then
     begin
       SetStatus(Format('Cannot scale image: %s', [Desc]));

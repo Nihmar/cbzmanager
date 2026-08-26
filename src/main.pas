@@ -160,6 +160,8 @@ type
     MnuPageReverse: TMenuItem;
     SepPag3: TMenuItem;
     MnuPageRenumber: TMenuItem;
+    SepPag4: TMenuItem;
+    MnuPageAddInternet: TMenuItem;
     MnuView: TMenuItem;
     MnuTogglePreview: TMenuItem;
     SepView1: TMenuItem;
@@ -198,6 +200,7 @@ type
     PanelPageTools: TPanel;
     BtnPgDelete: TButton;
     BtnPgAddFront: TButton;
+    BtnPgAddInternet: TButton;
     BtnPgEdit: TButton;
     BtnPgMoveUp: TButton;
     BtnPgMoveDown: TButton;
@@ -243,6 +246,8 @@ type
     MnuPgMoveDown: TMenuItem;
     MnuPgMoveStart: TMenuItem;
     MnuPgMoveEnd: TMenuItem;
+    SepPg2: TMenuItem;
+    MnuPgAddInternet: TMenuItem;
     PMPageMore: TPopupMenu;
     MniMoreBatchEdit: TMenuItem;
     MniMoreRenumber: TMenuItem;
@@ -301,6 +306,8 @@ type
     procedure MnuPageMoveUpClick(Sender: TObject);
     procedure MnuPageRenumberClick(Sender: TObject);
     procedure MnuPageAddFrontClick(Sender: TObject);
+    procedure MnuPageAddInternetClick(Sender: TObject);
+    procedure AddFrontFromStream(Stream: TMemoryStream; const Desc: string);
     procedure MnuPageReverseClick(Sender: TObject);
     procedure MnuPageSortClick(Sender: TObject);
     procedure MnuReloadClick(Sender: TObject);
@@ -485,6 +492,7 @@ uses
   udlgmerge,
   udlgconvertresults,
   udlgcomicinfoeditor,
+  udlgaddimage,
   ucomicinfo,
   uservicecomicinfo,
   uthreadservice;
@@ -667,6 +675,8 @@ begin
   MnuPageSort.Enabled := AEnabled;
   MnuPageReverse.Enabled := AEnabled;
   MnuPageRenumber.Enabled := AEnabled;
+  MnuPageAddInternet.Enabled := AEnabled;
+  MnuPgAddInternet.Enabled := AEnabled;
   MniMoreRenumber.Enabled := AEnabled;
 end;
 
@@ -2684,63 +2694,119 @@ end;
   After insertion the stage bar appears; the user can then move the page
   elsewhere using the existing reorder buttons if desired.
 }
-procedure TfrmMain.MnuPageAddFrontClick(Sender: TObject);
+{
+  AddFrontFromStream
+  ------------------
+  Shared staging for "insert an image as the first page": decodes the image
+  (magic-byte detection so a misleading extension is harmless), scales it to
+  a cache thumbnail, stores the raw bytes in a TMemoryStream on the new
+  TPageState, and inserts it at position 0.  The caller transfers ownership
+  of Stream — this routine frees it.  On save the new page is written into
+  the CBZ as page_0001 (FRenumber is set) and the rest shift down.
+}
+procedure TfrmMain.AddFrontFromStream(Stream: TMemoryStream; const Desc: string);
 var
-  MemStream: TMemoryStream;
-  Img: TLazIntfImage;
+  Img, Thumb: TLazIntfImage;
   PageExt, PageName: string;
   NewPage: TPageState;
 begin
-  if not PanelSingleFile.Visible then Exit;
-
-  if not OpenDialog.Execute then Exit;
-
-  { Load the entire file into a memory stream for decoding and later save }
-  PageExt := ExtractFileExt(OpenDialog.FileName);
-  MemStream := TMemoryStream.Create;
+  if Stream = nil then Exit;
   try
-    MemStream.LoadFromFile(OpenDialog.FileName);
-
-    { Decode the image for the thumbnail cache — detect actual format
-      from magic bytes because the file extension may be misleading. }
-    MemStream.Position := 0;
-    PageExt := DetectImageFormat(MemStream);
-    if PageExt = '' then
-      PageExt := ExtractFileExt(OpenDialog.FileName);  { fallback }
+    Stream.Position := 0;
+    PageExt := DetectImageFormat(Stream);
+    if PageExt = '' then PageExt := '.img';
     if SameText(PageExt, EXT_WEBP) then
-      Img := WebPToIntfImage(MemStream.Memory, MemStream.Size)
+      Img := WebPToIntfImage(Stream.Memory, Stream.Size)
     else
-      Img := StreamToIntfImage(MemStream, ReaderClassForExt(PageExt));
-
+      Img := StreamToIntfImage(Stream, ReaderClassForExt(PageExt));
     if Img = nil then
     begin
-      SetStatus(Format('Cannot decode image: %s',
-        [ExtractFileName(OpenDialog.FileName)]));
+      SetStatus(Format('Cannot decode image: %s', [Desc]));
+      Exit;
+    end;
+    { Scaled thumbnail for the preview cache (owned by FPagePreviews). }
+    Thumb := ScaleIntfImage(Img, CacheW, CacheH);
+    Img.Free;
+    if Thumb = nil then
+    begin
+      SetStatus(Format('Cannot scale image: %s', [Desc]));
       Exit;
     end;
 
-    { Build a TPageState for the new front page.
-      Raw bytes are stored in original format; use Convert to WebP later
-      if WebP encoding is desired. }
-    NewPage.Image := Img;
+    NewPage.Image := Thumb;
     NewPage.Gone := False;
     NewPage.OrigIndex := 0;
     PageName := 'frontispiece' + PageExt;
     NewPage.Data := TMemoryStream.Create;
-    MemStream.Position := 0;
-    NewPage.Data.CopyFrom(MemStream, MemStream.Size);
+    Stream.Position := 0;
+    NewPage.Data.CopyFrom(Stream, Stream.Size);
 
     NewPage.Name := PageName;
     NewPage.OrigName := PageName;
 
-    { Insert at position 0 }
+    FPagePreviews.Add(Thumb);  { cache owns it; freed at preview close }
     PageInsertFront(FPages, FChanges, NewPage);
     FRenumber := True;
     UpdateStageBar;
     RenderPages;
-    SetStatus(Format('Inserted %s as page 1', [ExtractFileName(OpenDialog.FileName)]));
+    SetStatus(Format('Inserted %s as page 1', [Desc]));
   finally
-    MemStream.Free;
+    Stream.Free;
+  end;
+end;
+
+procedure TfrmMain.MnuPageAddFrontClick(Sender: TObject);
+var
+  MemStream: TMemoryStream;
+begin
+  if not PanelSingleFile.Visible then Exit;
+  if IsReadOnlyPreview then
+  begin
+    SetStatus('CBR previews are read-only');
+    Exit;
+  end;
+  if not OpenDialog.Execute then Exit;
+
+  MemStream := TMemoryStream.Create;
+  try
+    MemStream.LoadFromFile(OpenDialog.FileName);
+    AddFrontFromStream(MemStream, ExtractFileName(OpenDialog.FileName));
+  finally
+    { AddFrontFromStream owns and frees MemStream. }
+  end;
+end;
+
+{
+  MnuPageAddInternetClick
+  -----------------------
+  Opens the "add image from internet" dialog.  The chosen image is downloaded
+  by the dialog; ownership of the bytes is transferred here and staged as the
+  new first page via AddFrontFromStream (committed only when the user saves
+  via the stage bar).
+}
+procedure TfrmMain.MnuPageAddInternetClick(Sender: TObject);
+var
+  Dlg: TdlgAddImage;
+  Stream: TMemoryStream;
+begin
+  if not PanelSingleFile.Visible then Exit;
+  if IsReadOnlyPreview then
+  begin
+    SetStatus('CBR previews are read-only');
+    Exit;
+  end;
+  if (FPagesThread <> nil) or (FPageFile = '') then Exit;
+
+  Dlg := TdlgAddImage.Create(Self);
+  try
+    if Dlg.ShowModal = mrOk then
+    begin
+      Stream := Dlg.ReleaseImageStream;
+      if Assigned(Stream) then
+        AddFrontFromStream(Stream, 'image from internet');
+    end;
+  finally
+    Dlg.Free;
   end;
 end;
 

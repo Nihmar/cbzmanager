@@ -305,6 +305,20 @@ object frmMain: TfrmMain
           TabOrder = 1
           OnClick = MnuPageAddFrontClick
         end
+        object BtnPgAddInternet: TButton
+          Left = 146
+          Height = 28
+          Hint = 'Insert an image from the internet as first page'
+          Top = 2
+          Width = 74
+          Align = alLeft
+          BorderSpacing.Around = 2
+          Caption = 'Add net'
+          ParentShowHint = False
+          ShowHint = True
+          TabOrder = 2
+          OnClick = MnuPageAddInternetClick
+        end
         object BtnPgEdit: TButton
           Left = 146
           Height = 28
@@ -644,6 +658,13 @@ object frmMain: TfrmMain
         Caption = 'Renumber'
         OnClick = MnuPageRenumberClick
       end
+      object SepPag4: TMenuItem
+        Caption = '-'
+      end
+      object MnuPageAddInternet: TMenuItem
+        Caption = 'Add image from internet...'
+        OnClick = MnuPageAddInternetClick
+      end
     end
     object MnuView: TMenuItem
       Caption = '&View'
@@ -780,6 +801,13 @@ object frmMain: TfrmMain
     object MnuPgMoveEnd: TMenuItem
       Caption = 'Move to end'
       OnClick = MnuPageMoveEndClick
+    end
+    object SepPg2: TMenuItem
+      Caption = '-'
+    end
+    object MnuPgAddInternet: TMenuItem
+      Caption = 'Add image from internet...'
+      OnClick = MnuPageAddInternetClick
     end
   end
   object PMPageMore: TPopupMenu

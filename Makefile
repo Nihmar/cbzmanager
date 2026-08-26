@@ -10,14 +10,16 @@ LAZ_UNITS = $(LAZ_BASE)/units/x86_64-linux
 QT6_UNITS = $(LAZ_BASE)/lcl/units/x86_64-linux/qt6
 
 UNIT_PATHS = \
-	  -Fu$(FPC_RTL)/rtl \
-	  -Fu$(LAZ_BASE)/lcl/units/x86_64-linux \
-	  -Fu$(QT6_UNITS) \
-	  -Fu$(LAZ_BASE)/components/lazutils/lib/x86_64-linux \
-	  -Fu$(LAZ_BASE)/packager/units/x86_64-linux \
-	  -Fu$(LAZ_BASE)/components/freetype/lib/x86_64-linux \
-	  -Fu$$HOME/.lazarus/lib/units/x86_64-linux/qt6 \
-	  -Fusrc -Fulib
+  -Fu$(FPC_RTL)/rtl \
+  -Fu$(LAZ_BASE)/lcl/units/x86_64-linux \
+  -Fu$(QT6_UNITS) \
+  -Fu$(LAZ_BASE)/components/lazutils/lib/x86_64-linux \
+  -Fu$(LAZ_BASE)/packager/units/x86_64-linux \
+  -Fu$(LAZ_BASE)/components/freetype/lib/x86_64-linux \
+  -Fu$(FPC_RTL)/fcl-web \
+  -Fu$(FPC_RTL)/openssl \
+  -Fu$$HOME/.lazarus/lib/units/x86_64-linux/qt6 \
+  -Fusrc -Fulib
 
 all: build
 

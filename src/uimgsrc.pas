@@ -17,7 +17,7 @@ unit uimgsrc;
 interface
 
 uses
-  Classes, SysUtils, fpjson, jsonparser, fphttpclient, opensslsockets;
+  Classes, SysUtils, StrUtils, fpjson, jsonparser, fphttpclient, opensslsockets;
 
 type
   { Search backends exposed in the UI. }
@@ -201,12 +201,11 @@ var
   path, ext: string;
 begin
   Result := '';
-  i := URL.IndexOf('?');
+  path := URL;
+  i := path.IndexOf('#');
   if i >= 0 then
-    path := URL.Substring(0, i)
-  else
-    path := URL;
-  i := URL.IndexOf('#');
+    path := path.Substring(0, i);
+  i := path.IndexOf('?');
   if i >= 0 then
     path := path.Substring(0, i);
   slash := path.LastDelimiter('/');
@@ -240,7 +239,7 @@ function ParseOpenverseResults(const JSON: string; out Results: TSearchResults;
 var
   data, res: TJSONData;
   arr: TJSONArray;
-  i: integer;
+  i, n: integer;
   el: TJSONObject;
   r: TSearchResult;
 begin
@@ -266,6 +265,7 @@ begin
       Exit;
     end;
     SetLength(Results, arr.Count);
+    n := 0;
     for i := 0 to arr.Count - 1 do
     begin
       el := AsObj(arr.Items[i]);
@@ -278,8 +278,13 @@ begin
       r.PageURL := JStr(el, 'foreign_landing_url', '');
       r.License := JStr(el, 'license', '');
       r.Ext := GuessExtFromURL(r.FullURL);
-      Results[i] := r;
+      if r.FullURL <> '' then
+      begin
+        Results[n] := r;
+        Inc(n);
+      end;
     end;
+    SetLength(Results, n);
     Result := True;
   finally
     data.Free;
@@ -378,6 +383,12 @@ begin
   ErrMsg := '';
   SetLength(Results, 0);
   q := Trim(AQuery);
+  if q = '' then
+  begin
+    ErrMsg := 'Enter search terms';
+    Result := False;
+    Exit;
+  end;
   case AProvider of
     ispOpenverse:
       Result := SearchOpenverse(q, Results, ErrMsg);
@@ -385,7 +396,7 @@ begin
       Result := SearchWikimedia(q, Results, ErrMsg);
     ispUrl:
       begin
-        if (q = '') or (Pos('http', LowerCase(q)) <> 1) then
+        if not (StartsText('http://', q) or StartsText('https://', q)) then
         begin
           ErrMsg := 'Enter a valid http(s) image URL';
           Result := False;

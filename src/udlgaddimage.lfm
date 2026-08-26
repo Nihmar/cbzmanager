@@ -47,6 +47,7 @@ inherited dlgAddImage: TdlgAddImage
       'Image URL'
     )
     OnChange = CbProviderChange
+    Style = csDropDownList
     TabOrder = 1
     Text = 'Openverse'
   end
@@ -80,6 +81,7 @@ inherited dlgAddImage: TdlgAddImage
     Align = alNone
     BorderSpacing.Around = 4
     Stretch = True
+    Proportional = True
   end
   object LabelLicense: TLabel[6]
     Left = 320
@@ -110,7 +112,7 @@ inherited dlgAddImage: TdlgAddImage
     Height = 48
     Top = 552
     Width = 560
-    Align = alNone
+    Align = alBottom
     BevelOuter = bvNone
     ClientHeight = 48
     ClientWidth = 560

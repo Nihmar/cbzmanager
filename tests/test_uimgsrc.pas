@@ -19,12 +19,16 @@ type
     procedure GuessExtUnknown;
     procedure UrlProviderSingleResult;
     procedure UrlProviderRejectsNonHttp;
-    procedure ParseOpenverseBasic;
-    procedure ParseOpenverseFallsBackThumbnail;
-    procedure ParseWikimediaBasic;
-    procedure ParseWikimediaLicense;
-    procedure ParseWikimediaSkipsMissingImageinfo;
-  end;
+     procedure ParseOpenverseBasic;
+     procedure ParseOpenverseFallsBackThumbnail;
+     procedure ParseOpenverseSkipsBad;
+     procedure ParseWikimediaBasic;
+     procedure ParseWikimediaLicense;
+     procedure ParseWikimediaSkipsMissingImageinfo;
+     procedure GuessExtCombined;
+     procedure UrlProviderRejectsLoose;
+     procedure SearchRejectsEmpty;
+   end;
 
 implementation
 
@@ -144,5 +148,58 @@ begin
   // The second page has empty imageinfo and must be skipped.
   AssertEquals('skipped', 1, Length(R));
 end;
+
+procedure TImgSrcTest.ParseOpenverseSkipsBad;
+var
+  R: TSearchResults;
+  Err: string;
+  J: string;
+begin
+  J := '{"results":[' +
+       'null,' +
+       '{"title":"A","url":"https://ex.com/a.png"},' +
+       '{"title":"B"}' +
+       ']}';
+  AssertTrue('parse ok', ParseOpenverseResults(J, R, Err));
+  AssertEquals('one usable', 1, Length(R));
+  AssertEquals('url', 'https://ex.com/a.png', R[0].FullURL);
+end;
+
+procedure TImgSrcTest.GuessExtCombined;
+begin
+  AssertEquals('.png', GuessExtFromURL('https://ex.com/a/b/cat.PNG?x=1#frag'));
+  AssertEquals('.jpg', GuessExtFromURL('https://ex.com/dog.jpg#frag?x=1'));
+  AssertEquals('.jpeg', GuessExtFromURL('https://ex.com/x/image.jpeg'));
+  AssertEquals('.tif', GuessExtFromURL('https://ex.com/x/image.tif'));
+  AssertEquals('.tiff', GuessExtFromURL('https://ex.com/x/image.tiff'));
+  AssertEquals('.gif', GuessExtFromURL('https://ex.com/x/image.gif'));
+  AssertEquals('.bmp', GuessExtFromURL('https://ex.com/x/image.bmp'));
+end;
+
+procedure TImgSrcTest.UrlProviderRejectsLoose;
+var
+  R: TSearchResults;
+  Err: string;
+begin
+  AssertFalse('httpx', SearchImages('httpx://x/y.png', ispUrl, R, Err));
+  AssertFalse('httpsomething', SearchImages('httpsomething', ispUrl, R, Err));
+  AssertFalse('bare http', SearchImages('http', ispUrl, R, Err));
+  AssertFalse('bare https', SearchImages('https', ispUrl, R, Err));
+  AssertTrue('https ok', SearchImages('https://x/y.png', ispUrl, R, Err));
+end;
+
+procedure TImgSrcTest.SearchRejectsEmpty;
+var
+  R: TSearchResults;
+  Err: string;
+begin
+  AssertFalse('openverse empty', SearchImages('', ispOpenverse, R, Err));
+  AssertEquals('msg', 'Enter search terms', Err);
+  AssertFalse('url empty', SearchImages('   ', ispUrl, R, Err));
+  AssertEquals('msg2', 'Enter search terms', Err);
+end;
+
+initialization
+  RegisterTest(TImgSrcTest);
 
 end.

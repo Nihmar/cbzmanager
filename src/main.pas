@@ -346,6 +346,7 @@ type
     FChanges: TChanges;
     FRenumber: boolean;
     FPageFile: string;  // currently open CBZ file path
+    FAddFrontSeq: integer;  // unique suffix for inserted frontispiece pages
     FJobMonitor: TfrmJobMonitor;  // non-modal job progress window
     { Reusable non-modal floating window showing the selected page enlarged
       (opened with Space).  Owned by the form; hidden, not destroyed, on
@@ -2736,7 +2737,8 @@ begin
     NewPage.Image := Thumb;
     NewPage.Gone := False;
     NewPage.OrigIndex := 0;
-    PageName := 'frontispiece' + PageExt;
+    PageName := 'frontispiece-' + IntToStr(FAddFrontSeq) + PageExt;
+    Inc(FAddFrontSeq);
     NewPage.Data := TMemoryStream.Create;
     Stream.Position := 0;
     NewPage.Data.CopyFrom(Stream, Stream.Size);
@@ -2765,15 +2767,17 @@ begin
     SetStatus('CBR previews are read-only');
     Exit;
   end;
+  if (FPagesThread <> nil) or (FPageFile = '') then Exit;
   if not OpenDialog.Execute then Exit;
 
   MemStream := TMemoryStream.Create;
   try
     MemStream.LoadFromFile(OpenDialog.FileName);
-    AddFrontFromStream(MemStream, ExtractFileName(OpenDialog.FileName));
-  finally
-    { AddFrontFromStream owns and frees MemStream. }
+  except
+    FreeAndNil(MemStream);
+    raise;
   end;
+  AddFrontFromStream(MemStream, ExtractFileName(OpenDialog.FileName));
 end;
 
 {

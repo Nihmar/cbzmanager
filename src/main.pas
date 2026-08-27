@@ -268,6 +268,14 @@ type
       Shift: TShiftState; X, Y: integer);
     procedure LVFilesMouseUp(Sender: TObject; Button: TMouseButton;
       Shift: TShiftState; X, Y: integer);
+    { Re-applies the pending single-item selection on the next message-loop
+      tick, after the Qt6 widgetset's native press/release selection reconcile
+      has run.  See LVFilesMouseDown / LVFilesMouseUp. }
+    procedure ReassertPendingSelection(Data: PtrInt);
+    { Resolves the list item under a client-coordinate point, falling back to a
+      DisplayRect scan when the widgetset's GetItemAt returns nil (vsIcon on
+      Qt6).  Returns nil for empty space. }
+    function ItemAtPoint(ALV: TListView; X, Y: integer): TListItem;
     procedure LVPagesDragDrop(Sender, Source: TObject; X, Y: integer);
     procedure LVPagesDragOver(Sender, Source: TObject; X, Y: integer;
       State: TDragState; var Accept: boolean);
@@ -345,11 +353,13 @@ type
     { Shift+click anchors for Explorer-style multi-select (item index, -1 = none). }
     FAnchorFiles: integer;
     FAnchorPages: integer;
-    { File name that must be re-selected on the mouse-up completing the
-      double-click that opened the preview.  Stored as a name (not a
-      TListItem pointer) so a list rebuild between the two events cannot
-      leave a dangling reference.  See LVFilesDblClick / LVFilesMouseUp. }
+    { File name + list that must be re-selected after the native widgetset
+      finishes its own click/release selection reconcile.  Stored as a name
+      (not a TListItem pointer) so a list rebuild between the two events
+      cannot leave a dangling reference.  See LVFilesDblClick /
+      LVFilesMouseDown / ReassertPendingSelection. }
     FPendingFile: string;
+    FPendingList: TListView;
     procedure ThreadTerminated(Sender: TObject);
     procedure PagesThreadTerminated(Sender: TObject);
     procedure LoadBatchAdded(Sender: TObject);
@@ -1456,7 +1466,7 @@ var
   It: TListItem;
 begin
   P := LVFiles.ScreenToClient(Mouse.CursorPos);
-  It := LVFiles.GetItemAt(P.X, P.Y);
+  It := ItemAtPoint(LVFiles, P.X, P.Y);
   if It = nil then
     It := LVFiles.Selected;
   if It <> nil then
@@ -1466,12 +1476,16 @@ begin
       returns (and after the preview pane appears and the list shrinks, the
       click position maps to a different item or to empty space, so the
       completing mouse-up clears or moves the selection).  Remember the item
-      and re-assert it in LVFilesMouseUp, which arrives after the dust
-      settles. }
+      and re-assert it on the next message-loop tick, after the native pass
+      has settled.  See ReassertPendingSelection. }
+    FPendingList := LVFiles;
     FPendingFile := ItemFileName(It);
   end
   else
+  begin
+    FPendingList := nil;
     FPendingFile := '';
+  end;
   OpenPreview(It);
 end;
 
@@ -1560,13 +1574,16 @@ var
   It: TListItem;
 begin
   ALV := TListView(Sender);
-  It := ALV.GetItemAt(X, Y);
+  It := ItemAtPoint(ALV, X, Y);
 
   { Any new mouse gesture (including a right-click) cancels a pending
     double-click re-selection.  The second press of the double-click itself
     carries ssDouble and must leave it alone. }
   if not (ssDouble in Shift) then
+  begin
     FPendingFile := '';
+    FPendingList := nil;
+  end;
 
   if Button = mbRight then
   begin
@@ -1604,48 +1621,101 @@ begin
   begin
     { Plain click replaces the selection with the clicked item.  The native
       widgetset may toggle the item after this handler returns, so remember it
-      and re-assert the exact selection in LVFilesMouseUp. }
+      and re-assert the exact selection after the native pass has settled (see
+      ReassertPendingSelection, scheduled from LVFilesMouseUp). }
     SelectOnly(ALV, It);
     SetAnchor(ALV, It.Index);
-    if ALV = LVFiles then
-      FPendingFile := ItemFileName(It);
+    FPendingList := ALV;
+    FPendingFile := ItemFileName(It);
   end;
+end;
+
+{
+  ReassertPendingSelection
+  -------------------------
+  Re-applies the single-item selection remembered by LVFilesMouseDown /
+  LVFilesDblClick.  It is deferred (via Application.QueueAsyncCall) to the next
+  message-loop tick so it runs AFTER the Qt6 widgetset's native press/release
+  selection reconcile, which otherwise toggles or clears the item we forced in
+  OnMouseDown and would undo the synchronous re-assert that previously lived in
+  OnMouseUp.
+
+  The item is looked up by name (unique in the list) rather than by TListItem
+  pointer, so a list rebuild between the click and this call is handled safely.
+  Only plain clicks and double-clicks arm a pending re-assert, so native
+  Ctrl+click toggle and Shift+click range behaviour is never overridden.
+
+  Called with Data = 0 (unused).
+}
+procedure TfrmMain.ReassertPendingSelection(Data: PtrInt);
+var
+  i: integer;
+  LV: TListView;
+  PendingName: string;
+begin
+  LV := FPendingList;
+  PendingName := FPendingFile;
+  FPendingFile := '';
+  FPendingList := nil;
+  if (LV = nil) or (PendingName = '') or (LV.Items.Count = 0) then Exit;
+  for i := 0 to LV.Items.Count - 1 do
+    if ItemFileName(LV.Items[i]) = PendingName then
+    begin
+      SelectOnly(LV, LV.Items[i]);
+      Exit;
+    end;
+end;
+
+{
+  ItemAtPoint
+  -----------
+  Resolves the list item under a client-coordinate point.  Tries the widgetset
+  GetItemAt first; if that returns nil (vsIcon on Qt6 can miss the label /
+  sub-item area) it scans the items' bounding rectangles.  Returns nil for
+  empty space.  Used by LVFilesMouseDown / LVFilesDblClick so a click always
+  resolves to its item and arms the pending re-assert reliably.
+}
+function TfrmMain.ItemAtPoint(ALV: TListView; X, Y: integer): TListItem;
+var
+  i: integer;
+  R: TRect;
+  Pt: TPoint;
+begin
+  Result := ALV.GetItemAt(X, Y);
+  if Result <> nil then Exit;
+  Pt := Point(X, Y);
+  for i := 0 to ALV.Items.Count - 1 do
+  begin
+    R := ALV.Items[i].DisplayRect(drBounds);
+    if PtInRect(R, Pt) then
+      Exit(ALV.Items[i]);
+  end;
+  Result := nil;
 end;
 
 {
   LVFilesMouseUp
   --------------
-  Re-asserts the selection after a double-click that opened the preview.
+  Schedules a deferred re-assert of the selection after a double-click that
+  opened the preview (and after any plain single click).
 
-  On the Qt6 widgetset the double-click is delivered to the LCL *and* to
-  Qt's native item-view handling, which re-applies the selection once the
-  LCL handlers have returned.  Because OpenPreview makes the preview pane
-  appear (shrinking LVFiles) between the first press and the completing
-  release, the native code re-evaluates the click position against the new
-  layout and either moves the selection to whatever item now sits under the
-  cursor or clears it entirely.  The LCL's OnMouseUp for the completing
-  release arrives after that native pass, so re-selecting the double-clicked
-  item here is the last word and the selection survives.
+  On the Qt6 widgetset the double-click is delivered to the LCL *and* to Qt's
+  native item-view handling, which re-applies the selection once the LCL
+  handlers have returned.  Because OpenPreview makes the preview pane appear
+  (shrinking LVFiles) between the first press and the completing release, the
+  native code re-evaluates the click position against the new layout and either
+  moves the selection to whatever item now sits under the cursor or clears it
+  entirely.  A synchronous re-assert here would still be undone by the native
+  release-time pass, so we defer to ReassertPendingSelection on the next
+  message-loop tick, which arrives after that native pass.
 
-  Guards: the item is only re-selected while it still belongs to LVFiles
-  (it could have been rebuilt between the double-click and the mouse-up).
+  Guards: only the plain-click / double-click path arms FPendingFile.
 }
 procedure TfrmMain.LVFilesMouseUp(Sender: TObject; Button: TMouseButton;
   Shift: TShiftState; X, Y: integer);
-var
-  i: integer;
 begin
   if (Button <> mbLeft) or (FPendingFile = '') then Exit;
-  { The file name is unique in the list; find the current row for it so a
-    rebuild between the double-click and this mouse-up is handled safely. }
-  for i := 0 to LVFiles.Items.Count - 1 do
-    if ItemFileName(LVFiles.Items[i]) = FPendingFile then
-    begin
-      SelectOnly(LVFiles, LVFiles.Items[i]);
-      FPendingFile := '';
-      Exit;
-    end;
-  FPendingFile := '';
+  Application.QueueAsyncCall(@ReassertPendingSelection, 0);
 end;
 
 {

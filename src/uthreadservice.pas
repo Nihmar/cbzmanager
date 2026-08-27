@@ -269,6 +269,7 @@ var
   i: integer;
   FullPath: string;
   Entries: TZipEntries;
+  Ok: boolean;
 begin
   FResult.Success := True;
   FResult.Processed := 0;
@@ -285,21 +286,50 @@ begin
     FullPath := IncludeTrailingPathDelimiter(FDir) + FFiles[i];
     Progress((i * 100) div Length(FFiles),
       Format('Deleting pages from %s (%d/%d)', [FFiles[i], i + 1, Length(FFiles)]));
-    // FilterPagesFromCBZ reads the archive, drops marked pages,
-    // optionally renumbers, and returns the surviving entries.
-    Entries := FilterPagesFromCBZ(FullPath, FPagesToDelete, FRenumber);
+    // Each file is processed independently: a failure must not abort the rest
+    // of the batch (mirrors the other service threads).  Errors are captured
+    // in FResult and surfaced by the termination handler.
     try
-      if Length(Entries) > 0 then
-      begin
-        // Write path: direct overwrite or safe backup-then-replace.
-        if FDeletePerm then
-          WriteZipFromEntriesDeflated(FullPath, Entries)
-        else
-          ReplaceCBZ(FullPath, Entries);
-        Inc(FResult.Processed);
+      // FilterPagesFromCBZ reads the archive, drops marked pages,
+      // optionally renumbers, and returns the surviving entries.
+      Entries := FilterPagesFromCBZ(FullPath, FPagesToDelete, FRenumber);
+      try
+        if Length(Entries) > 0 then
+        begin
+          // Always write through the safe temp-file + rename path
+          // (ReplaceCBZ).  Overwriting the live file in place via
+          // WriteZipFromEntriesDeflated was the only branch that created the
+          // output stream on the original name, which fails on filesystems
+          // that lease/reject overwriting an open archive (e.g. CIFS/SMB) with
+          // "Unable to create file".  ReplaceCBZ writes to a .new temp file and
+          // renames, matching every other service.
+          Ok := ReplaceCBZ(FullPath, Entries);
+          if Ok and FDeletePerm then
+          begin
+            // "Delete permanently": drop the _OLD.cbz backup so no recovery
+            // copy remains.
+            if DeleteFile(ChangeFileExt(FullPath, '') + BACKUP_SUFFIX) then
+              ;  // backup removed
+          end;
+          if Ok then
+            Inc(FResult.Processed)
+          else
+          begin
+            FResult.Success := False;
+            if FResult.ErrorMsg = '' then
+              FResult.ErrorMsg := Format('Failed to write %s', [FFiles[i]]);
+          end;
+        end;
+      finally
+        FreeZipEntries(Entries);  // always free the temporary entry list
       end;
-    finally
-      FreeZipEntries(Entries);  // always free the temporary entry list
+    except
+      on E: Exception do
+      begin
+        FResult.Success := False;
+        if FResult.ErrorMsg = '' then
+          FResult.ErrorMsg := Format('%s: %s', [FFiles[i], E.Message]);
+      end;
     end;
   end;
   Progress(100, Format('Complete: %d files processed', [FResult.Processed]));

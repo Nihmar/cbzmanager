@@ -408,6 +408,10 @@ type
       and AIt (inclusive, additive).  A stale anchor is replaced by AIt. }
     procedure ApplyShiftSelection(ALV: TListView; var AAnchor: integer;
       AIt: TListItem);
+    { Replace the selection of ALV with just AItem (clearing every other
+      selected row first).  Used for plain single clicks, where the LCL/Qt
+      MultiSelect handling does not drop the previous selection on its own. }
+    procedure SelectOnly(ALV: TListView; AItem: TListItem);
     procedure SetupLVFiles;
     procedure SetupILFilesFirstPages;
     procedure SetupILPages;
@@ -1505,6 +1509,28 @@ begin
     ALV.Items[i].Selected := True;
 end;
 
+{ SelectOnly
+  ----------
+  Makes AItem the only selected row in ALV.  With MultiSelect enabled the LCL
+  (and the Qt6 widgetset underneath it) does not clear the previous selection
+  when a single item is assigned, so a plain click would otherwise accumulate
+  rows instead of replacing the selection — the "selecting multiple files"
+  glitch.  We clear every selected row first, then select AItem. }
+procedure TfrmMain.SelectOnly(ALV: TListView; AItem: TListItem);
+var
+  i: integer;
+begin
+  ALV.BeginUpdate;
+  try
+    for i := 0 to ALV.Items.Count - 1 do
+      if ALV.Items[i].Selected then
+        ALV.Items[i].Selected := False;
+  finally
+    ALV.EndUpdate;
+  end;
+  ALV.Selected := AItem;
+end;
+
 {
   LVFilesMouseDown
   ----------------
@@ -1544,10 +1570,11 @@ begin
 
   if Button = mbRight then
   begin
-    { Right-click does not move the selection by itself, but the menu must
-      act on the item actually clicked }
+    { Right-click on an unselected item makes that item the sole selection so
+      the context menu acts on it alone; right-clicking an already-selected
+      item keeps the existing multi-selection intact. }
     if (It <> nil) and not It.Selected then
-      ALV.Selected := It;
+      SelectOnly(ALV, It);
     Exit;
   end;
 
@@ -1575,10 +1602,13 @@ begin
   end
   else
   begin
-    { With ReadOnly=True the first click may only give focus without selecting;
-      force selection so DblClick sees LVFiles.Selected. }
-    ALV.Selected := It;
+    { Plain click replaces the selection with the clicked item.  The native
+      widgetset may toggle the item after this handler returns, so remember it
+      and re-assert the exact selection in LVFilesMouseUp. }
+    SelectOnly(ALV, It);
     SetAnchor(ALV, It.Index);
+    if ALV = LVFiles then
+      FPendingFile := ItemFileName(It);
   end;
 end;
 
@@ -1611,7 +1641,7 @@ begin
   for i := 0 to LVFiles.Items.Count - 1 do
     if ItemFileName(LVFiles.Items[i]) = FPendingFile then
     begin
-      LVFiles.Selected := LVFiles.Items[i];
+      SelectOnly(LVFiles, LVFiles.Items[i]);
       FPendingFile := '';
       Exit;
     end;
@@ -2169,6 +2199,14 @@ begin
   { The "Delete pages..." flow disables MnuDeletePages for the duration of
     the job — restore it too (no-op when the job came from "Delete rows..."). }
   MnuDeletePages.Enabled := True;
+  { Surface a hard crash (unhandled exception escaped from Execute) in the same
+    way as a captured per-file error. }
+  if Thread.FatalException <> nil then
+  begin
+    SetStatus(Format('Batch delete failed: %s',
+      [Exception(Thread.FatalException).Message]));
+    Exit;
+  end;
   if Thread.Result.Success then
   begin
     LoadDirectory(FDir);
@@ -2271,7 +2309,7 @@ procedure TfrmMain.MnuDeletePagesClick(Sender: TObject);
 var
   Files: TStringArray;
   Counts: TStringList;
-  i, MaxCount, Cnt: integer;
+  i, n, MaxCount, Cnt: integer;
   FullPath: string;
   Dlg: TdlgRows;
   Thread: TDeletePagesThread;
@@ -2285,6 +2323,22 @@ begin
   if Length(Files) = 0 then
   begin
     SetStatus('Select at least one file');
+    Exit;
+  end;
+  { Only CBZ archives can be rewritten; CBR previews are read-only and the
+    worker would silently skip them.  Drop any non-CBZ selection up front so
+    the user is not left wondering why nothing happened. }
+  n := 0;
+  for i := 0 to High(Files) do
+    if SameText(ExtractFileExt(Files[i]), CBZ_EXT) then
+    begin
+      Files[n] := Files[i];
+      Inc(n);
+    end;
+  SetLength(Files, n);
+  if Length(Files) = 0 then
+  begin
+    SetStatus('Delete pages works on CBZ files only');
     Exit;
   end;
   Counts := TStringList.Create;

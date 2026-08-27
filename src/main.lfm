@@ -577,10 +577,6 @@ object frmMain: TfrmMain
         Caption = 'Remove ComicInfo.xml...'
         OnClick = MnuRemoveComicInfoClick
       end
-      object MnuDeleteRows: TMenuItem
-        Caption = 'Delete rows...'
-        OnClick = MnuDeleteRowsClick
-      end
       object MnuDeletePages: TMenuItem
         Caption = 'Delete pages...'
         OnClick = MnuDeletePagesClick
@@ -607,10 +603,6 @@ object frmMain: TfrmMain
       object MnuPageDelete: TMenuItem
         Caption = 'Delete page(s)'
         OnClick = MnuPageDeleteClick
-      end
-      object MnuPageDeleteRows: TMenuItem
-        Caption = 'Delete rows...'
-        OnClick = MnuDeleteRowsClick
       end
       object SepPag1: TMenuItem
         Caption = '-'
@@ -725,10 +717,6 @@ object frmMain: TfrmMain
       Caption = 'Remove ComicInfo.xml...'
       OnClick = MnuRemoveComicInfoClick
     end
-    object MnuCtxDeleteRows: TMenuItem
-      Caption = 'Delete rows...'
-      OnClick = MnuDeleteRowsClick
-    end
     object MnuCtxDeletePages: TMenuItem
       Caption = 'Delete pages...'
       OnClick = MnuDeletePagesClick
@@ -773,10 +761,6 @@ object frmMain: TfrmMain
       Caption = 'Delete page(s)'
       OnClick = MnuPageDeleteClick
     end
-    object MnuPgDeleteRows: TMenuItem
-      Caption = 'Delete rows...'
-      OnClick = MnuDeleteRowsClick
-    end
     object SepPg1: TMenuItem
       Caption = '-'
     end
@@ -801,10 +785,6 @@ object frmMain: TfrmMain
     object MniMoreBatchEdit: TMenuItem
       Caption = 'Batch edit pages...'
       OnClick = MnuBatchEditClick
-    end
-    object MniMoreDeleteRows: TMenuItem
-      Caption = 'Delete rows...'
-      OnClick = MnuDeleteRowsClick
     end
     object MniMoreRenumber: TMenuItem
       Caption = 'Renumber pages'

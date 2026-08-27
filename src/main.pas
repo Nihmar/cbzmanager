@@ -142,7 +142,6 @@ type
     MnuArchive: TMenuItem;
     MnuManageComicInfo: TMenuItem;
     MnuRemoveComicInfo: TMenuItem;
-    MnuDeleteRows: TMenuItem;
     MnuDeletePages: TMenuItem;
 
     SepArch1: TMenuItem;
@@ -151,7 +150,6 @@ type
     MnuPageEdit: TMenuItem;
     MnuBatchEdit: TMenuItem;
     MnuPageDelete: TMenuItem;
-    MnuPageDeleteRows: TMenuItem;
     SepPag1: TMenuItem;
     MnuPageMoveUp: TMenuItem;
     MnuPageMoveDown: TMenuItem;
@@ -230,7 +228,6 @@ type
     SepCtxFile: TMenuItem;
     MnuCtxManageComicInfo: TMenuItem;
     MnuCtxRemoveComicInfo: TMenuItem;
-    MnuCtxDeleteRows: TMenuItem;
     MnuCtxDeletePages: TMenuItem;
     MnuCtxReorder: TMenuItem;
     SepCtx1: TMenuItem;
@@ -241,7 +238,6 @@ type
     MnuPgEdit: TMenuItem;
     MnuPgBatchEdit: TMenuItem;
     MnuPgDelete: TMenuItem;
-    MnuPgDeleteRows: TMenuItem;
     SepPg1: TMenuItem;
     MnuPgMoveUp: TMenuItem;
     MnuPgMoveDown: TMenuItem;
@@ -249,7 +245,6 @@ type
     MnuPgMoveEnd: TMenuItem;
     PMPageMore: TPopupMenu;
     MniMoreBatchEdit: TMenuItem;
-    MniMoreDeleteRows: TMenuItem;
     MniMoreRenumber: TMenuItem;
     { Timers }
     TimerDebounceZoom: TTimer;
@@ -287,7 +282,6 @@ type
     procedure MnuConvertCbrClick(Sender: TObject);
     procedure CbrConvertThreadTerminated(Sender: TObject);
 
-    procedure MnuDeleteRowsClick(Sender: TObject);
     procedure MnuDeletePagesClick(Sender: TObject);
     procedure DeleteRowsThreadTerminated(Sender: TObject);
     procedure MnuExitClick(Sender: TObject);
@@ -638,7 +632,6 @@ begin
   MnuConvertCbr.Enabled := AEnabled;
   MnuManageComicInfo.Enabled := AEnabled;
   MnuRemoveComicInfo.Enabled := AEnabled;
-  MnuDeleteRows.Enabled := AEnabled;
   MnuDeletePages.Enabled := AEnabled;
 end;
 
@@ -648,7 +641,6 @@ begin
   MnuPageEdit.Enabled := AEnabled;
   MnuBatchEdit.Enabled := AEnabled;
   MnuPageDelete.Enabled := AEnabled;
-  MnuPageDeleteRows.Enabled := AEnabled;
   MnuPageMoveUp.Enabled := AEnabled;
   MnuPageMoveDown.Enabled := AEnabled;
   MnuPageMoveStart.Enabled := AEnabled;
@@ -656,7 +648,6 @@ begin
   MnuPageSort.Enabled := AEnabled;
   MnuPageReverse.Enabled := AEnabled;
   MnuPageRenumber.Enabled := AEnabled;
-  MniMoreDeleteRows.Enabled := AEnabled;
   MniMoreRenumber.Enabled := AEnabled;
 end;
 
@@ -1738,7 +1729,6 @@ begin
   MnuCtxMerge.Enabled := Ready and MnuMerge.Enabled;
   MnuCtxManageComicInfo.Enabled := (LVFiles.Selected <> nil) and Ready;
   MnuCtxRemoveComicInfo.Enabled := Ready and MnuRemoveComicInfo.Enabled;
-  MnuCtxDeleteRows.Enabled := Ready and MnuDeleteRows.Enabled;
   MnuCtxDeletePages.Enabled := (LVFiles.SelCount > 0) and Ready and
     MnuDeletePages.Enabled;
   MnuCtxReorder.Enabled := Ready;
@@ -2265,9 +2255,7 @@ var
   Thread: TDeletePagesThread;
 begin
   Thread := Sender as TDeletePagesThread;
-  FinishServiceThread(nil, MnuDeleteRows);
-  { The "Delete pages..." flow disables MnuDeletePages for the duration of
-    the job — restore it too (no-op when the job came from "Delete rows..."). }
+  FinishServiceThread(nil, MnuDeletePages);
   MnuDeletePages.Enabled := True;
   { Surface a hard crash (unhandled exception escaped from Execute) in the same
     way as a captured per-file error. }
@@ -2285,82 +2273,6 @@ begin
   end
   else
     SetStatus(Format('Batch delete failed: %s', [Thread.Result.ErrorMsg]));
-end;
-
-{
-  MnuDeleteRowsClick
-  ------------------
-  Opens the "delete rows" dialog (TdlgRows), which lets the user select page
-  indices to remove.  Supports two modes:
-
-  1. Single-file mode (preview pane open, batch unchecked):
-     Marks pages as Gone in the in-memory model and adds ckDeleted changes.
-     The actual .cbz is not modified until the user clicks "Save changes".
-
-  2. Batch mode (batch checkbox checked):
-     Launches TDeletePagesThread to apply the same page-index selection to
-     *every* .cbz in the directory.  Each file is rewritten immediately in
-     the background thread (not staged).
-}
-procedure TfrmMain.MnuDeleteRowsClick(Sender: TObject);
-var
-  Dlg: TdlgRows;
-  i, m, Deleted: integer;
-  Files: TStringArray;
-  Thread: TDeletePagesThread;
-begin
-  if not PanelSingleFile.Visible or (FPageFile = '') then
-  begin
-    SetStatus('Open a file in preview first');
-    Exit;
-  end;
-  Dlg := TdlgRows.Create(Self);
-  try
-    { Page numbers the user types are 1-based over the VISIBLE pages, so the
-      dialog must be sized to the visible count, not Length(FPages) (which
-      still counts pages staged for deletion). }
-    Dlg.PageCount := LVPages.Items.Count;
-    Dlg.Directory := FDir;
-    if Dlg.ShowModal = mrOk then
-    begin
-      if Dlg.BatchAll and (FDir <> '') then
-      begin
-        { Batch mode: delegate to background thread }
-        Files := GetFileList;
-        if Length(Files) > 0 then
-        begin
-          Thread := TDeletePagesThread.Create(Files, FDir, Dlg.Selected,
-            Dlg.Renumber, Dlg.DeletePermanently, @UpdateProgress);
-          BeginServiceThread(Thread, 'Deleting pages...',
-            @DeleteRowsThreadTerminated, nil, MnuDeleteRows);
-        end;
-      end
-      else
-      begin
-        { Single-file mode: operate on in-memory model.  Dlg.Selected is
-          indexed by visible position; map each through LVPages.Items[].Data
-          to the FPages (model) index before marking it Gone. }
-        Deleted := 0;
-        for i := 0 to High(Dlg.Selected) do
-          if Dlg.Selected[i] and (i < LVPages.Items.Count) then
-          begin
-            m := PtrInt(LVPages.Items[i].Data);
-            if (m >= 0) and (m <= High(FPages)) and not FPages[m].Gone then
-            begin
-              FPages[m].Gone := True;
-              AddChange(ckDeleted, FPages[m].Name);
-              Inc(Deleted);
-            end;
-          end;
-        if Dlg.Renumber then
-          FRenumber := True;
-        RenderPages;
-        SetStatus(Format('%d pages deleted', [Deleted]));
-      end;
-    end;
-  finally
-    Dlg.Free;
-  end;
 end;
 
 {

@@ -506,6 +506,7 @@ object frmMain: TfrmMain
         OnDragOver = LVPagesDragOver
         OnDblClick = LVPagesDblClick
         OnMouseDown = LVFilesMouseDown
+        OnMouseUp = LVFilesMouseUp
       end
     end
     object SplitterPreview: TSplitter

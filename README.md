@@ -32,10 +32,13 @@ Open `cbzmanager.lpi` and build. Two build modes are available:
 ### From command line (Linux)
 
 ```bash
-make build          # compile with fpc (Qt6 widgetset)
+make build          # debug build with fpc (Qt6 widgetset)
+make release        # release build (O3, smart link, strip)
 make test           # compile and run FPCUnit test suite
 make man            # lint the man page (requires groff)
-make install-man    # install man page to $(DESTDIR)$(PREFIX)/share/man/man1 (PREFIX default: /usr/local)
+make install        # install binary, man page, icon, and .desktop entry to /usr
+make install-man    # install man page only to $(DESTDIR)$(PREFIX)/share/man/man1
+make pkg            # build and install an Arch Linux package
 make clean          # remove test build artifacts
 ```
 
@@ -150,6 +153,10 @@ tests/
   test_udlgpageview.pas          Floating page-view dialog tests
 man/
   cbzmanager.1                   Man page (section 1)
+pkg/
+  cbzmanager.desktop             FreeDesktop .desktop entry
+  cbzmanager.svg                 Application icon (scalable)
+  PKGBUILD                      Arch Linux package build script
 ```
 
 ## License

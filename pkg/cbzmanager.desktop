@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=CBZ Manager
+GenericName=CBZ Archive Manager
+Comment=Manage and organize CBZ comic archives
+Exec=cbzmanager
+Icon=cbzmanager
+Terminal=false
+Categories=Graphics;Utility;
+Keywords=comic;cbz;cbr;archive;

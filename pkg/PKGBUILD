@@ -1,0 +1,26 @@
+# Maintainer: Alessandro <nihmar@users.noreply.github.com>
+pkgname=cbzmanager
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="CBZ comic archive manager (desktop application and headless CLI)"
+arch=('x86_64')
+url="https://github.com/Nihmar/cbzmanager"
+license=('MIT')
+depends=('qt6-base' 'lazarus-qt6')
+makedepends=('fpc' 'lazarus-qt6')
+optdepends=('libwebp: WebP image support' 'libarchive: CBR archive support')
+source=()
+sha256sums=()
+
+build() {
+    cd "$startdir/.."
+    make release
+}
+
+package() {
+    cd "$startdir/.."
+    install -Dm755 bin/release/x86_64-linux/cbzmanager "$pkgdir/usr/bin/cbzmanager"
+    install -Dm644 man/cbzmanager.1 "$pkgdir/usr/share/man/man1/cbzmanager.1"
+    install -Dm644 pkg/cbzmanager.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/cbzmanager.svg"
+    install -Dm644 pkg/cbzmanager.desktop "$pkgdir/usr/share/applications/cbzmanager.desktop"
+}

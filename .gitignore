@@ -35,6 +35,9 @@ AGENTS.md
 *.rst
 # compiled resources (intermediate)
 *.res
+# ...except the project resource, which carries MAINICON, the manifest and the
+# version info.  It is a build input, not an artifact, and must stay tracked.
+!cbzmanager.res
 # resource string JSON (fpc >= 3.x)
 *.rsj
 

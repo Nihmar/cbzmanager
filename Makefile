@@ -2,7 +2,7 @@
 
 PREFIX  ?= /usr/local
 DESTDIR ?=
-VERSION ?= 0.1.0
+VERSION ?= 0.1.1
 
 FPC_VERSION ?= $(shell fpc -iV 2>/dev/null || echo 3.2.2)
 ARCH ?= x86_64-linux
@@ -95,7 +95,9 @@ install-man:
 
 # Build an Arch Linux package and install it via pacman
 pkg: release
-	cd pkg && makepkg -si
+	cd pkg && sed "s/^pkgver=.*/pkgver=$(VERSION)/" PKGBUILD > PKGBUILD.tmp && mv PKGBUILD.tmp PKGBUILD && \
+	rm -f cbzmanager-*.pkg.tar.zst && \
+	makepkg -sf && sudo pacman -U --overwrite '*' cbzmanager-*.pkg.tar.zst
 
 clean:
 	rm -rf bin/tests obj/tests bin/testchecks obj/testchecks

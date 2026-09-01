@@ -1,6 +1,6 @@
 # Maintainer: Alessandro <nihmar@users.noreply.github.com>
 pkgname=cbzmanager
-pkgver=0.1.0
+pkgver=0.1.1
 pkgrel=1
 pkgdesc="CBZ comic archive manager (desktop application and headless CLI)"
 arch=('x86_64')

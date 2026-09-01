@@ -35,6 +35,11 @@ type
     procedure UrlProviderRejectsLoose;
     procedure SearchRejectsEmpty;
     procedure ParsersStampSource;
+    procedure ParseOpenLibraryBasic;
+    procedure ParseOpenLibrarySkipsCoverless;
+    procedure ParseOpenLibraryTitleParts;
+    procedure ParseOpenLibraryMissingDocs;
+    procedure ParseOpenLibraryInvalidJson;
   end;
 
 implementation
@@ -49,6 +54,14 @@ const
     '{"title":"Dog","url":"https://ex.com/dog.jpg","foreign_landing_url":"https://page.com/dog","license":"BY"}' +
     ']}';
 
+  OPENLIBRARY_JSON =
+    '{"numFound":2,"start":0,"docs":[' +
+    '{"key":"/works/OL2897789W","title":"Batman",' +
+    '"author_name":["Alan Moore","Brian Bolland"],' +
+    '"cover_i":2737891,"first_publish_year":1988},' +
+    '{"key":"/works/OL999W","title":"No Cover Here","first_publish_year":1970}' +
+    ']}';
+
   WIKIMEDIA_JSON =
     '{"query":{"pages":{"123":{"title":"File:Cat.jpg","imageinfo":[' +
     '{"url":"https://upload.wikimedia.org/cat.jpg","thumburl":"https://upload.wikimedia.org/cat_320.jpg",' +
@@ -59,6 +72,7 @@ procedure TImgSrcTest.ProviderToNameAll;
 begin
   AssertEquals('openverse', 'Openverse', ProviderToName(ispOpenverse));
   AssertEquals('wikimedia', 'Wikimedia Commons', ProviderToName(ispWikimedia));
+  AssertEquals('openlibrary', 'Open Library', ProviderToName(ispOpenLibrary));
   AssertEquals('url', 'Image URL', ProviderToName(ispUrl));
 end;
 
@@ -206,6 +220,78 @@ begin
   AssertEquals('msg2', 'Enter search terms', Err);
 end;
 
+procedure TImgSrcTest.ParseOpenLibraryBasic;
+var
+  R: TSearchResults;
+  Err: string;
+begin
+  AssertTrue('parse ok', ParseOpenLibraryResults(OPENLIBRARY_JSON, R, Err));
+  AssertEquals('one usable', 1, Length(R));
+  AssertEquals('source', Ord(ispOpenLibrary), Ord(R[0].Source));
+  AssertEquals('full is the large cover',
+    'https://covers.openlibrary.org/b/id/2737891-L.jpg?default=false',
+    R[0].FullURL);
+  AssertEquals('thumb is the medium cover',
+    'https://covers.openlibrary.org/b/id/2737891-M.jpg?default=false',
+    R[0].ThumbURL);
+  AssertEquals('page', 'https://openlibrary.org/works/OL2897789W', R[0].PageURL);
+  AssertEquals('.jpg', R[0].Ext);
+  { The query string must not confuse extension detection. }
+  AssertEquals('ext from url', '.jpg', GuessExtFromURL(R[0].FullURL));
+end;
+
+procedure TImgSrcTest.ParseOpenLibrarySkipsCoverless;
+var
+  R: TSearchResults;
+  Err: string;
+begin
+  AssertTrue('parse ok', ParseOpenLibraryResults(OPENLIBRARY_JSON, R, Err));
+  { The second doc has no cover_i: there is no image to offer. }
+  AssertEquals('coverless dropped', 1, Length(R));
+end;
+
+procedure TImgSrcTest.ParseOpenLibraryTitleParts;
+var
+  R: TSearchResults;
+  Err: string;
+  J: string;
+begin
+  AssertTrue('full', ParseOpenLibraryResults(OPENLIBRARY_JSON, R, Err));
+  AssertEquals('title with year and author',
+    'Batman (1988) — Alan Moore', R[0].Title);
+
+  J := '{"docs":[{"title":"Bare","cover_i":7}]}';
+  AssertTrue('bare', ParseOpenLibraryResults(J, R, Err));
+  AssertEquals('title alone', 'Bare', R[0].Title);
+
+  J := '{"docs":[{"title":"Yearly","cover_i":7,"first_publish_year":1955}]}';
+  AssertTrue('year only', ParseOpenLibraryResults(J, R, Err));
+  AssertEquals('title with year', 'Yearly (1955)', R[0].Title);
+
+  J := '{"docs":[{"cover_i":7,"author_name":["Solo"]}]}';
+  AssertTrue('no title', ParseOpenLibraryResults(J, R, Err));
+  AssertEquals('untitled fallback', '(untitled) — Solo', R[0].Title);
+end;
+
+procedure TImgSrcTest.ParseOpenLibraryMissingDocs;
+var
+  R: TSearchResults;
+  Err: string;
+begin
+  AssertFalse('no docs', ParseOpenLibraryResults('{"numFound":0}', R, Err));
+  AssertTrue('error names docs', Pos('docs', Err) > 0);
+  AssertEquals('no results', 0, Length(R));
+end;
+
+procedure TImgSrcTest.ParseOpenLibraryInvalidJson;
+var
+  R: TSearchResults;
+  Err: string;
+begin
+  AssertFalse('malformed', ParseOpenLibraryResults('{oops', R, Err));
+  AssertEquals('error prefix', 'Invalid JSON: ', Copy(Err, 1, 14));
+end;
+
 { Merged multi-provider result sets are labelled and de-duplicated by
   Source, so each parser must stamp its own origin. }
 procedure TImgSrcTest.ParsersStampSource;
@@ -218,6 +304,9 @@ begin
   AssertEquals('openverse source 1', Ord(ispOpenverse), Ord(R[1].Source));
   AssertTrue('wikimedia parse', ParseWikimediaResults(WIKIMEDIA_JSON, R, Err));
   AssertEquals('wikimedia source', Ord(ispWikimedia), Ord(R[0].Source));
+  AssertTrue('openlibrary parse',
+    ParseOpenLibraryResults(OPENLIBRARY_JSON, R, Err));
+  AssertEquals('openlibrary source', Ord(ispOpenLibrary), Ord(R[0].Source));
   AssertTrue('url ok', SearchImages('https://ex.com/cat.png', ispUrl, R, Err));
   AssertEquals('url source', Ord(ispUrl), Ord(R[0].Source));
 end;

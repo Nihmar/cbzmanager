@@ -302,7 +302,8 @@ end;
 { TdlgAddImage }
 
 { Combo entries, in LFM order:
-    0 All sources   1 Openverse   2 Wikimedia Commons   3 Image URL }
+    0 All sources   1 Openverse   2 Wikimedia Commons   3 Open Library
+    4 Image URL }
 function TdlgAddImage.ScopeProviders: TProviderList;
 begin
   case CbProvider.ItemIndex of
@@ -314,19 +315,24 @@ begin
          SetLength(Result, 1);
          Result[0] := ispWikimedia;
        end;
-    3: SetLength(Result, 0);   { URL mode issues no search }
+    3: begin
+         SetLength(Result, 1);
+         Result[0] := ispOpenLibrary;
+       end;
+    4: SetLength(Result, 0);   { URL mode issues no search }
     else
       begin
-        SetLength(Result, 2);
+        SetLength(Result, 3);
         Result[0] := ispOpenverse;
         Result[1] := ispWikimedia;
+        Result[2] := ispOpenLibrary;
       end;
   end;
 end;
 
 function TdlgAddImage.ScopeIsUrl: boolean;
 begin
-  Result := CbProvider.ItemIndex = 3;
+  Result := CbProvider.ItemIndex = 4;
 end;
 
 function TdlgAddImage.AlreadyListed(const AUrl: string): boolean;
@@ -440,19 +446,25 @@ begin
 end;
 
 procedure TdlgAddImage.LoadSettings;
+var
+  i: integer;
 begin
-  { Key renamed from 'Provider': the combo gained an "All sources" entry at
-    index 0, so old stored indices no longer mean the same thing. }
-  CbProvider.ItemIndex := AppSettings.ReadInteger('AddImage', 'Source', 0);
-  if (CbProvider.ItemIndex < 0) or
-     (CbProvider.ItemIndex >= CbProvider.Items.Count) then
-    CbProvider.ItemIndex := 0;
+  { Stored by name rather than by index: the list has already been reordered
+    twice, and an index silently comes back meaning a different source.  An
+    unknown or stale value (including the integer older builds wrote) simply
+    falls back to the first entry. }
+  i := CbProvider.Items.IndexOf(AppSettings.ReadString('AddImage', 'Source', ''));
+  if i < 0 then
+    i := 0;
+  CbProvider.ItemIndex := i;
   EdQuery.Text := AppSettings.ReadString('AddImage', 'Query', '');
 end;
 
 procedure TdlgAddImage.SaveSettings;
 begin
-  AppSettings.WriteInteger('AddImage', 'Source', CbProvider.ItemIndex);
+  if CbProvider.ItemIndex >= 0 then
+    AppSettings.WriteString('AddImage', 'Source',
+      CbProvider.Items[CbProvider.ItemIndex]);
   AppSettings.WriteString('AddImage', 'Query', EdQuery.Text);
 end;
 
@@ -490,6 +502,7 @@ end;
 procedure TdlgAddImage.DoSearch;
 var
   Provs: TProviderList;
+  Err: string;
   i: integer;
 begin
   { Any search still running keeps going until its next transfer callback
@@ -524,6 +537,15 @@ begin
     Exit;
   end;
   FMultiSource := Length(Provs) > 1;
+
+  { Load OpenSSL here, on the main thread: FPC 3.2.2 initialises it with a
+    broken double-checked lock, so letting several workers race for it makes
+    all but one fail.  See PrepareSSL. }
+  if not PrepareSSL(Err) then
+  begin
+    ShowInfo(Err, True);
+    Exit;
+  end;
 
   SetBusy(True);
   if FMultiSource then

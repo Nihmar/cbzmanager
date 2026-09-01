@@ -33,8 +33,10 @@ type
     method returning its own Terminated flag. }
   TAbortQuery = function: boolean of object;
 
-  { Search backends exposed in the UI. }
-  TImageSearchProvider = (ispOpenverse, ispWikimedia, ispUrl);
+  { Search backends exposed in the UI.  ispUrl is not a backend: it wraps a
+    URL the user pasted.  Order is presentation only - nothing maps a combo
+    index onto these ordinals. }
+  TImageSearchProvider = (ispOpenverse, ispWikimedia, ispOpenLibrary, ispUrl);
 
   { A single hit returned by a search.  ThumbURL is what the picker shows;
     FullURL is the actual image bytes that get inserted into the CBZ.
@@ -67,22 +69,28 @@ function SearchImages(const AQuery: string; AProvider: TImageSearchProvider;
 function DownloadImage(const URL: string; out Stream: TMemoryStream;
   out ErrMsg: string; AAbort: TAbortQuery = nil): boolean;
 
-{ Parses a raw Openverse / Wikimedia JSON body into result records.  Exposed
-  separately from the network layer so it can be unit-tested offline. }
+{ Parses a raw provider JSON body into result records.  Exposed separately
+  from the network layer so each one can be unit-tested offline. }
 function ParseOpenverseResults(const JSON: string; out Results: TSearchResults;
   out ErrMsg: string): boolean;
 function ParseWikimediaResults(const JSON: string; out Results: TSearchResults;
+  out ErrMsg: string): boolean;
+function ParseOpenLibraryResults(const JSON: string; out Results: TSearchResults;
   out ErrMsg: string): boolean;
 
 { Best-effort file extension (leading dot) inferred from a URL's path. }
 function GuessExtFromURL(const URL: string): string;
 
+{ Loads the OpenSSL interface up front.  MUST be called from the main thread
+  before starting any worker that may issue an https request; see the note on
+  the implementation for why.  Returns False (with ErrMsg) when no OpenSSL
+  library is available at all. }
+function PrepareSSL(out ErrMsg: string): boolean;
+
 implementation
 
-{$IFDEF WINDOWS}
 uses
-  DynLibs, openssl;
-{$ENDIF}
+  openssl{$IFDEF WINDOWS}, DynLibs{$ENDIF};
 
 const
   { Wikimedia's User-Agent policy requires a descriptive agent carrying a
@@ -90,6 +98,13 @@ const
   USER_AGENT = 'cbzmanager/1.0 (+https://github.com/Nihmar/cbzmanager)';
   OPENVERSE_API = 'https://api.openverse.org/v1/images/';
   WIKIMEDIA_API = 'https://commons.wikimedia.org/w/api.php';
+  OPENLIBRARY_API = 'https://openlibrary.org/search.json';
+  { Covers are addressed by numeric cover id.  That form is exempt from the
+    100-requests-per-5-minutes cap the covers API puts on ISBN/OCLC/LCCN
+    lookups.  '?default=false' turns a missing cover into a 404 instead of a
+    blank placeholder image. }
+  OPENLIBRARY_COVER = 'https://covers.openlibrary.org/b/id/';
+  OPENLIBRARY_WORK = 'https://openlibrary.org';
   IMAGE_EXTS: array[0..7] of string =
     ('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tif', '.tiff');
 
@@ -188,12 +203,32 @@ begin
 end;
 {$ENDIF}
 
+{ FPC 3.2.2's InitSSLInterface has a broken double-checked lock
+  (openssl.pas): the thread that LOSES the race enters the critical section,
+  finds SSLloaded already True and Exits — leaving Result at the False it was
+  given before the lock.  opensslsockets.MaybeInitSSLInterface reads that
+  False as a failure and raises "Could not initialize OpenSSL library", so
+  firing several search workers at once makes all but the winner fail for no
+  reason.  Loading once from the main thread means every worker's
+  "if not IsSSLloaded" short-circuits and none of them ever enters the racy
+  path. }
+function PrepareSSL(out ErrMsg: string): boolean;
+begin
+  ErrMsg := '';
+  Result := IsSSLloaded;
+  if not Result then
+    Result := InitSSLInterface;
+  if not Result then
+    ErrMsg := ExplainNetError('Could not initialize OpenSSL library');
+end;
+
 function ProviderToName(P: TImageSearchProvider): string;
 begin
   case P of
-    ispOpenverse: Result := 'Openverse';
-    ispWikimedia: Result := 'Wikimedia Commons';
-    ispUrl:       Result := 'Image URL';
+    ispOpenverse:   Result := 'Openverse';
+    ispWikimedia:   Result := 'Wikimedia Commons';
+    ispOpenLibrary: Result := 'Open Library';
+    ispUrl:         Result := 'Image URL';
   end;
 end;
 
@@ -242,6 +277,17 @@ begin
   v := o.Find(Key);
   if Assigned(v) and (v.JSONType = jtString) then
     Result := v.AsString;
+end;
+
+function JInt(o: TJSONObject; const Key: string; Def: integer): integer;
+var
+  v: TJSONData;
+begin
+  Result := Def;
+  if o = nil then Exit;
+  v := o.Find(Key);
+  if Assigned(v) and (v.JSONType = jtNumber) then
+    Result := v.AsInteger;
 end;
 
 { Single GET returning the body as a string.  Sets AllowRedirect and a
@@ -507,6 +553,101 @@ begin
   end;
 end;
 
+function SearchOpenLibrary(const AQuery: string; out Results: TSearchResults;
+  out ErrMsg: string; AAbort: TAbortQuery): boolean;
+var
+  URL, Body: string;
+begin
+  Result := False;
+  SetLength(Results, 0);
+  { 'fields' keeps the response small: the default document carries dozens of
+    arrays we would only throw away. }
+  URL := OPENLIBRARY_API + '?q=' + URLEncode(AQuery) +
+    '&limit=20&fields=key,title,author_name,cover_i,first_publish_year';
+  if not HttpGetString(URL, Body, ErrMsg, AAbort) then Exit;
+  Result := ParseOpenLibraryResults(Body, Results, ErrMsg);
+end;
+
+{ "Title (year) - First Author", skipping whichever parts are absent. }
+function OpenLibraryTitle(el: TJSONObject): string;
+var
+  Year: integer;
+  Authors: TJSONArray;
+begin
+  Result := JStr(el, 'title', '(untitled)');
+  Year := JInt(el, 'first_publish_year', 0);
+  if Year > 0 then
+    Result := Result + ' (' + IntToStr(Year) + ')';
+  Authors := AsArr(el.Find('author_name'));
+  if (Authors <> nil) and (Authors.Count > 0) and
+     (Authors.Items[0].JSONType = jtString) then
+    Result := Result + ' — ' + Authors.Items[0].AsString;
+end;
+
+function ParseOpenLibraryResults(const JSON: string; out Results: TSearchResults;
+  out ErrMsg: string): boolean;
+var
+  data, docs: TJSONData;
+  arr: TJSONArray;
+  i, n, Cover: integer;
+  el: TJSONObject;
+  Key: string;
+  r: TSearchResult;
+begin
+  Result := False;
+  SetLength(Results, 0);
+  ErrMsg := '';
+  data := nil;
+  try
+    try
+      data := GetJSON(JSON);
+    except
+      on E: Exception do
+      begin
+        ErrMsg := 'Invalid JSON: ' + E.Message;
+        Exit;
+      end;
+    end;
+    docs := data.FindPath('docs');
+    arr := AsArr(docs);
+    if arr = nil then
+    begin
+      ErrMsg := 'No "docs" array in response';
+      Exit;
+    end;
+    SetLength(Results, arr.Count);
+    n := 0;
+    for i := 0 to arr.Count - 1 do
+    begin
+      el := AsObj(arr.Items[i]);
+      if el = nil then Continue;
+      { No cover id means the edition has no scanned cover — nothing to add. }
+      Cover := JInt(el, 'cover_i', 0);
+      if Cover <= 0 then Continue;
+      r.Source := ispOpenLibrary;
+      r.Title := OpenLibraryTitle(el);
+      r.FullURL := OPENLIBRARY_COVER + IntToStr(Cover) + '-L.jpg?default=false';
+      r.ThumbURL := OPENLIBRARY_COVER + IntToStr(Cover) + '-M.jpg?default=false';
+      Key := JStr(el, 'key', '');
+      if Key <> '' then
+        r.PageURL := OPENLIBRARY_WORK + Key
+      else
+        r.PageURL := '';
+      { Unlike the other two backends this is not a free-licence pool: the
+        cover art belongs to whoever published the edition.  Say so rather
+        than leaving the label blank, which would read as "unrestricted". }
+      r.License := 'Cover art — rights vary by edition';
+      r.Ext := '.jpg';
+      Results[n] := r;
+      Inc(n);
+    end;
+    SetLength(Results, n);
+    Result := True;
+  finally
+    data.Free;
+  end;
+end;
+
 function SearchImages(const AQuery: string; AProvider: TImageSearchProvider;
   out Results: TSearchResults; out ErrMsg: string;
   AAbort: TAbortQuery): boolean;
@@ -527,6 +668,8 @@ begin
       Result := SearchOpenverse(q, Results, ErrMsg, AAbort);
     ispWikimedia:
       Result := SearchWikimedia(q, Results, ErrMsg, AAbort);
+    ispOpenLibrary:
+      Result := SearchOpenLibrary(q, Results, ErrMsg, AAbort);
     ispUrl:
       begin
         if not (StartsText('http://', q) or StartsText('https://', q)) then

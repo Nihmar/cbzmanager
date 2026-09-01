@@ -263,6 +263,8 @@ type
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure FormKeyDown(Sender: TObject; var Key: word; Shift: TShiftState);
+    procedure FormKeyUp(Sender: TObject; var Key: word; Shift: TShiftState);
+    procedure FormDeactivate(Sender: TObject);
     procedure LVFilesDblClick(Sender: TObject);
     procedure LVFilesMouseDown(Sender: TObject; Button: TMouseButton;
       Shift: TShiftState; X, Y: integer);
@@ -374,6 +376,12 @@ type
     FReassertTicks: integer;
     FReassertStable: integer;
     FPendingList: TListView;
+    { Live modifier-key state tracked via OnKeyDown / OnKeyUp so that
+      LVFilesMouseDown can detect Shift+Ctrl+click even when the Qt6
+      widgetset drops ssShift from the mouse event's Shift parameter
+      and GetKeyState fails to reflect the live keyboard state. }
+    FKeyShiftDown: boolean;
+    FKeyCtrlDown: boolean;
     { Stages Stream as the new first page.  Takes ownership of Stream.
       Shared by the "add from file" and "add from internet" entry points. }
     procedure AddFrontFromStream(Stream: TMemoryStream; const Desc: string);
@@ -553,6 +561,8 @@ begin
   FAnchorFiles := -1;
   FAnchorPages := -1;
   FPendingFocus := -1;
+  FKeyShiftDown := False;
+  FKeyCtrlDown := False;
   SetupILFilesFirstPages;
   SetupILPages;
   SetupLVFiles;
@@ -601,6 +611,12 @@ end;
 }
 procedure TfrmMain.FormKeyDown(Sender: TObject; var Key: word; Shift: TShiftState);
 begin
+  { Track live modifier state before any key-specific handling.  OnKeyDown
+    fires reliably for individual key events on Qt6 (unlike the Shift parameter
+    delivered with mouse events). }
+  if Key = VK_SHIFT then FKeyShiftDown := True;
+  if Key = VK_CONTROL then FKeyCtrlDown := True;
+
   if (Key = VK_ESCAPE) and PanelSingleFile.Visible then
   begin
     HidePreview;
@@ -655,6 +671,31 @@ begin
       Key := 0;
     end;
   end;
+end;
+
+{
+  FormKeyUp
+  ---------
+  Clears the tracked modifier flag when the key is released so that
+  LVFilesMouseDown sees the correct state on the next click.
+}
+procedure TfrmMain.FormKeyUp(Sender: TObject; var Key: word; Shift: TShiftState);
+begin
+  if Key = VK_SHIFT then FKeyShiftDown := False;
+  if Key = VK_CONTROL then FKeyCtrlDown := False;
+end;
+
+{
+  FormDeactivate
+  --------------
+  Resets tracked modifier state when the form loses focus so that a
+  modifier key released while another window is active does not leave
+  a stale flag.
+}
+procedure TfrmMain.FormDeactivate(Sender: TObject);
+begin
+  FKeyShiftDown := False;
+  FKeyCtrlDown := False;
 end;
 
 {
@@ -1712,8 +1753,13 @@ begin
     Qt6: a Ctrl+Shift+click is sometimes delivered with only ssCtrl set (ssShift
     dropped), which would misroute it into the Ctrl-toggle branch.  Back the event
     flags with the live keyboard state so Shift/Ctrl are detected regardless. }
-  ShiftDown := (ssShift in Shift) or (GetKeyState(VK_SHIFT) < 0);
-  CtrlDown := (ssCtrl in Shift) or (GetKeyState(VK_CONTROL) < 0);
+  { Prefer the live OnKeyDown/OnKeyUp tracking — the Qt6 widgetset sometimes
+    drops ssShift from the mouse event's Shift parameter (especially for
+    Ctrl+Shift+click), and GetKeyState can also fail to reflect the live
+    keyboard state during mouse events.  Fall back to the event flags and
+    GetKeyState for robustness. }
+  ShiftDown := FKeyShiftDown or (ssShift in Shift) or (GetKeyState(VK_SHIFT) < 0);
+  CtrlDown := FKeyCtrlDown or (ssCtrl in Shift) or (GetKeyState(VK_CONTROL) < 0);
 
   { Any new mouse gesture cancels a pending re-assert, except the second press
     of a double-click (which carries ssDouble) so the first click's pending

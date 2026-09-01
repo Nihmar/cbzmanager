@@ -13,6 +13,8 @@ object frmMain: TfrmMain
   OnCreate = FormCreate
   OnDestroy = FormDestroy
   OnKeyDown = FormKeyDown
+  OnKeyUp = FormKeyUp
+  OnDeactivate = FormDeactivate
   object ToolBar: TToolBar
     Left = 4
     Height = 22

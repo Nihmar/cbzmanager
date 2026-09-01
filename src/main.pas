@@ -366,11 +366,13 @@ type
       / ReassertPendingSelection. }
     FPendingSel: TIntegerDynArray;
     FPendingFocus: integer;
-    { How many more times ReassertPendingSelection should re-apply the pending
-      selection.  The Qt6 widgetset can run its own selection reconcile on a
-      later message-loop tick than our first re-apply, so we re-apply a couple
-      of times to guarantee our authoritative selection is the final word. }
+    { Message-loop ticks ReassertPendingSelection may still spend watching the
+      selection, and how many consecutive ticks it has already found it
+      untouched.  A widgetset runs its own click reconcile on whichever tick it
+      pleases, so rather than guess a fixed number of re-applies we watch until
+      the selection has stayed ours, giving up after the cap. }
     FReassertTicks: integer;
+    FReassertStable: integer;
     FPendingList: TListView;
     { Stages Stream as the new first page.  Takes ownership of Stream.
       Shared by the "add from file" and "add from internet" entry points. }
@@ -437,6 +439,10 @@ type
     { Make exactly the indices in A selected (clearing everything else); focus
       the item at AFocus when the selection is a single item so the context menu
       acts on the right row. }
+    { True when exactly the items in A are selected in ALV. }
+    function SelectionMatches(ALV: TListView; const A: array of integer): boolean;
+    { Forget the pending re-assert. }
+    procedure ClearPendingSel;
     procedure ApplySelection(ALV: TListView; const A: array of integer;
       AFocus: integer);
     { Record the selection to re-apply after the native reconcile and update the
@@ -509,6 +515,17 @@ const
   THUMB_MIN_SIZE = 48;        // smallest width the zoom slider allows
   THUMB_RENDER_FLOOR = 16;    // absolute lower bound when rendering thumbs
   ZOOM_STEP = 32;             // width change per zoom-in / zoom-out step
+
+  { Selection re-assert (see ReassertPendingSelection).  In icon view both
+    widgetsets read a shift+click as a rectangular block spanning the visual
+    rows between their own anchor and the click, not as the contiguous range
+    we want, and each runs that reconcile on whichever message-loop tick it
+    likes.  Losing that race is not cosmetic: the file and page operations
+    act on the list view's real selection, so a stale block would be what
+    Delete deletes.  Watch the selection until it has stayed ours for STABLE
+    ticks in a row, and give up after MAX. }
+  REASSERT_STABLE_TICKS = 2;
+  REASSERT_MAX_TICKS = 12;
 
 resourcestring
   { Status-bar messages used from more than one handler. }
@@ -1117,9 +1134,7 @@ begin
   ClearPreview;
   PanelSingleFile.Visible := False;
   SplitterPreview.Visible := False;
-  FPendingList := nil;
-  FPendingSel := nil;
-  FPendingFocus := -1;
+  ClearPendingSel;
   { The floating page view shows a page of the closed preview; hide it too. }
   if FPageView <> nil then
     FPageView.Hide;
@@ -1510,11 +1525,7 @@ begin
     SetPendingSel(LVFiles, [It.Index], It.Index);
   end
   else
-  begin
-    FPendingList := nil;
-    FPendingSel := nil;
-    FPendingFocus := -1;
-  end;
+    ClearPendingSel;
   OpenPreview(It);
 end;
 
@@ -1595,6 +1606,32 @@ begin
     FAnchorFiles := AIndex
   else
     FAnchorPages := AIndex;
+end;
+
+function TfrmMain.SelectionMatches(ALV: TListView;
+  const A: array of integer): boolean;
+var
+  i: integer;
+begin
+  Result := False;
+  { Compare sizes first: a selection of equal size that fully contains A is
+    A, since every index in A is unique by construction.  SelCount is a single
+    query, where counting item by item costs a widgetset round trip each. }
+  if ALV.SelCount <> Length(A) then Exit;
+  for i := 0 to High(A) do
+    if (A[i] < 0) or (A[i] >= ALV.Items.Count) or
+       not ALV.Items[A[i]].Selected then
+      Exit;
+  Result := True;
+end;
+
+procedure TfrmMain.ClearPendingSel;
+begin
+  FPendingList := nil;
+  FPendingSel := nil;
+  FPendingFocus := -1;
+  FReassertStable := 0;
+  FReassertTicks := 0;
 end;
 
 procedure TfrmMain.ApplySelection(ALV: TListView; const A: array of integer;
@@ -1682,11 +1719,7 @@ begin
     of a double-click (which carries ssDouble) so the first click's pending
     selection survives into the completed double-click. }
   if not (ssDouble in Shift) then
-  begin
-    FPendingList := nil;
-    FPendingSel := nil;
-    FPendingFocus := -1;
-  end;
+    ClearPendingSel;
 
   if Button = mbRight then
   begin
@@ -1776,31 +1809,33 @@ end;
 procedure TfrmMain.ReassertPendingSelection(Data: PtrInt);
 var
   LV: TListView;
-  Sel: TIntegerDynArray;
-  Focus: integer;
 begin
   if (FPendingList = nil) or (FPendingList.Items.Count = 0) then
   begin
-    FPendingList := nil;
-    FPendingSel := nil;
-    FPendingFocus := -1;
+    ClearPendingSel;
     Exit;
   end;
   LV := FPendingList;
-  Sel := FPendingSel;
-  Focus := FPendingFocus;
-  ApplySelection(LV, Sel, Focus);
-  if FReassertTicks > 0 then
-  begin
-    Dec(FReassertTicks);
-    Application.QueueAsyncCall(@ReassertPendingSelection, 0);
-  end
+
+  { Only touch the list when it actually differs: re-applying an already
+    correct selection fires selection-change events for nothing. }
+  if SelectionMatches(LV, FPendingSel) then
+    Inc(FReassertStable)
   else
   begin
-    FPendingList := nil;
-    FPendingSel := nil;
-    FPendingFocus := -1;
+    ApplySelection(LV, FPendingSel, FPendingFocus);
+    FReassertStable := 0;
   end;
+
+  if FReassertTicks > 0 then
+    Dec(FReassertTicks);
+  { Done once the selection has survived untouched for a couple of ticks.
+    The cap is only a backstop against a widgetset that insists on undoing
+    us every single tick; without it this would spin forever. }
+  if (FReassertStable >= REASSERT_STABLE_TICKS) or (FReassertTicks <= 0) then
+    ClearPendingSel
+  else
+    Application.QueueAsyncCall(@ReassertPendingSelection, 0);
 end;
 
 {
@@ -1846,10 +1881,12 @@ procedure TfrmMain.LVFilesMouseUp(Sender: TObject; Button: TMouseButton;
   Shift: TShiftState; X, Y: integer);
 begin
   if FPendingList = nil then Exit;
-  { Re-apply a few times: the Qt6 widgetset can run its own selection reconcile
-    on a later message-loop tick than our first re-apply, so repeating guarantees
-    our authoritative selection is the final word. }
-  FReassertTicks := 2;
+  { Watch the selection until it stays ours rather than re-applying a fixed
+    number of times: each widgetset picks its own tick to reconcile the click,
+    so a fixed count tuned against one of them loses the race on the other —
+    and it did, on both.  See ReassertPendingSelection. }
+  FReassertTicks := REASSERT_MAX_TICKS;
+  FReassertStable := 0;
   Application.QueueAsyncCall(@ReassertPendingSelection, 0);
 end;
 

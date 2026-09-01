@@ -37,8 +37,11 @@ type
   TImageSearchProvider = (ispOpenverse, ispWikimedia, ispUrl);
 
   { A single hit returned by a search.  ThumbURL is what the picker shows;
-    FullURL is the actual image bytes that get inserted into the CBZ. }
+    FullURL is the actual image bytes that get inserted into the CBZ.
+    Source records which backend produced it, so a merged multi-provider
+    result set can still label and group its entries. }
   TSearchResult = record
+    Source: TImageSearchProvider;
     Title: string;
     ThumbURL: string;
     FullURL: string;
@@ -76,6 +79,11 @@ function GuessExtFromURL(const URL: string): string;
 
 implementation
 
+{$IFDEF WINDOWS}
+uses
+  DynLibs, openssl;
+{$ENDIF}
+
 const
   { Wikimedia's User-Agent policy requires a descriptive agent carrying a
     contact URL; a bare product token is answered with 403. }
@@ -112,6 +120,73 @@ begin
   if Assigned(FAbort) and FAbort() then
     raise EDownloadAborted.Create('Cancelled');
 end;
+
+{ opensslsockets surfaces a failed InitSSLInterface as a bare "Could not
+  initialize OpenSSL library", which says nothing about the actual cause:
+  no libssl/libcrypto under any of the names FPC 3.2.2 knows could be
+  loaded.  Say what is missing instead. }
+function ExplainNetError(const AMsg: string): string;
+begin
+  Result := AMsg;
+  if Pos('openssl', LowerCase(AMsg)) > 0 then
+    Result := AMsg + ' — HTTPS is unavailable: no OpenSSL library could be ' +
+{$IFDEF WINDOWS}
+      'loaded.  Windows ships none under the names FPC looks for; place ' +
+      'libcrypto-3-x64.dll and libssl-3-x64.dll (or the 1.1 pair) next to ' +
+      'cbzmanager.exe and restart.';
+{$ELSE}
+      'loaded.  Install the OpenSSL runtime and make sure libssl.so / ' +
+      'libcrypto.so are on the loader path, then restart.';
+{$ENDIF}
+end;
+
+{$IFDEF WINDOWS}
+{ FPC 3.2.2's openssl unit only looks for the OpenSSL 1.0/1.1 DLL names
+  (libeay32 / ssleay32 / libssl-1_1-x64), and Windows ships nothing under
+  those — so InitSSLInterface fails outright and every HTTPS request dies
+  before it starts.  Current Windows builds do carry a 3.x (and 4.x) pair in
+  System32, and fpopenssl's default stAny path asks for TLS_method, which
+  those export (SSLv23_method, the fallback, is gone in 3.x) — so binding
+  them works.  DLLSSLName / DLLUtilName are plain vars, so point them at the
+  first pair that actually loads.  If none do we change nothing, leaving
+  FPC's own names to pick up a 1.1.1 pair shipped beside the executable. }
+procedure BindSystemOpenSSL;
+const
+  {$IFDEF WIN64}
+  ARCH_SUFFIX = '-x64';
+  {$ELSE}
+  ARCH_SUFFIX = '';
+  {$ENDIF}
+  { 3 first: it is the ubiquitous, well-understood ABI.  Some Windows
+    installs also carry a "-4-" pair; take it only if no 3 is present. }
+  MAJORS: array[0..1] of string = ('3', '4');
+var
+  i: integer;
+  Ssl, Crypto: string;
+  hSsl, hCrypto: TLibHandle;
+begin
+  for i := Low(MAJORS) to High(MAJORS) do
+  begin
+    Crypto := 'libcrypto-' + MAJORS[i] + ARCH_SUFFIX + '.dll';
+    Ssl := 'libssl-' + MAJORS[i] + ARCH_SUFFIX + '.dll';
+    hCrypto := DynLibs.LoadLibrary(Crypto);
+    if hCrypto = NilHandle then Continue;
+    hSsl := DynLibs.LoadLibrary(Ssl);
+    if hSsl = NilHandle then
+    begin
+      UnloadLibrary(hCrypto);
+      Continue;
+    end;
+    { Both resolve.  Drop the probe handles — the openssl unit loads them
+      again through its own refcount when it initialises. }
+    UnloadLibrary(hSsl);
+    UnloadLibrary(hCrypto);
+    DLLUtilName := Crypto;
+    DLLSSLName := Ssl;
+    Exit;
+  end;
+end;
+{$ENDIF}
 
 function ProviderToName(P: TImageSearchProvider): string;
 begin
@@ -197,7 +272,7 @@ begin
         ErrMsg := Format('HTTP %d from %s', [http.ResponseStatusCode, URL]);
     except
       on E: Exception do
-        ErrMsg := E.Message;
+        ErrMsg := ExplainNetError(E.Message);
     end;
   finally
     http.Free;
@@ -241,7 +316,7 @@ begin
       on E: Exception do
       begin
         FreeAndNil(Stream);
-        ErrMsg := E.Message;
+        ErrMsg := ExplainNetError(E.Message);
       end;
     end;
   finally
@@ -325,6 +400,7 @@ begin
     begin
       el := AsObj(arr.Items[i]);
       if el = nil then Continue;
+      r.Source := ispOpenverse;
       r.Title := JStr(el, 'title', '(untitled)');
       r.FullURL := JStr(el, 'url', '');
       r.ThumbURL := JStr(el, 'thumbnail', '');
@@ -404,6 +480,7 @@ begin
       im := AsObj(arr.Items[0]);
       if im = nil then Continue;
 
+      r.Source := ispWikimedia;
       r.Title := JStr(TJSONObject(page), 'title', '(untitled)');
       r.FullURL := JStr(im, 'url', '');
       r.ThumbURL := JStr(im, 'thumburl', r.FullURL);
@@ -459,6 +536,7 @@ begin
           Exit;
         end;
         SetLength(Results, 1);
+        Results[0].Source := ispUrl;
         Results[0].Title := q;
         Results[0].FullURL := q;
         Results[0].ThumbURL := q;
@@ -469,5 +547,12 @@ begin
       end;
   end;
 end;
+
+initialization
+{$IFDEF WINDOWS}
+  { Runs before any worker thread exists, so writing the two name vars here
+    needs no locking. }
+  BindSystemOpenSSL;
+{$ENDIF}
 
 end.

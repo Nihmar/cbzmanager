@@ -45,6 +45,7 @@ inherited dlgAddImage: TdlgAddImage
     BorderSpacing.Around = 4
     ItemIndex = 0
     Items.Strings = (
+      'All sources'
       'Openverse'
       'Wikimedia Commons'
       'Image URL'
@@ -52,7 +53,7 @@ inherited dlgAddImage: TdlgAddImage
     OnChange = CbProviderChange
     Style = csDropDownList
     TabOrder = 1
-    Text = 'Openverse'
+    Text = 'All sources'
   end
   object BtnSearch: TButton[3]
     Left = 456

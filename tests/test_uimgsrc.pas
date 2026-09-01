@@ -34,6 +34,7 @@ type
     procedure GuessExtCombined;
     procedure UrlProviderRejectsLoose;
     procedure SearchRejectsEmpty;
+    procedure ParsersStampSource;
   end;
 
 implementation
@@ -203,6 +204,22 @@ begin
   AssertEquals('msg', 'Enter search terms', Err);
   AssertFalse('url empty', SearchImages('   ', ispUrl, R, Err));
   AssertEquals('msg2', 'Enter search terms', Err);
+end;
+
+{ Merged multi-provider result sets are labelled and de-duplicated by
+  Source, so each parser must stamp its own origin. }
+procedure TImgSrcTest.ParsersStampSource;
+var
+  R: TSearchResults;
+  Err: string;
+begin
+  AssertTrue('openverse parse', ParseOpenverseResults(OPENVERSE_JSON, R, Err));
+  AssertEquals('openverse source', Ord(ispOpenverse), Ord(R[0].Source));
+  AssertEquals('openverse source 1', Ord(ispOpenverse), Ord(R[1].Source));
+  AssertTrue('wikimedia parse', ParseWikimediaResults(WIKIMEDIA_JSON, R, Err));
+  AssertEquals('wikimedia source', Ord(ispWikimedia), Ord(R[0].Source));
+  AssertTrue('url ok', SearchImages('https://ex.com/cat.png', ispUrl, R, Err));
+  AssertEquals('url source', Ord(ispUrl), Ord(R[0].Source));
 end;
 
 procedure TImgSrcTest.ParseOpenverseInvalidJson;

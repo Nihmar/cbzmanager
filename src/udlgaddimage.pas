@@ -19,7 +19,10 @@ unit udlgaddimage;
   "Sender = F<x>Thread" guard so a superseded worker's result is ignored.
   A worker that is no longer wanted (the user searched again, picked another
   result, or closed the dialog) is detached with
-  OnTerminate := nil; Terminate; F<x>Thread := nil.
+  OnTerminate := nil; Terminate; F<x>Thread := nil.  A search can run several
+  providers at once, so its workers are tracked in FSearchThreads and guarded
+  by FSearchEpoch instead of by pointer identity: a worker stamped with an
+  older epoch has been superseded and its results are dropped.
   Terminate is honoured mid-transfer via the TAbortQuery handed down to
   uimgsrc, so a detached worker abandons its download at the next transfer
   callback instead of running a 20 MB body to completion.
@@ -41,20 +44,25 @@ uses
   IntfGraphics, udlgbase, usettings, uimgsrc, uzipeditor, uimgutil;
 
 type
+  TProviderList = array of TImageSearchProvider;
+
   { Background worker that runs a provider search off the main thread. }
   TSearchThread = class(TThread)
   private
     FQuery: string;
     FProvider: TImageSearchProvider;
+    FEpoch: integer;
     FResults: TSearchResults;
     FErrMsg: string;
     FOk: boolean;
     { Polled by uimgsrc during the transfer so Terminate takes effect. }
     function IsAborted: boolean;
   public
-    constructor Create(const AQuery: string; AProvider: TImageSearchProvider);
+    constructor Create(const AQuery: string; AProvider: TImageSearchProvider;
+      AEpoch: integer);
     procedure Execute; override;
     property Ok: boolean read FOk;
+    property Epoch: integer read FEpoch;
     property Provider: TImageSearchProvider read FProvider;
     property Results: TSearchResults read FResults;
     property ErrMsg: string read FErrMsg;
@@ -126,10 +134,24 @@ type
     FPreviewStream: TMemoryStream;
     FPreviewURL: string;
     FImageStream: TMemoryStream;
-    FSearchThread: TSearchThread;
+    { Workers of the current search, one per queried provider. }
+    FSearchThreads: array of TSearchThread;
+    { Bumped by every new search; a worker stamped with an older value has
+      been superseded and its results are discarded. }
+    FSearchEpoch: integer;
+    FSearchPending: integer;
+    FSearchErrors: string;
+    FMultiSource: boolean;
     FPreviewThread: TPreviewThread;
     FFetchThread: TFetchThread;
-    function CurrentProvider: TImageSearchProvider;
+    { The providers the current combo entry queries (empty for URL mode). }
+    function ScopeProviders: TProviderList;
+    function ScopeIsUrl: boolean;
+    { True when FullURL is already in FResults - providers overlap. }
+    function AlreadyListed(const AUrl: string): boolean;
+    procedure AppendResult(const AResult: TSearchResult);
+    procedure DetachSearches;
+    procedure RemoveSearchThread(AThread: TSearchThread);
     procedure ClearPreview;
     procedure ShowInfo(const Msg: string; IsError: boolean);
     procedure DoSearch;
@@ -158,11 +180,12 @@ implementation
 { TSearchThread }
 
 constructor TSearchThread.Create(const AQuery: string;
-  AProvider: TImageSearchProvider);
+  AProvider: TImageSearchProvider; AEpoch: integer);
 begin
   inherited Create(True);
   FQuery := AQuery;
   FProvider := AProvider;
+  FEpoch := AEpoch;
   SetLength(FResults, 0);
   FErrMsg := '';
   FOk := False;
@@ -278,23 +301,96 @@ end;
 
 { TdlgAddImage }
 
-function TdlgAddImage.CurrentProvider: TImageSearchProvider;
+{ Combo entries, in LFM order:
+    0 All sources   1 Openverse   2 Wikimedia Commons   3 Image URL }
+function TdlgAddImage.ScopeProviders: TProviderList;
 begin
-  if (CbProvider.ItemIndex >= 0) and
-     (CbProvider.ItemIndex <= Ord(High(TImageSearchProvider))) then
-    Result := TImageSearchProvider(CbProvider.ItemIndex)
-  else
-    Result := ispOpenverse;
+  case CbProvider.ItemIndex of
+    1: begin
+         SetLength(Result, 1);
+         Result[0] := ispOpenverse;
+       end;
+    2: begin
+         SetLength(Result, 1);
+         Result[0] := ispWikimedia;
+       end;
+    3: SetLength(Result, 0);   { URL mode issues no search }
+    else
+      begin
+        SetLength(Result, 2);
+        Result[0] := ispOpenverse;
+        Result[1] := ispWikimedia;
+      end;
+  end;
+end;
+
+function TdlgAddImage.ScopeIsUrl: boolean;
+begin
+  Result := CbProvider.ItemIndex = 3;
+end;
+
+function TdlgAddImage.AlreadyListed(const AUrl: string): boolean;
+var
+  i: integer;
+begin
+  Result := False;
+  if AUrl = '' then Exit;
+  for i := 0 to High(FResults) do
+    if SameText(FResults[i].FullURL, AUrl) then
+      Exit(True);
+end;
+
+{ Appends one hit to the model and to the list box, keeping the two index
+  aligned - SelectResult and BtnAddClick both index FResults by row. }
+procedure TdlgAddImage.AppendResult(const AResult: TSearchResult);
+var
+  n: integer;
+  Row: string;
+begin
+  n := Length(FResults);
+  SetLength(FResults, n + 1);
+  FResults[n] := AResult;
+  Row := AResult.Title;
+  { Only worth the noise when more than one backend can appear in the list. }
+  if FMultiSource then
+    Row := '[' + ProviderToName(AResult.Source) + '] ' + Row;
+  LstResults.Items.Add(Row);
+end;
+
+procedure TdlgAddImage.RemoveSearchThread(AThread: TSearchThread);
+var
+  i, j: integer;
+begin
+  for i := 0 to High(FSearchThreads) do
+    if FSearchThreads[i] = AThread then
+    begin
+      for j := i to High(FSearchThreads) - 1 do
+        FSearchThreads[j] := FSearchThreads[j + 1];
+      SetLength(FSearchThreads, Length(FSearchThreads) - 1);
+      Exit;
+    end;
+end;
+
+{ Detaches every worker of the current search.  Bumping the epoch is what
+  actually invalidates them: a worker already past its abort check still
+  reaches SearchDone, which drops it on the epoch test. }
+procedure TdlgAddImage.DetachSearches;
+var
+  i: integer;
+begin
+  Inc(FSearchEpoch);
+  for i := 0 to High(FSearchThreads) do
+  begin
+    FSearchThreads[i].OnTerminate := nil;
+    FSearchThreads[i].Terminate;
+  end;
+  SetLength(FSearchThreads, 0);
+  FSearchPending := 0;
 end;
 
 procedure TdlgAddImage.DetachThreads;
 begin
-  if Assigned(FSearchThread) then
-  begin
-    FSearchThread.OnTerminate := nil;
-    FSearchThread.Terminate;
-    FSearchThread := nil;
-  end;
+  DetachSearches;
   if Assigned(FPreviewThread) then
   begin
     FPreviewThread.OnTerminate := nil;
@@ -334,6 +430,10 @@ begin
   FPreviewStream := nil;
   FPreviewURL := '';
   FImageStream := nil;
+  FSearchEpoch := 0;
+  FSearchPending := 0;
+  FSearchErrors := '';
+  FMultiSource := False;
   BtnAdd.Enabled := False;
   InitSettingsPersistence;
   CbProviderChange(nil);
@@ -341,22 +441,24 @@ end;
 
 procedure TdlgAddImage.LoadSettings;
 begin
-  CbProvider.ItemIndex := AppSettings.ReadInteger('AddImage', 'Provider', 0);
+  { Key renamed from 'Provider': the combo gained an "All sources" entry at
+    index 0, so old stored indices no longer mean the same thing. }
+  CbProvider.ItemIndex := AppSettings.ReadInteger('AddImage', 'Source', 0);
   if (CbProvider.ItemIndex < 0) or
-     (CbProvider.ItemIndex > Ord(High(TImageSearchProvider))) then
+     (CbProvider.ItemIndex >= CbProvider.Items.Count) then
     CbProvider.ItemIndex := 0;
   EdQuery.Text := AppSettings.ReadString('AddImage', 'Query', '');
 end;
 
 procedure TdlgAddImage.SaveSettings;
 begin
-  AppSettings.WriteInteger('AddImage', 'Provider', CbProvider.ItemIndex);
+  AppSettings.WriteInteger('AddImage', 'Source', CbProvider.ItemIndex);
   AppSettings.WriteString('AddImage', 'Query', EdQuery.Text);
 end;
 
 procedure TdlgAddImage.CbProviderChange(Sender: TObject);
 begin
-  if CurrentProvider = ispUrl then
+  if ScopeIsUrl then
     BtnSearch.Caption := 'Fetch'
   else
     BtnSearch.Caption := 'Search';
@@ -386,61 +488,127 @@ begin
 end;
 
 procedure TdlgAddImage.DoSearch;
+var
+  Provs: TProviderList;
+  i: integer;
 begin
-  { Detach any search still running: it keeps going until its next transfer
-    callback notices Terminated, and its OnTerminate becomes a no-op. }
-  if Assigned(FSearchThread) then
-  begin
-    FSearchThread.OnTerminate := nil;
-    FSearchThread.Terminate;
-    FSearchThread := nil;
-  end;
+  { Any search still running keeps going until its next transfer callback
+    notices Terminated; the epoch bump makes its results irrelevant. }
+  DetachSearches;
   ClearPreview;
   BtnAdd.Enabled := False;
   LstResults.Clear;
   FResults := nil;
   FSelected := -1;
+  FSearchErrors := '';
+
+  if Trim(EdQuery.Text) = '' then
+  begin
+    if ScopeIsUrl then
+      ShowInfo('Paste an image URL first.', True)
+    else
+      ShowInfo('Enter search terms.', True);
+    Exit;
+  end;
+
+  if ScopeIsUrl then
+  begin
+    SetLength(Provs, 1);
+    Provs[0] := ispUrl;
+  end
+  else
+    Provs := ScopeProviders;
+  if Length(Provs) = 0 then
+  begin
+    ShowInfo('No source selected.', True);
+    Exit;
+  end;
+  FMultiSource := Length(Provs) > 1;
 
   SetBusy(True);
-  ShowInfo('Searching…', False);
-  FSearchThread := TSearchThread.Create(EdQuery.Text, CurrentProvider);
-  FSearchThread.OnTerminate := @SearchDone;
-  FSearchThread.Start;
+  if FMultiSource then
+    ShowInfo(Format('Searching %d sources…', [Length(Provs)]), False)
+  else
+    ShowInfo('Searching…', False);
+
+  { Create every worker before starting any, so FSearchPending is already
+    final when the first one finishes. }
+  SetLength(FSearchThreads, Length(Provs));
+  FSearchPending := Length(Provs);
+  for i := 0 to High(Provs) do
+  begin
+    FSearchThreads[i] := TSearchThread.Create(EdQuery.Text, Provs[i],
+      FSearchEpoch);
+    FSearchThreads[i].OnTerminate := @SearchDone;
+  end;
+  for i := 0 to High(FSearchThreads) do
+    FSearchThreads[i].Start;
 end;
 
 procedure TdlgAddImage.SearchDone(Sender: TObject);
 var
   th: TSearchThread;
   i: integer;
+  WasUrl: boolean;
 begin
-  { Stale worker (superseded or detached at close) — ignore it. }
-  if Sender <> FSearchThread then Exit;
   th := TSearchThread(Sender);
-  FSearchThread := nil;
-  SetBusy(False);
+  { Superseded by a newer search, or detached at close. }
+  if th.Epoch <> FSearchEpoch then Exit;
+  RemoveSearchThread(th);
+  if FSearchPending > 0 then
+    Dec(FSearchPending);
+  WasUrl := th.Provider = ispUrl;
+
   if th.Ok then
   begin
-    FResults := th.Results;
-    if Length(FResults) = 0 then
-      ShowInfo('No images found.', False)
-    else
-    begin
-      for i := 0 to High(FResults) do
-        LstResults.Items.Add(FResults[i].Title);
-      if (th.Provider = ispUrl) and (Length(FResults) = 1) then
-      begin
-        { A pasted URL yields exactly one hit — preview it straight away
-          instead of making the user click the single row. }
-        LstResults.ItemIndex := 0;
-        SelectResult(0);
-      end
-      else
-        ShowInfo(Format('%d image(s) found. Pick one and press Add.',
-          [Length(FResults)]), False);
-    end;
+    { Providers overlap (Wikimedia images resurface through Openverse), so
+      merge on FullURL rather than concatenating blindly. }
+    for i := 0 to High(th.Results) do
+      if not AlreadyListed(th.Results[i].FullURL) then
+        AppendResult(th.Results[i]);
   end
+  else if th.ErrMsg <> '' then
+  begin
+    if FSearchErrors <> '' then
+      FSearchErrors := FSearchErrors + '; ';
+    FSearchErrors := FSearchErrors +
+      ProviderToName(th.Provider) + ': ' + th.ErrMsg;
+  end;
+
+  { Wait for every provider before settling the UI. }
+  if FSearchPending > 0 then
+  begin
+    ShowInfo(Format('%d image(s) so far, %d source(s) still searching…',
+      [Length(FResults), FSearchPending]), False);
+    Exit;
+  end;
+
+  SetBusy(False);
+  if Length(FResults) = 0 then
+  begin
+    if FSearchErrors <> '' then
+      ShowInfo(FSearchErrors, True)
+    else
+      ShowInfo('No images found.', False);
+    Exit;
+  end;
+
+  if WasUrl and (Length(FResults) = 1) then
+  begin
+    { A pasted URL yields exactly one hit — preview it straight away
+      instead of making the user click the single row. }
+    LstResults.ItemIndex := 0;
+    SelectResult(0);
+    Exit;
+  end;
+
+  if FSearchErrors <> '' then
+    { Partial success: say so rather than silently showing a short list. }
+    ShowInfo(Format('%d image(s) found. Some sources failed — %s',
+      [Length(FResults), FSearchErrors]), True)
   else
-    ShowInfo(th.ErrMsg, True);
+    ShowInfo(Format('%d image(s) found. Pick one and press Add.',
+      [Length(FResults)]), False);
 end;
 
 procedure TdlgAddImage.LstResultsClick(Sender: TObject);

@@ -56,6 +56,13 @@ type
     procedure ParseMetIdsEmptyIsNotAnError;
     procedure ParseMetObjectBasic;
     procedure ParseMetObjectRejectsImageless;
+    procedure ParseMangaDexSeriesBasic;
+    procedure ParseMangaDexSeriesOddTitles;
+    procedure ParseMangaDexSeriesMissingData;
+    procedure ParseMangaDexCoversBasic;
+    procedure ParseMangaDexCoversVolumeless;
+    procedure ParseMangaDexCoversUnknownSeries;
+    procedure ParseMangaDexCoversSkipsIncomplete;
   end;
 
 implementation
@@ -77,6 +84,28 @@ const
     '"cover_i":2737891,"first_publish_year":1988},' +
     '{"key":"/works/OL999W","title":"No Cover Here","first_publish_year":1970}' +
     ']}';
+
+  MANGADEX_SERIES_JSON =
+    '{"result":"ok","response":"collection","data":[' +
+    '{"id":"30196491-8fc2-4961-8886-a58f898b1b3e","type":"manga",' +
+    '"attributes":{"title":{"ja-ro":"Boushoku no Berserk"}}},' +
+    '{"id":"aaa-bbb","type":"manga",' +
+    '"attributes":{"title":{"en":"Berserk","ja-ro":"Berserk JA"}}}' +
+    '],"total":2}';
+
+  MANGADEX_COVERS_JSON =
+    '{"result":"ok","data":[' +
+    '{"id":"c1","type":"cover_art","attributes":{"volume":"1",' +
+    '"fileName":"94a8a850-aae1-4b37-969a-09491ca47092.jpg","locale":"ja"},' +
+    '"relationships":[{"id":"30196491-8fc2-4961-8886-a58f898b1b3e",' +
+    '"type":"manga"}]},' +
+    '{"id":"c2","type":"cover_art","attributes":{"volume":null,' +
+    '"fileName":"zzz.jpg","locale":"en"},' +
+    '"relationships":[{"id":"aaa-bbb","type":"manga"}]},' +
+    '{"id":"c3","type":"cover_art","attributes":{"volume":"2",' +
+    '"fileName":"qqq.jpg"},' +
+    '"relationships":[{"id":"not-in-the-search","type":"manga"}]}' +
+    '],"total":3}';
 
   ARTIC_JSON =
     '{"data":[' +
@@ -124,6 +153,8 @@ const
 
 procedure TImgSrcTest.ProviderToNameAll;
 begin
+  AssertEquals('mangadex', 'MangaDex (manga volumes)',
+    ProviderToName(ispMangaDex));
   AssertEquals('openverse', 'Openverse', ProviderToName(ispOpenverse));
   AssertEquals('wikimedia', 'Wikimedia Commons', ProviderToName(ispWikimedia));
   AssertEquals('openlibrary', 'Open Library', ProviderToName(ispOpenLibrary));
@@ -657,6 +688,126 @@ begin
   AssertFalse('no image',
     ParseMetObject('{"objectID":1,"title":"T","primaryImage":""}', R));
   AssertFalse('malformed', ParseMetObject('{nope', R));
+end;
+
+procedure TImgSrcTest.ParseMangaDexSeriesBasic;
+var
+  S: TMangaSeriesList;
+  Err: string;
+begin
+  AssertTrue('parse ok', ParseMangaDexSeries(MANGADEX_SERIES_JSON, S, Err));
+  AssertEquals('two series', 2, Length(S));
+  AssertEquals('id', '30196491-8fc2-4961-8886-a58f898b1b3e', S[0].Id);
+  { Only a romanised title is on offer here. }
+  AssertEquals('ja-ro title', 'Boushoku no Berserk', S[0].Title);
+  { English wins when both are present. }
+  AssertEquals('en preferred', 'Berserk', S[1].Title);
+end;
+
+procedure TImgSrcTest.ParseMangaDexSeriesOddTitles;
+var
+  S: TMangaSeriesList;
+  Err: string;
+  J: string;
+begin
+  { Neither en nor ja-ro: fall back to whatever locale is there. }
+  J := '{"data":[{"id":"x","attributes":{"title":{"de":"Nur Deutsch"}}}]}';
+  AssertTrue('parse ok', ParseMangaDexSeries(J, S, Err));
+  AssertEquals('other locale', 'Nur Deutsch', S[0].Title);
+
+  { No title map at all still yields a usable row. }
+  J := '{"data":[{"id":"y","attributes":{}}]}';
+  AssertTrue('parse ok', ParseMangaDexSeries(J, S, Err));
+  AssertEquals('placeholder', '(untitled)', S[0].Title);
+
+  { An entry with no id cannot be keyed to its covers. }
+  J := '{"data":[{"attributes":{"title":{"en":"Orphan"}}}]}';
+  AssertTrue('parse ok', ParseMangaDexSeries(J, S, Err));
+  AssertEquals('dropped', 0, Length(S));
+end;
+
+procedure TImgSrcTest.ParseMangaDexSeriesMissingData;
+var
+  S: TMangaSeriesList;
+  Err: string;
+begin
+  AssertFalse('no data', ParseMangaDexSeries('{"result":"ok"}', S, Err));
+  AssertTrue('error names data', Pos('data', Err) > 0);
+  AssertFalse('malformed', ParseMangaDexSeries('{bad', S, Err));
+  AssertEquals('error prefix', 'Invalid JSON: ', Copy(Err, 1, 14));
+end;
+
+procedure TImgSrcTest.ParseMangaDexCoversBasic;
+var
+  S: TMangaSeriesList;
+  R: TSearchResults;
+  Err: string;
+begin
+  AssertTrue('series ok', ParseMangaDexSeries(MANGADEX_SERIES_JSON, S, Err));
+  AssertTrue('covers ok',
+    ParseMangaDexCovers(MANGADEX_COVERS_JSON, S, R, Err));
+  AssertEquals('three covers', 3, Length(R));
+  AssertEquals('source', Ord(ispMangaDex), Ord(R[0].Source));
+  { The volume number is the whole point: it must reach the row label. }
+  AssertEquals('volume row', 'Boushoku no Berserk — Vol. 1 [ja]', R[0].Title);
+  AssertEquals('full',
+    'https://uploads.mangadex.org/covers/30196491-8fc2-4961-8886-a58f898b1b3e/' +
+    '94a8a850-aae1-4b37-969a-09491ca47092.jpg', R[0].FullURL);
+  { The CDN derives thumbnails by suffixing the full file name. }
+  AssertEquals('thumb', R[0].FullURL + '.512.jpg', R[0].ThumbURL);
+  AssertEquals('page',
+    'https://mangadex.org/title/30196491-8fc2-4961-8886-a58f898b1b3e',
+    R[0].PageURL);
+  AssertEquals('.jpg', R[0].Ext);
+end;
+
+procedure TImgSrcTest.ParseMangaDexCoversVolumeless;
+var
+  S: TMangaSeriesList;
+  R: TSearchResults;
+  Err: string;
+begin
+  AssertTrue('series ok', ParseMangaDexSeries(MANGADEX_SERIES_JSON, S, Err));
+  AssertTrue('covers ok',
+    ParseMangaDexCovers(MANGADEX_COVERS_JSON, S, R, Err));
+  { volume is null on covers not tied to a numbered volume; they are still
+    worth offering, just labelled honestly. }
+  AssertEquals('no volume', 'Berserk — (no volume) [en]', R[1].Title);
+end;
+
+procedure TImgSrcTest.ParseMangaDexCoversUnknownSeries;
+var
+  S: TMangaSeriesList;
+  R: TSearchResults;
+  Err: string;
+begin
+  AssertTrue('series ok', ParseMangaDexSeries(MANGADEX_SERIES_JSON, S, Err));
+  AssertTrue('covers ok',
+    ParseMangaDexCovers(MANGADEX_COVERS_JSON, S, R, Err));
+  { A cover whose manga relationship is not among the searched series still
+    has a usable image, so it is kept rather than dropped.  No locale on this
+    one either, so no bracket. }
+  AssertEquals('unknown series', '(unknown series) — Vol. 2', R[2].Title);
+end;
+
+procedure TImgSrcTest.ParseMangaDexCoversSkipsIncomplete;
+var
+  S: TMangaSeriesList;
+  R: TSearchResults;
+  Err: string;
+  J: string;
+begin
+  SetLength(S, 0);
+  { No fileName means no image; no manga relationship means no URL to build. }
+  J := '{"data":[' +
+       '{"id":"a","attributes":{"volume":"1"},' +
+       '"relationships":[{"id":"m","type":"manga"}]},' +
+       '{"id":"b","attributes":{"volume":"2","fileName":"f.jpg"},' +
+       '"relationships":[{"id":"au","type":"author"}]}' +
+       ']}';
+  AssertTrue('parse ok', ParseMangaDexCovers(J, S, R, Err));
+  AssertEquals('both dropped', 0, Length(R));
+  AssertFalse('no data', ParseMangaDexCovers('{"result":"ok"}', S, R, Err));
 end;
 
 initialization

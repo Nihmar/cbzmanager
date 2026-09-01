@@ -185,13 +185,14 @@ implementation
 {$R *.lfm}
 
 const
-  { "All sources" spans eight backends.  Firing them all at once buys little —
+  { "All sources" spans every backend.  Firing them all at once buys little —
     the wait is set by the slowest — while opening eight TLS connections and
     making the museum APIs see a burst.  Four at a time keeps the search
     prompt without that. }
   MAX_CONCURRENT_SEARCHES = 4;
-  { Hits per provider when several are queried.  Eight backends at the full
-    limit would drop 160 rows into the list, which is not a picker any more. }
+  { Hits per provider when several are queried.  Every backend at the full
+    limit would drop close to 200 rows into the list, which is not a picker
+    any more. }
   MULTI_SOURCE_LIMIT = 8;
 
 { TSearchThread }
@@ -323,10 +324,24 @@ end;
 { One search backend per combo entry, in LFM order after "All sources";
   the last entry is the URL pseudo-provider, which issues no search. }
 const
-  SCOPE_PROVIDERS: array[1..8] of TImageSearchProvider =
-    (ispOpenverse, ispWikimedia, ispOpenLibrary, ispArtInstitute,
+  SCOPE_PROVIDERS: array[1..9] of TImageSearchProvider =
+    (ispMangaDex, ispOpenverse, ispWikimedia, ispOpenLibrary, ispArtInstitute,
      ispMet, ispCleveland, ispWellcome, ispNasa);
   SCOPE_URL_INDEX = High(SCOPE_PROVIDERS) + 1;
+
+{ Combo entry selected when nothing has been stored yet.  MangaDex is the
+  only backend that indexes covers per volume, which is what a manga CBZ
+  wants; the rest give at most one image per work.  Looked up rather than
+  hard-coded so reordering SCOPE_PROVIDERS cannot silently change it. }
+function DefaultScopeIndex: integer;
+var
+  i: integer;
+begin
+  Result := 0;   { "All sources", if MangaDex ever goes away }
+  for i := Low(SCOPE_PROVIDERS) to High(SCOPE_PROVIDERS) do
+    if SCOPE_PROVIDERS[i] = ispMangaDex then
+      Exit(i);
+end;
 
 function TdlgAddImage.ScopeProviders: TProviderList;
 var
@@ -498,7 +513,7 @@ begin
     falls back to the first entry. }
   i := CbProvider.Items.IndexOf(AppSettings.ReadString('AddImage', 'Source', ''));
   if i < 0 then
-    i := 0;
+    i := DefaultScopeIndex;
   CbProvider.ItemIndex := i;
   EdQuery.Text := AppSettings.ReadString('AddImage', 'Query', '');
 end;

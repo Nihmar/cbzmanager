@@ -43,8 +43,9 @@ type
   { Search backends exposed in the UI.  ispUrl is not a backend: it wraps a
     URL the user pasted.  Order is presentation only - nothing maps a combo
     index onto these ordinals. }
-  TImageSearchProvider = (ispOpenverse, ispWikimedia, ispOpenLibrary,
-    ispArtInstitute, ispMet, ispCleveland, ispWellcome, ispNasa, ispUrl);
+  TImageSearchProvider = (ispMangaDex, ispOpenverse, ispWikimedia,
+    ispOpenLibrary, ispArtInstitute, ispMet, ispCleveland, ispWellcome,
+    ispNasa, ispUrl);
 
   { A single hit returned by a search.  ThumbURL is what the picker shows;
     FullURL is the actual image bytes that get inserted into the CBZ.
@@ -61,6 +62,14 @@ type
   end;
   TSearchResults = array of TSearchResult;
   TIntegerArray = array of integer;
+
+  { A MangaDex series: its id is what the cover endpoint is keyed on, and its
+    title is what labels each of that series' volume covers. }
+  TMangaSeries = record
+    Id: string;
+    Title: string;
+  end;
+  TMangaSeriesList = array of TMangaSeries;
 
 function ProviderToName(P: TImageSearchProvider): string;
 
@@ -100,6 +109,12 @@ function ParseNasaResults(const JSON: string; out Results: TSearchResults;
 function ParseMetIds(const JSON: string; out Ids: TIntegerArray;
   out ErrMsg: string): boolean;
 function ParseMetObject(const JSON: string; out R: TSearchResult): boolean;
+{ MangaDex is likewise two-stage: matching series first, then every volume
+  cover of all of them in one further call. }
+function ParseMangaDexSeries(const JSON: string; out Series: TMangaSeriesList;
+  out ErrMsg: string): boolean;
+function ParseMangaDexCovers(const JSON: string; const ASeries: TMangaSeriesList;
+  out Results: TSearchResults; out ErrMsg: string): boolean;
 
 { Best-effort file extension (leading dot) inferred from a URL's path. }
 function GuessExtFromURL(const URL: string): string;
@@ -139,6 +154,12 @@ const
   CLEVELAND_API = 'https://openaccess-api.clevelandart.org/api/artworks/';
   WELLCOME_API = 'https://api.wellcomecollection.org/catalogue/v2/works';
   NASA_API = 'https://images-api.nasa.gov/search';
+  MANGADEX_API = 'https://api.mangadex.org';
+  MANGADEX_COVER = 'https://uploads.mangadex.org/covers/';
+  MANGADEX_TITLE = 'https://mangadex.org/title/';
+  { Each series contributes all of its volumes, so a few series already fill
+    the picker.  Also keeps the second request's URL a sane length. }
+  MANGADEX_SERIES_LIMIT = 5;
   IMAGE_EXTS: array[0..7] of string =
     ('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tif', '.tiff');
 
@@ -259,6 +280,7 @@ end;
 function ProviderToName(P: TImageSearchProvider): string;
 begin
   case P of
+    ispMangaDex:     Result := 'MangaDex (manga volumes)';
     ispOpenverse:    Result := 'Openverse';
     ispWikimedia:    Result := 'Wikimedia Commons';
     ispOpenLibrary:  Result := 'Open Library';
@@ -1201,6 +1223,228 @@ begin
   Result := True;
 end;
 
+{ ---------------------------------------------------------------------------
+  MangaDex — the only backend here that indexes covers per VOLUME rather than
+  one image per work, which is what a CBZ of a manga volume actually needs.
+
+  Two requests, regardless of how many series match:
+    1. /manga?title=...          -> series ids and titles
+    2. /cover?manga[]=&manga[]=  -> every volume cover of all of them at once
+  The cover endpoint takes repeated manga[] parameters, so the second stage
+  does not grow with the number of series the way the Met's does.
+  --------------------------------------------------------------------------- }
+
+{ attributes.title is a locale map, e.g. {"en": "..."} or {"ja-ro": "..."}.
+  Prefer English, then romanised Japanese, then whatever is there. }
+function MangaDexTitle(o: TJSONObject): string;
+var
+  Titles: TJSONObject;
+begin
+  Result := '';
+  Titles := AsObj(o.Find('title'));
+  if Titles = nil then Exit;
+  Result := JStr(Titles, 'en', '');
+  if Result = '' then
+    Result := JStr(Titles, 'ja-ro', '');
+  if (Result = '') and (Titles.Count > 0) and
+     (Titles.Items[0].JSONType = jtString) then
+    Result := Titles.Items[0].AsString;
+end;
+
+function ParseMangaDexSeries(const JSON: string; out Series: TMangaSeriesList;
+  out ErrMsg: string): boolean;
+var
+  data: TJSONData;
+  arr: TJSONArray;
+  i, n: integer;
+  el: TJSONObject;
+  Id, Title: string;
+begin
+  Result := False;
+  SetLength(Series, 0);
+  ErrMsg := '';
+  data := nil;
+  try
+    try
+      data := GetJSON(JSON);
+    except
+      on E: Exception do
+      begin
+        ErrMsg := 'Invalid JSON: ' + E.Message;
+        Exit;
+      end;
+    end;
+    arr := AsArr(data.FindPath('data'));
+    if arr = nil then
+    begin
+      ErrMsg := 'No "data" array in response';
+      Exit;
+    end;
+    SetLength(Series, arr.Count);
+    n := 0;
+    for i := 0 to arr.Count - 1 do
+    begin
+      el := AsObj(arr.Items[i]);
+      if el = nil then Continue;
+      Id := JStr(el, 'id', '');
+      if Id = '' then Continue;
+      Title := MangaDexTitle(AsObj(el.Find('attributes')));
+      if Title = '' then
+        Title := '(untitled)';
+      Series[n].Id := Id;
+      Series[n].Title := Title;
+      Inc(n);
+    end;
+    SetLength(Series, n);
+    Result := True;
+  finally
+    data.Free;
+  end;
+end;
+
+{ Covers name their series through a relationship rather than a field. }
+function MangaDexCoverManga(el: TJSONObject): string;
+var
+  Rels: TJSONArray;
+  i: integer;
+  Rel: TJSONObject;
+begin
+  Result := '';
+  Rels := AsArr(el.Find('relationships'));
+  if Rels = nil then Exit;
+  for i := 0 to Rels.Count - 1 do
+  begin
+    Rel := AsObj(Rels.Items[i]);
+    if Rel = nil then Continue;
+    if JStr(Rel, 'type', '') = 'manga' then
+      Exit(JStr(Rel, 'id', ''));
+  end;
+end;
+
+function SeriesTitleFor(const ASeries: TMangaSeriesList; const AId: string): string;
+var
+  i: integer;
+begin
+  Result := '';
+  for i := 0 to High(ASeries) do
+    if ASeries[i].Id = AId then
+      Exit(ASeries[i].Title);
+end;
+
+function ParseMangaDexCovers(const JSON: string; const ASeries: TMangaSeriesList;
+  out Results: TSearchResults; out ErrMsg: string): boolean;
+var
+  data: TJSONData;
+  arr: TJSONArray;
+  i, n: integer;
+  el, Attrs: TJSONObject;
+  MangaId, FileName, Volume, Locale, Title: string;
+  r: TSearchResult;
+begin
+  Result := False;
+  SetLength(Results, 0);
+  ErrMsg := '';
+  data := nil;
+  try
+    try
+      data := GetJSON(JSON);
+    except
+      on E: Exception do
+      begin
+        ErrMsg := 'Invalid JSON: ' + E.Message;
+        Exit;
+      end;
+    end;
+    arr := AsArr(data.FindPath('data'));
+    if arr = nil then
+    begin
+      ErrMsg := 'No "data" array in response';
+      Exit;
+    end;
+    SetLength(Results, arr.Count);
+    n := 0;
+    for i := 0 to arr.Count - 1 do
+    begin
+      el := AsObj(arr.Items[i]);
+      if el = nil then Continue;
+      Attrs := AsObj(el.Find('attributes'));
+      if Attrs = nil then Continue;
+      FileName := JStr(Attrs, 'fileName', '');
+      if FileName = '' then Continue;
+      MangaId := MangaDexCoverManga(el);
+      if MangaId = '' then Continue;
+
+      Title := SeriesTitleFor(ASeries, MangaId);
+      if Title = '' then
+        Title := '(unknown series)';
+      { volume is null on covers that belong to no numbered volume. }
+      Volume := JStr(Attrs, 'volume', '');
+      if Volume <> '' then
+        Title := Title + ' ' + #$E2#$80#$94 + ' Vol. ' + Volume
+      else
+        Title := Title + ' ' + #$E2#$80#$94 + ' (no volume)';
+      { Several editions of the same volume are published per language; the
+        locale is the only thing telling them apart in the list. }
+      Locale := JStr(Attrs, 'locale', '');
+      if Locale <> '' then
+        Title := Title + ' [' + Locale + ']';
+
+      r.Source := ispMangaDex;
+      r.Title := Title;
+      r.FullURL := MANGADEX_COVER + MangaId + '/' + FileName;
+      { The CDN derives fixed-width thumbnails by suffixing the file name. }
+      r.ThumbURL := r.FullURL + '.512.jpg';
+      r.PageURL := MANGADEX_TITLE + MangaId;
+      r.License := 'Publisher cover art — rights held by the publisher';
+      r.Ext := GuessExtFromURL(FileName);
+      if r.Ext = '' then r.Ext := '.jpg';
+      Results[n] := r;
+      Inc(n);
+    end;
+    SetLength(Results, n);
+    Result := True;
+  finally
+    data.Free;
+  end;
+end;
+
+function SearchMangaDex(const AQuery: string; out Results: TSearchResults;
+  out ErrMsg: string; AAbort: TAbortQuery; ALimit: integer): boolean;
+var
+  URL, Body: string;
+  Series: TMangaSeriesList;
+  i, SeriesWanted: integer;
+begin
+  Result := False;
+  SetLength(Results, 0);
+
+  { Every matched series contributes all of its volumes, so a handful of
+    series already fills the list.  Keep the series count small and let the
+    volumes be the results. }
+  SeriesWanted := ALimit div 2;
+  if SeriesWanted < 1 then SeriesWanted := 1;
+  if SeriesWanted > MANGADEX_SERIES_LIMIT then
+    SeriesWanted := MANGADEX_SERIES_LIMIT;
+
+  URL := MANGADEX_API + '/manga?title=' + URLEncode(AQuery) +
+    '&limit=' + IntToStr(SeriesWanted);
+  if not HttpGetString(URL, Body, ErrMsg, AAbort) then Exit;
+  if not ParseMangaDexSeries(Body, Series, ErrMsg) then Exit;
+  if Length(Series) = 0 then
+  begin
+    Result := True;   { no match is an empty result, not a failure }
+    Exit;
+  end;
+  if Assigned(AAbort) and AAbort() then Exit;
+
+  { One call for every series: the endpoint accepts repeated manga[]. }
+  URL := MANGADEX_API + '/cover?limit=100&order%5Bvolume%5D=asc';
+  for i := 0 to High(Series) do
+    URL := URL + '&manga%5B%5D=' + Series[i].Id;
+  if not HttpGetString(URL, Body, ErrMsg, AAbort) then Exit;
+  Result := ParseMangaDexCovers(Body, Series, Results, ErrMsg);
+end;
+
 function SearchImages(const AQuery: string; AProvider: TImageSearchProvider;
   out Results: TSearchResults; out ErrMsg: string;
   AAbort: TAbortQuery; ALimit: integer): boolean;
@@ -1235,6 +1479,8 @@ begin
       Result := SearchWellcome(q, Results, ErrMsg, AAbort, ALimit);
     ispNasa:
       Result := SearchNasa(q, Results, ErrMsg, AAbort, ALimit);
+    ispMangaDex:
+      Result := SearchMangaDex(q, Results, ErrMsg, AAbort, ALimit);
     ispUrl:
       begin
         if not (StartsText('http://', q) or StartsText('https://', q)) then

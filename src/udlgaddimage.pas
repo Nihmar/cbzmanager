@@ -52,6 +52,7 @@ type
     FQuery: string;
     FProvider: TImageSearchProvider;
     FEpoch: integer;
+    FLimit: integer;
     FResults: TSearchResults;
     FErrMsg: string;
     FOk: boolean;
@@ -59,7 +60,7 @@ type
     function IsAborted: boolean;
   public
     constructor Create(const AQuery: string; AProvider: TImageSearchProvider;
-      AEpoch: integer);
+      AEpoch, ALimit: integer);
     procedure Execute; override;
     property Ok: boolean read FOk;
     property Epoch: integer read FEpoch;
@@ -134,8 +135,12 @@ type
     FPreviewStream: TMemoryStream;
     FPreviewURL: string;
     FImageStream: TMemoryStream;
-    { Workers of the current search, one per queried provider. }
+    { Workers running right now, at most MAX_CONCURRENT_SEARCHES of them. }
     FSearchThreads: array of TSearchThread;
+    { Providers of the current search not started yet. }
+    FPendingProviders: TProviderList;
+    { Hits asked of each provider; lowered when several are queried. }
+    FSearchLimit: integer;
     { Bumped by every new search; a worker stamped with an older value has
       been superseded and its results are discarded. }
     FSearchEpoch: integer;
@@ -151,6 +156,8 @@ type
     function AlreadyListed(const AUrl: string): boolean;
     procedure AppendResult(const AResult: TSearchResult);
     procedure DetachSearches;
+    { Start queued providers until the concurrency cap is reached. }
+    procedure StartQueuedSearches;
     procedure RemoveSearchThread(AThread: TSearchThread);
     procedure ClearPreview;
     procedure ShowInfo(const Msg: string; IsError: boolean);
@@ -177,15 +184,26 @@ implementation
 
 {$R *.lfm}
 
+const
+  { "All sources" spans eight backends.  Firing them all at once buys little —
+    the wait is set by the slowest — while opening eight TLS connections and
+    making the museum APIs see a burst.  Four at a time keeps the search
+    prompt without that. }
+  MAX_CONCURRENT_SEARCHES = 4;
+  { Hits per provider when several are queried.  Eight backends at the full
+    limit would drop 160 rows into the list, which is not a picker any more. }
+  MULTI_SOURCE_LIMIT = 8;
+
 { TSearchThread }
 
 constructor TSearchThread.Create(const AQuery: string;
-  AProvider: TImageSearchProvider; AEpoch: integer);
+  AProvider: TImageSearchProvider; AEpoch, ALimit: integer);
 begin
   inherited Create(True);
   FQuery := AQuery;
   FProvider := AProvider;
   FEpoch := AEpoch;
+  FLimit := ALimit;
   SetLength(FResults, 0);
   FErrMsg := '';
   FOk := False;
@@ -199,7 +217,8 @@ end;
 
 procedure TSearchThread.Execute;
 begin
-  FOk := SearchImages(FQuery, FProvider, FResults, FErrMsg, @Self.IsAborted);
+  FOk := SearchImages(FQuery, FProvider, FResults, FErrMsg, @Self.IsAborted,
+    FLimit);
 end;
 
 { TPreviewThread }
@@ -301,38 +320,39 @@ end;
 
 { TdlgAddImage }
 
-{ Combo entries, in LFM order:
-    0 All sources   1 Openverse   2 Wikimedia Commons   3 Open Library
-    4 Image URL }
+{ One search backend per combo entry, in LFM order after "All sources";
+  the last entry is the URL pseudo-provider, which issues no search. }
+const
+  SCOPE_PROVIDERS: array[1..8] of TImageSearchProvider =
+    (ispOpenverse, ispWikimedia, ispOpenLibrary, ispArtInstitute,
+     ispMet, ispCleveland, ispWellcome, ispNasa);
+  SCOPE_URL_INDEX = High(SCOPE_PROVIDERS) + 1;
+
 function TdlgAddImage.ScopeProviders: TProviderList;
+var
+  i: integer;
 begin
-  case CbProvider.ItemIndex of
-    1: begin
-         SetLength(Result, 1);
-         Result[0] := ispOpenverse;
-       end;
-    2: begin
-         SetLength(Result, 1);
-         Result[0] := ispWikimedia;
-       end;
-    3: begin
-         SetLength(Result, 1);
-         Result[0] := ispOpenLibrary;
-       end;
-    4: SetLength(Result, 0);   { URL mode issues no search }
-    else
-      begin
-        SetLength(Result, 3);
-        Result[0] := ispOpenverse;
-        Result[1] := ispWikimedia;
-        Result[2] := ispOpenLibrary;
-      end;
+  if CbProvider.ItemIndex = SCOPE_URL_INDEX then
+  begin
+    SetLength(Result, 0);   { URL mode issues no search }
+    Exit;
   end;
+  if (CbProvider.ItemIndex >= Low(SCOPE_PROVIDERS)) and
+     (CbProvider.ItemIndex <= High(SCOPE_PROVIDERS)) then
+  begin
+    SetLength(Result, 1);
+    Result[0] := SCOPE_PROVIDERS[CbProvider.ItemIndex];
+    Exit;
+  end;
+  { Index 0, or anything unexpected: every backend. }
+  SetLength(Result, Length(SCOPE_PROVIDERS));
+  for i := Low(SCOPE_PROVIDERS) to High(SCOPE_PROVIDERS) do
+    Result[i - Low(SCOPE_PROVIDERS)] := SCOPE_PROVIDERS[i];
 end;
 
 function TdlgAddImage.ScopeIsUrl: boolean;
 begin
-  Result := CbProvider.ItemIndex = 4;
+  Result := CbProvider.ItemIndex = SCOPE_URL_INDEX;
 end;
 
 function TdlgAddImage.AlreadyListed(const AUrl: string): boolean;
@@ -391,7 +411,30 @@ begin
     FSearchThreads[i].Terminate;
   end;
   SetLength(FSearchThreads, 0);
+  SetLength(FPendingProviders, 0);
   FSearchPending := 0;
+end;
+
+procedure TdlgAddImage.StartQueuedSearches;
+var
+  th: TSearchThread;
+  P: TImageSearchProvider;
+  i: integer;
+begin
+  while (Length(FSearchThreads) < MAX_CONCURRENT_SEARCHES) and
+        (Length(FPendingProviders) > 0) do
+  begin
+    P := FPendingProviders[0];
+    for i := 0 to High(FPendingProviders) - 1 do
+      FPendingProviders[i] := FPendingProviders[i + 1];
+    SetLength(FPendingProviders, Length(FPendingProviders) - 1);
+
+    th := TSearchThread.Create(EdQuery.Text, P, FSearchEpoch, FSearchLimit);
+    th.OnTerminate := @SearchDone;
+    SetLength(FSearchThreads, Length(FSearchThreads) + 1);
+    FSearchThreads[High(FSearchThreads)] := th;
+    th.Start;
+  end;
 end;
 
 procedure TdlgAddImage.DetachThreads;
@@ -553,18 +596,18 @@ begin
   else
     ShowInfo('Searching…', False);
 
-  { Create every worker before starting any, so FSearchPending is already
-    final when the first one finishes. }
-  SetLength(FSearchThreads, Length(Provs));
+  { FSearchPending counts running and queued alike, so it is already final
+    before the first worker can finish. }
   FSearchPending := Length(Provs);
+  if FMultiSource then
+    FSearchLimit := MULTI_SOURCE_LIMIT
+  else
+    FSearchLimit := DEFAULT_RESULT_LIMIT;
+  SetLength(FSearchThreads, 0);
+  SetLength(FPendingProviders, Length(Provs));
   for i := 0 to High(Provs) do
-  begin
-    FSearchThreads[i] := TSearchThread.Create(EdQuery.Text, Provs[i],
-      FSearchEpoch);
-    FSearchThreads[i].OnTerminate := @SearchDone;
-  end;
-  for i := 0 to High(FSearchThreads) do
-    FSearchThreads[i].Start;
+    FPendingProviders[i] := Provs[i];
+  StartQueuedSearches;
 end;
 
 procedure TdlgAddImage.SearchDone(Sender: TObject);
@@ -596,6 +639,9 @@ begin
     FSearchErrors := FSearchErrors +
       ProviderToName(th.Provider) + ': ' + th.ErrMsg;
   end;
+
+  { A slot just freed up: let the next queued provider run. }
+  StartQueuedSearches;
 
   { Wait for every provider before settling the UI. }
   if FSearchPending > 0 then

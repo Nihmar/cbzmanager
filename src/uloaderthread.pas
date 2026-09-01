@@ -204,12 +204,46 @@ type
 implementation
 
 uses
+  Math,
   uLog,
   uimgutil,
   uzipeditor,
   uservicebase,
-  uservicemerge,
-  Math;
+  uservicemerge;
+
+{ Orders by the sort position SyncAddThumbs stashed in each item's Data.
+  The list is already in this order — the point is not the comparison but
+  what CustomSort does with it; see ResyncOrder. }
+function CompareBySortIndex(Item1, Item2: TListItem;
+  AOptionalParam: PtrInt): Integer; stdcall;
+begin
+  Result := CompareValue(PtrInt(Item1.Data), PtrInt(Item2.Data));
+end;
+
+{ The LCL item list is always in the right order, but a native Win32 list
+  view in icon mode does not re-flow the icons already on screen when an item
+  is inserted ahead of them, so a parallel load looks unsorted until the user
+  happens to resize the window.  Neither LVM_ARRANGE nor LVM_UPDATE moves it:
+  with LVS_AUTOARRANGE set the control considers itself already arranged.
+
+  CustomSort is the supported way through.  It sorts the LCL list, then hands
+  the widgetset a SetSort, which on Win32 issues LVM_SORTITEMS with a
+  comparator that orders native items by their LCL item Index — so the
+  control is re-ordered to match the LCL list and re-flows for real.
+
+  The comparator agrees with the order the list is already in, so this never
+  moves an item and never disturbs the alignment between the list view and
+  the image cache.  On Qt and GTK the views lay out from the model anyway,
+  which makes this redundant but harmless.
+
+  Only call this for batches that carried real sort positions: the append
+  path stamps every item with -1, and TFPList.Sort is a quicksort, so sorting
+  on an all-equal key could permute them. }
+procedure ResyncOrder(ALV: TListView);
+begin
+  if Assigned(ALV) and ALV.HandleAllocated and (ALV.Items.Count > 1) then
+    ALV.CustomSort(@CompareBySortIndex, 0);
+end;
 
 const
   BatchSize = 12;
@@ -320,6 +354,8 @@ var
   Thumb: TBitmap;
   It: TListItem;
   Key: TLoadedItem;
+  { True once this batch has inserted an item carrying a real sort position. }
+  Sorted: boolean;
 begin
   if Terminated then
   begin
@@ -356,6 +392,7 @@ begin
     FPendingBatch[k + 1] := Key;
   end;
 
+  Sorted := False;
   FListView.BeginUpdate;
   try
     for i := 0 to FPendingCount - 1 do
@@ -364,6 +401,7 @@ begin
         pos := FListView.Items.Count
       else
       begin
+        Sorted := True;
         { Sorted insertion: pos = count of already-inserted items whose sort
           key (stored in Data) is smaller.  Items then always appear in the
           same order as the jobs, regardless of arrival order. }
@@ -399,6 +437,10 @@ begin
   finally
     FListView.EndUpdate;
   end;
+  { The batch may have inserted items ahead of ones already on screen; push
+    the order into the widget.  See ResyncOrder. }
+  if Sorted then
+    ResyncOrder(FListView);
   { Images are now owned by FPages; clear the pending batch without
     freeing them. }
   FPendingCount := 0;

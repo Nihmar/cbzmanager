@@ -1,0 +1,164 @@
+inherited dlgAddImage: TdlgAddImage
+  Left = 300
+  Height = 600
+  Top = 150
+  Width = 560
+  BorderIcons = [biSystemMenu, biMinimize, biMaximize]
+  BorderStyle = bsSizeable
+  Caption = 'Add image from internet'
+  ClientHeight = 600
+  ClientWidth = 560
+  Position = poOwnerFormCenter
+  OnCloseQuery = FormCloseQuery
+  OnCreate = FormCreate
+  object LabelQuery: TLabel[0]
+    Left = 8
+    Height = 18
+    Top = 8
+    Width = 544
+    Align = alNone
+    Anchors = [akLeft, akTop, akRight]
+    BorderSpacing.Around = 4
+    Caption = 'Search query (or image URL):'
+    Font.Height = -13
+    Font.Style = [fsBold]
+    ParentFont = False
+  end
+  object EdQuery: TEdit[1]
+    Left = 8
+    Height = 28
+    Top = 30
+    Width = 544
+    Align = alNone
+    Anchors = [akLeft, akTop, akRight]
+    BorderSpacing.Around = 4
+    TabOrder = 0
+    Text = ''
+  end
+  object CbProvider: TComboBox[2]
+    Left = 8
+    Height = 28
+    Top = 64
+    Width = 440
+    Align = alNone
+    Anchors = [akLeft, akTop, akRight]
+    BorderSpacing.Around = 4
+    ItemIndex = 1
+    Items.Strings = (
+      'All sources'
+      'MangaDex (manga volumes)'
+      'Openverse'
+      'Wikimedia Commons'
+      'Open Library'
+      'Art Institute of Chicago'
+      'Metropolitan Museum'
+      'Cleveland Museum of Art'
+      'Wellcome Collection'
+      'NASA Images'
+      'Image URL'
+    )
+    OnChange = CbProviderChange
+    Style = csDropDownList
+    TabOrder = 1
+    Text = 'MangaDex (manga volumes)'
+  end
+  object BtnSearch: TButton[3]
+    Left = 456
+    Height = 28
+    Top = 64
+    Width = 96
+    Align = alNone
+    Anchors = [akTop, akRight]
+    BorderSpacing.Around = 4
+    Caption = 'Search'
+    Default = True
+    OnClick = BtnSearchClick
+    TabOrder = 2
+  end
+  object LstResults: TListBox[4]
+    Left = 8
+    Height = 400
+    Top = 100
+    Width = 300
+    Align = alNone
+    Anchors = [akLeft, akTop, akRight, akBottom]
+    BorderSpacing.Around = 4
+    OnClick = LstResultsClick
+    TabOrder = 3
+  end
+  object ImgPreview: TImage[5]
+    Left = 320
+    Height = 300
+    Top = 100
+    Width = 232
+    Align = alNone
+    Anchors = [akTop, akRight, akBottom]
+    BorderSpacing.Around = 4
+    Stretch = True
+    Proportional = True
+  end
+  object LabelLicense: TLabel[6]
+    Left = 320
+    Height = 18
+    Top = 404
+    Width = 232
+    Align = alNone
+    Anchors = [akTop, akRight, akBottom]
+    BorderSpacing.Around = 4
+    Caption = ''
+    Font.Height = -11
+    ParentFont = False
+    ShowHint = True
+    WordWrap = True
+  end
+  object LabelInfo: TLabel[7]
+    Left = 8
+    Height = 44
+    Top = 504
+    Width = 544
+    Align = alNone
+    Anchors = [akLeft, akRight, akBottom]
+    BorderSpacing.Around = 4
+    Caption = ''
+    Font.Height = -11
+    ParentFont = False
+    WordWrap = True
+  end
+  object PanelBottom: TPanel[8]
+    Left = 0
+    Height = 48
+    Top = 552
+    Width = 560
+    Align = alBottom
+    BevelOuter = bvNone
+    ClientHeight = 48
+    ClientWidth = 560
+    TabOrder = 4
+    object BtnCancel: TButton
+      Left = 472
+      Height = 32
+      Top = 8
+      Width = 80
+      Align = alRight
+      Anchors = [akTop, akRight]
+      BorderSpacing.Around = 4
+      Cancel = True
+      Caption = 'Cancel'
+      ModalResult = 2
+      TabOrder = 0
+    end
+    object BtnAdd: TButton
+      Left = 384
+      Height = 32
+      Top = 8
+      Width = 80
+      Align = alRight
+      Anchors = [akTop, akRight]
+      BorderSpacing.Around = 4
+      Caption = 'Add'
+      Enabled = False
+      OnClick = BtnAddClick
+      TabOrder = 1
+    end
+  end
+end

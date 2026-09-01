@@ -20,7 +20,8 @@ AGENTS.md
 
 # Executables
 *.exe
-*.app           # macOS application bundles
+# macOS application bundles
+*.app
 
 # Debug / symbol files
 *.dbg
@@ -30,9 +31,21 @@ AGENTS.md
 # Linker scripts and map files
 *.link
 *.map
-*.rst           # resource string tables
-*.res           # compiled resources (intermediate)
-*.rsj           # resource string JSON (fpc >= 3.x)
+# resource string tables
+*.rst
+# compiled resources (intermediate)
+*.res
+# ...except the project resource, which carries MAINICON, the manifest and the
+# version info.  It is a build input, not an artifact, and must stay tracked.
+!cbzmanager.res
+# resource string JSON (fpc >= 3.x)
+*.rsj
+
+# FPC crash / bug report dump
+fpcdebug.txt
+
+# Throwaway compiler probe files
+/ytest.*
 
 # Cross-compilation stamps / target directories
 lib/
@@ -41,6 +54,13 @@ bin/
 obj/
 backup/
 porting/
+
+# ─── Packaging (makepkg) ─────────────────────────────────────────────────────
+
+# makepkg staging + output; pkg/ itself holds the sources (PKGBUILD, .desktop, .svg)
+pkg/pkg/
+pkg/src/
+pkg/*.pkg.tar.*
 
 # ─── Lazarus IDE ─────────────────────────────────────────────────────────────
 

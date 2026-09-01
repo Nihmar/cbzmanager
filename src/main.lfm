@@ -189,7 +189,7 @@ object frmMain: TfrmMain
       Left = 4
       Height = 494
       Top = 4
-      Width = 507
+      Width = 447
       Align = alClient
       BorderSpacing.Around = 4
       Columns = <>
@@ -209,25 +209,25 @@ object frmMain: TfrmMain
       OnMouseUp = LVFilesMouseUp
     end
     object PanelSingleFile: TPanel
-      Left = 520
+      Left = 460
       Height = 502
       Top = 0
-      Width = 480
+      Width = 540
       Align = alRight
       BevelOuter = bvNone
       ClientHeight = 502
-      ClientWidth = 480
+      ClientWidth = 540
       TabOrder = 1
       Visible = False
       object PanelPreviewTop: TPanel
         Left = 0
         Height = 30
         Top = 0
-        Width = 480
+        Width = 540
         Align = alTop
         BevelOuter = bvNone
         ClientHeight = 30
-        ClientWidth = 480
+        ClientWidth = 540
         TabOrder = 0
         object LblPreviewFile: TLabel
           Left = 4
@@ -272,11 +272,11 @@ object frmMain: TfrmMain
         Left = 0
         Height = 32
         Top = 30
-        Width = 480
+        Width = 540
         Align = alTop
         BevelOuter = bvNone
         ClientHeight = 32
-        ClientWidth = 480
+        ClientWidth = 540
         ParentShowHint = False
         ShowHint = True
         TabOrder = 1
@@ -305,8 +305,22 @@ object frmMain: TfrmMain
           TabOrder = 1
           OnClick = MnuPageAddFrontClick
         end
-        object BtnPgEdit: TButton
+        object BtnPgAddInternet: TButton
           Left = 146
+          Height = 28
+          Hint = 'Insert an image from the internet as first page'
+          Top = 2
+          Width = 74
+          Align = alLeft
+          BorderSpacing.Around = 2
+          Caption = 'Add net'
+          ParentShowHint = False
+          ShowHint = True
+          TabOrder = 2
+          OnClick = MnuPageAddInternetClick
+        end
+        object BtnPgEdit: TButton
+          Left = 224
           Height = 28
           Hint = 'Edit page image (resize / colors / split)'
           Top = 2
@@ -316,11 +330,11 @@ object frmMain: TfrmMain
           Caption = 'Edit'
           ParentShowHint = False
           ShowHint = True
-          TabOrder = 2
+          TabOrder = 3
           OnClick = MnuPageEditClick
         end
         object BtnPgMoveUp: TButton
-          Left = 198
+          Left = 276
           Height = 28
           Hint = 'Move page up'
           Top = 2
@@ -331,11 +345,11 @@ object frmMain: TfrmMain
           Caption = '▲'
           ParentShowHint = False
           ShowHint = True
-          TabOrder = 3
+          TabOrder = 4
           OnClick = MnuPageMoveUpClick
         end
         object BtnPgMoveDown: TButton
-          Left = 227
+          Left = 305
           Height = 28
           Hint = 'Move page down'
           Top = 2
@@ -345,11 +359,11 @@ object frmMain: TfrmMain
           Caption = '▼'
           ParentShowHint = False
           ShowHint = True
-          TabOrder = 4
+          TabOrder = 5
           OnClick = MnuPageMoveDownClick
         end
         object BtnPgMoveStart: TButton
-          Left = 256
+          Left = 334
           Height = 28
           Hint = 'Move to start'
           Top = 2
@@ -359,11 +373,11 @@ object frmMain: TfrmMain
           Caption = '⏮'
           ParentShowHint = False
           ShowHint = True
-          TabOrder = 5
+          TabOrder = 6
           OnClick = MnuPageMoveStartClick
         end
         object BtnPgMoveEnd: TButton
-          Left = 285
+          Left = 363
           Height = 28
           Hint = 'Move to end'
           Top = 2
@@ -373,11 +387,11 @@ object frmMain: TfrmMain
           Caption = '⏭'
           ParentShowHint = False
           ShowHint = True
-          TabOrder = 6
+          TabOrder = 7
           OnClick = MnuPageMoveEndClick
         end
         object BtnPgSort: TButton
-          Left = 314
+          Left = 392
           Height = 28
           Hint = 'Sort by name'
           Top = 2
@@ -388,11 +402,11 @@ object frmMain: TfrmMain
           Caption = '▲▼'
           ParentShowHint = False
           ShowHint = True
-          TabOrder = 7
+          TabOrder = 8
           OnClick = MnuPageSortClick
         end
         object BtnPgReverse: TButton
-          Left = 343
+          Left = 421
           Height = 28
           Hint = 'Reverse order'
           Top = 2
@@ -402,11 +416,11 @@ object frmMain: TfrmMain
           Caption = '⇆'
           ParentShowHint = False
           ShowHint = True
-          TabOrder = 8
+          TabOrder = 9
           OnClick = MnuPageReverseClick
         end
         object BtnPgMore: TButton
-          Left = 372
+          Left = 450
           Height = 28
           Hint = 'More actions'
           Top = 2
@@ -417,7 +431,7 @@ object frmMain: TfrmMain
           Caption = '⋯'
           ParentShowHint = False
           ShowHint = True
-          TabOrder = 9
+          TabOrder = 10
           OnClick = BtnPgMoreClick
         end
       end
@@ -425,11 +439,11 @@ object frmMain: TfrmMain
         Left = 0
         Height = 32
         Top = 62
-        Width = 480
+        Width = 540
         Align = alTop
         BevelOuter = bvNone
         ClientHeight = 32
-        ClientWidth = 480
+        ClientWidth = 540
         TabOrder = 2
         Visible = False
         object ShapeStageDot: TShape
@@ -489,7 +503,7 @@ object frmMain: TfrmMain
         Left = 4
         Height = 400
         Top = 98
-        Width = 472
+        Width = 532
         Align = alClient
         BorderSpacing.Around = 4
         Columns = <>
@@ -644,6 +658,13 @@ object frmMain: TfrmMain
         Caption = 'Renumber'
         OnClick = MnuPageRenumberClick
       end
+      object SepPag4: TMenuItem
+        Caption = '-'
+      end
+      object MnuPageAddInternet: TMenuItem
+        Caption = 'Add image from internet...'
+        OnClick = MnuPageAddInternetClick
+      end
     end
     object MnuView: TMenuItem
       Caption = '&View'
@@ -780,6 +801,13 @@ object frmMain: TfrmMain
     object MnuPgMoveEnd: TMenuItem
       Caption = 'Move to end'
       OnClick = MnuPageMoveEndClick
+    end
+    object SepPg2: TMenuItem
+      Caption = '-'
+    end
+    object MnuPgAddInternet: TMenuItem
+      Caption = 'Add image from internet...'
+      OnClick = MnuPageAddInternetClick
     end
   end
   object PMPageMore: TPopupMenu

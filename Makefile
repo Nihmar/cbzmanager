@@ -4,47 +4,54 @@ PREFIX  ?= /usr/local
 DESTDIR ?=
 VERSION ?= 0.1.0
 
-FPC_RTL   = /usr/lib/fpc/3.2.2/units/x86_64-linux
-LAZ_BASE  = /usr/lib/lazarus
-LAZ_UNITS = $(LAZ_BASE)/units/x86_64-linux
-QT6_UNITS = $(LAZ_BASE)/lcl/units/x86_64-linux/qt6
+FPC_VERSION ?= $(shell fpc -iV 2>/dev/null || echo 3.2.2)
+ARCH ?= x86_64-linux
+FPC_UNITS ?= /usr/lib/fpc/$(FPC_VERSION)/units/$(ARCH)
+LAZ_BASE ?= /usr/lib/lazarus
 
-UNIT_PATHS = \
-	  -Fu$(FPC_RTL)/rtl \
-	  -Fu$(LAZ_BASE)/lcl/units/x86_64-linux \
-	  -Fu$(QT6_UNITS) \
-	  -Fu$(LAZ_BASE)/components/lazutils/lib/x86_64-linux \
-	  -Fu$(LAZ_BASE)/packager/units/x86_64-linux \
-	  -Fu$(LAZ_BASE)/components/freetype/lib/x86_64-linux \
-	  -Fu$$HOME/.lazarus/lib/units/x86_64-linux/qt6 \
-	  -Fusrc -Fulib
+FPC_BASE_FU = \
+  -Fu$(FPC_UNITS)/rtl \
+  -Fu$(LAZ_BASE)/lcl/units/$(ARCH) \
+  -Fu$(LAZ_BASE)/lcl/units/$(ARCH)/qt6 \
+  -Fu$(LAZ_BASE)/components/lazutils/lib/$(ARCH) \
+  -Fu$(LAZ_BASE)/packager/units/$(ARCH) \
+  -Fu$(LAZ_BASE)/components/freetype/lib/$(ARCH) \
+  -Fu$(FPC_UNITS)/fcl-web \
+  -Fu$(FPC_UNITS)/fcl-net \
+  -Fu$(FPC_UNITS)/openssl \
+  -Fu$$HOME/.lazarus/lib/units/$(ARCH)/qt6
+
+FPC_FLAGS = -MObjFPC -Scghi -O1 -gw3 -gl -l
 
 all: build
 
 # Debug build (default)
 build:
-	mkdir -p bin/debug/x86_64-linux obj/debug/x86_64-linux
-	fpc -MObjFPC -Scghi -O1 -gw3 -gl -l \
-	  $(UNIT_PATHS) \
-	  -FEbin/debug/x86_64-linux -FUobj/debug/x86_64-linux \
+	mkdir -p bin/debug/$(ARCH) obj/debug/$(ARCH)
+	fpc $(FPC_FLAGS) \
+	  $(FPC_BASE_FU) \
+	  -Fusrc -Fulib \
+	  -FEbin/debug/$(ARCH) -FUobj/debug/$(ARCH) \
 	  -dLCL -dLCLqt6 \
 	  cbzmanager.lpr
 
 # Release build (mirrors .lpi Release mode: O3, smart link, strip, no debug)
 release:
-	mkdir -p bin/release/x86_64-linux obj/release/x86_64-linux
+	mkdir -p bin/release/$(ARCH) obj/release/$(ARCH)
 	fpc -MObjFPC -Scghi -O3 -XX -Xs -l \
-	  $(UNIT_PATHS) \
-	  -FEbin/release/x86_64-linux -FUobj/release/x86_64-linux \
+	  $(FPC_BASE_FU) \
+	  -Fusrc -Fulib \
+	  -FEbin/release/$(ARCH) -FUobj/release/$(ARCH) \
 	  -dLCL -dLCLqt6 \
 	  cbzmanager.lpr
 
 test-compile:
 	mkdir -p bin/tests obj/tests
-	fpc -MObjFPC -Scghi -O1 -gw3 -gl -l \
-	  $(UNIT_PATHS) \
-	  -Fu/usr/lib/fpc/3.2.2/units/x86_64-linux/fcl-fpcunit \
-	  -Fu/usr/lib/fpc/3.2.2/units/x86_64-linux/paszlib \
+	fpc $(FPC_FLAGS) \
+	  $(FPC_BASE_FU) \
+	  -Fu$(FPC_UNITS)/fcl-fpcunit \
+	  -Fu$(FPC_UNITS)/paszlib \
+	  -Fusrc -Fulib \
 	  -FEbin/tests -FUobj/tests \
 	  -dLCL -dLCLqt6 \
 	  tests/testrunner.pp
@@ -54,10 +61,11 @@ test: test-compile
 
 test-compile-checks:
 	mkdir -p bin/testchecks obj/testchecks
-	fpc -MObjFPC -Scghi -O1 -gw3 -gl -l -Cr -Co -Ci -Ct -gh \
-	  $(UNIT_PATHS) \
-	  -Fu/usr/lib/fpc/3.2.2/units/x86_64-linux/fcl-fpcunit \
-	  -Fu/usr/lib/fpc/3.2.2/units/x86_64-linux/paszlib \
+	fpc $(FPC_FLAGS) -Cr -Co -Ci -Ct -gh \
+	  $(FPC_BASE_FU) \
+	  -Fu$(FPC_UNITS)/fcl-fpcunit \
+	  -Fu$(FPC_UNITS)/paszlib \
+	  -Fusrc -Fulib \
 	  -FEbin/testchecks -FUobj/testchecks \
 	  -dLCL -dLCLqt6 \
 	  tests/testrunner.pp
@@ -77,7 +85,7 @@ man:
 	fi
 
 install: release
-	install -Dm755 bin/release/x86_64-linux/cbzmanager $(DESTDIR)/usr/bin/cbzmanager
+	install -Dm755 bin/release/$(ARCH)/cbzmanager $(DESTDIR)/usr/bin/cbzmanager
 	install -Dm644 man/cbzmanager.1 $(DESTDIR)/usr/share/man/man1/cbzmanager.1
 	install -Dm644 pkg/cbzmanager.svg $(DESTDIR)/usr/share/icons/hicolor/scalable/apps/cbzmanager.svg
 	install -Dm644 pkg/cbzmanager.desktop $(DESTDIR)/usr/share/applications/cbzmanager.desktop

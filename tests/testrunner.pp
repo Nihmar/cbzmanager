@@ -26,6 +26,7 @@ uses
   test_uservicevalidate,
   test_uservicecomicinfo,
   test_ucomicinfo,
+  test_uimgsrc,
   test_uthreadservice,
   test_userviceconvert,
   test_uservicecbr,

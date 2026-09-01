@@ -160,6 +160,8 @@ type
     MnuPageReverse: TMenuItem;
     SepPag3: TMenuItem;
     MnuPageRenumber: TMenuItem;
+    SepPag4: TMenuItem;
+    MnuPageAddInternet: TMenuItem;
     MnuView: TMenuItem;
     MnuTogglePreview: TMenuItem;
     SepView1: TMenuItem;
@@ -198,6 +200,7 @@ type
     PanelPageTools: TPanel;
     BtnPgDelete: TButton;
     BtnPgAddFront: TButton;
+    BtnPgAddInternet: TButton;
     BtnPgEdit: TButton;
     BtnPgMoveUp: TButton;
     BtnPgMoveDown: TButton;
@@ -243,6 +246,8 @@ type
     MnuPgMoveDown: TMenuItem;
     MnuPgMoveStart: TMenuItem;
     MnuPgMoveEnd: TMenuItem;
+    SepPg2: TMenuItem;
+    MnuPgAddInternet: TMenuItem;
     PMPageMore: TPopupMenu;
     MniMoreBatchEdit: TMenuItem;
     MniMoreRenumber: TMenuItem;
@@ -301,6 +306,7 @@ type
     procedure MnuPageMoveUpClick(Sender: TObject);
     procedure MnuPageRenumberClick(Sender: TObject);
     procedure MnuPageAddFrontClick(Sender: TObject);
+    procedure MnuPageAddInternetClick(Sender: TObject);
     procedure MnuPageReverseClick(Sender: TObject);
     procedure MnuPageSortClick(Sender: TObject);
     procedure MnuReloadClick(Sender: TObject);
@@ -339,6 +345,7 @@ type
     FChanges: TChanges;
     FRenumber: boolean;
     FPageFile: string;  // currently open CBZ file path
+    FAddFrontSeq: integer;  // unique suffix for inserted frontispiece pages
     FJobMonitor: TfrmJobMonitor;  // non-modal job progress window
     { Reusable non-modal floating window showing the selected page enlarged
       (opened with Space).  Owned by the form; hidden, not destroyed, on
@@ -359,12 +366,17 @@ type
       / ReassertPendingSelection. }
     FPendingSel: TIntegerDynArray;
     FPendingFocus: integer;
-    { How many more times ReassertPendingSelection should re-apply the pending
-      selection.  The Qt6 widgetset can run its own selection reconcile on a
-      later message-loop tick than our first re-apply, so we re-apply a couple
-      of times to guarantee our authoritative selection is the final word. }
+    { Message-loop ticks ReassertPendingSelection may still spend watching the
+      selection, and how many consecutive ticks it has already found it
+      untouched.  A widgetset runs its own click reconcile on whichever tick it
+      pleases, so rather than guess a fixed number of re-applies we watch until
+      the selection has stayed ours, giving up after the cap. }
     FReassertTicks: integer;
+    FReassertStable: integer;
     FPendingList: TListView;
+    { Stages Stream as the new first page.  Takes ownership of Stream.
+      Shared by the "add from file" and "add from internet" entry points. }
+    procedure AddFrontFromStream(Stream: TMemoryStream; const Desc: string);
     procedure ThreadTerminated(Sender: TObject);
     procedure PagesThreadTerminated(Sender: TObject);
     procedure LoadBatchAdded(Sender: TObject);
@@ -427,6 +439,10 @@ type
     { Make exactly the indices in A selected (clearing everything else); focus
       the item at AFocus when the selection is a single item so the context menu
       acts on the right row. }
+    { True when exactly the items in A are selected in ALV. }
+    function SelectionMatches(ALV: TListView; const A: array of integer): boolean;
+    { Forget the pending re-assert. }
+    procedure ClearPendingSel;
     procedure ApplySelection(ALV: TListView; const A: array of integer;
       AFocus: integer);
     { Record the selection to re-apply after the native reconcile and update the
@@ -485,6 +501,7 @@ uses
   udlgmerge,
   udlgconvertresults,
   udlgcomicinfoeditor,
+  udlgaddimage,
   ucomicinfo,
   uservicecomicinfo,
   uthreadservice;
@@ -498,6 +515,17 @@ const
   THUMB_MIN_SIZE = 48;        // smallest width the zoom slider allows
   THUMB_RENDER_FLOOR = 16;    // absolute lower bound when rendering thumbs
   ZOOM_STEP = 32;             // width change per zoom-in / zoom-out step
+
+  { Selection re-assert (see ReassertPendingSelection).  In icon view both
+    widgetsets read a shift+click as a rectangular block spanning the visual
+    rows between their own anchor and the click, not as the contiguous range
+    we want, and each runs that reconcile on whichever message-loop tick it
+    likes.  Losing that race is not cosmetic: the file and page operations
+    act on the list view's real selection, so a stale block would be what
+    Delete deletes.  Watch the selection until it has stayed ours for STABLE
+    ticks in a row, and give up after MAX. }
+  REASSERT_STABLE_TICKS = 2;
+  REASSERT_MAX_TICKS = 12;
 
 resourcestring
   { Status-bar messages used from more than one handler. }
@@ -667,6 +695,9 @@ begin
   MnuPageSort.Enabled := AEnabled;
   MnuPageReverse.Enabled := AEnabled;
   MnuPageRenumber.Enabled := AEnabled;
+  MnuPageAddInternet.Enabled := AEnabled;
+  MnuPgAddInternet.Enabled := AEnabled;
+  BtnPgAddInternet.Enabled := AEnabled;
   MniMoreRenumber.Enabled := AEnabled;
 end;
 
@@ -1103,9 +1134,7 @@ begin
   ClearPreview;
   PanelSingleFile.Visible := False;
   SplitterPreview.Visible := False;
-  FPendingList := nil;
-  FPendingSel := nil;
-  FPendingFocus := -1;
+  ClearPendingSel;
   { The floating page view shows a page of the closed preview; hide it too. }
   if FPageView <> nil then
     FPageView.Hide;
@@ -1452,6 +1481,7 @@ begin
   LVPages.LargeImages := ILPages;
 
   FPageFile := IncludeTrailingPathDelimiter(FDir) + ItemFileName(AItem);
+  FAddFrontSeq := 0;
   SetPageOpsEnabled(False);
   FPagesThread := TPagesThread.Create(FPageFile);
   FPagesThread.OnTerminate := @PagesThreadTerminated;
@@ -1495,11 +1525,7 @@ begin
     SetPendingSel(LVFiles, [It.Index], It.Index);
   end
   else
-  begin
-    FPendingList := nil;
-    FPendingSel := nil;
-    FPendingFocus := -1;
-  end;
+    ClearPendingSel;
   OpenPreview(It);
 end;
 
@@ -1580,6 +1606,32 @@ begin
     FAnchorFiles := AIndex
   else
     FAnchorPages := AIndex;
+end;
+
+function TfrmMain.SelectionMatches(ALV: TListView;
+  const A: array of integer): boolean;
+var
+  i: integer;
+begin
+  Result := False;
+  { Compare sizes first: a selection of equal size that fully contains A is
+    A, since every index in A is unique by construction.  SelCount is a single
+    query, where counting item by item costs a widgetset round trip each. }
+  if ALV.SelCount <> Length(A) then Exit;
+  for i := 0 to High(A) do
+    if (A[i] < 0) or (A[i] >= ALV.Items.Count) or
+       not ALV.Items[A[i]].Selected then
+      Exit;
+  Result := True;
+end;
+
+procedure TfrmMain.ClearPendingSel;
+begin
+  FPendingList := nil;
+  FPendingSel := nil;
+  FPendingFocus := -1;
+  FReassertStable := 0;
+  FReassertTicks := 0;
 end;
 
 procedure TfrmMain.ApplySelection(ALV: TListView; const A: array of integer;
@@ -1667,11 +1719,7 @@ begin
     of a double-click (which carries ssDouble) so the first click's pending
     selection survives into the completed double-click. }
   if not (ssDouble in Shift) then
-  begin
-    FPendingList := nil;
-    FPendingSel := nil;
-    FPendingFocus := -1;
-  end;
+    ClearPendingSel;
 
   if Button = mbRight then
   begin
@@ -1761,31 +1809,33 @@ end;
 procedure TfrmMain.ReassertPendingSelection(Data: PtrInt);
 var
   LV: TListView;
-  Sel: TIntegerDynArray;
-  Focus: integer;
 begin
   if (FPendingList = nil) or (FPendingList.Items.Count = 0) then
   begin
-    FPendingList := nil;
-    FPendingSel := nil;
-    FPendingFocus := -1;
+    ClearPendingSel;
     Exit;
   end;
   LV := FPendingList;
-  Sel := FPendingSel;
-  Focus := FPendingFocus;
-  ApplySelection(LV, Sel, Focus);
-  if FReassertTicks > 0 then
-  begin
-    Dec(FReassertTicks);
-    Application.QueueAsyncCall(@ReassertPendingSelection, 0);
-  end
+
+  { Only touch the list when it actually differs: re-applying an already
+    correct selection fires selection-change events for nothing. }
+  if SelectionMatches(LV, FPendingSel) then
+    Inc(FReassertStable)
   else
   begin
-    FPendingList := nil;
-    FPendingSel := nil;
-    FPendingFocus := -1;
+    ApplySelection(LV, FPendingSel, FPendingFocus);
+    FReassertStable := 0;
   end;
+
+  if FReassertTicks > 0 then
+    Dec(FReassertTicks);
+  { Done once the selection has survived untouched for a couple of ticks.
+    The cap is only a backstop against a widgetset that insists on undoing
+    us every single tick; without it this would spin forever. }
+  if (FReassertStable >= REASSERT_STABLE_TICKS) or (FReassertTicks <= 0) then
+    ClearPendingSel
+  else
+    Application.QueueAsyncCall(@ReassertPendingSelection, 0);
 end;
 
 {
@@ -1831,10 +1881,12 @@ procedure TfrmMain.LVFilesMouseUp(Sender: TObject; Button: TMouseButton;
   Shift: TShiftState; X, Y: integer);
 begin
   if FPendingList = nil then Exit;
-  { Re-apply a few times: the Qt6 widgetset can run its own selection reconcile
-    on a later message-loop tick than our first re-apply, so repeating guarantees
-    our authoritative selection is the final word. }
-  FReassertTicks := 2;
+  { Watch the selection until it stays ours rather than re-applying a fixed
+    number of times: each widgetset picks its own tick to reconcile the click,
+    so a fixed count tuned against one of them loses the race on the other —
+    and it did, on both.  See ReassertPendingSelection. }
+  FReassertTicks := REASSERT_MAX_TICKS;
+  FReassertStable := 0;
   Application.QueueAsyncCall(@ReassertPendingSelection, 0);
 end;
 
@@ -2684,63 +2736,131 @@ end;
   After insertion the stage bar appears; the user can then move the page
   elsewhere using the existing reorder buttons if desired.
 }
-procedure TfrmMain.MnuPageAddFrontClick(Sender: TObject);
+{
+  AddFrontFromStream
+  ------------------
+  Shared staging for "insert an image as the first page": decodes the image
+  (magic-byte detection so a misleading extension is harmless), scales it to
+  a cache thumbnail, stores the raw bytes on the new TPageState, and inserts
+  it at position 0.  The caller transfers ownership of Stream: it becomes the
+  page's Data on success, and is freed here otherwise.  On save the new page
+  is written into the CBZ as page_0001 (FRenumber is set) and the rest shift
+  down.
+}
+procedure TfrmMain.AddFrontFromStream(Stream: TMemoryStream; const Desc: string);
 var
-  MemStream: TMemoryStream;
-  Img: TLazIntfImage;
+  Img, Thumb: TLazIntfImage;
   PageExt, PageName: string;
   NewPage: TPageState;
 begin
-  if not PanelSingleFile.Visible then Exit;
-
-  if not OpenDialog.Execute then Exit;
-
-  { Load the entire file into a memory stream for decoding and later save }
-  PageExt := ExtractFileExt(OpenDialog.FileName);
-  MemStream := TMemoryStream.Create;
+  if Stream = nil then Exit;
   try
-    MemStream.LoadFromFile(OpenDialog.FileName);
-
-    { Decode the image for the thumbnail cache — detect actual format
-      from magic bytes because the file extension may be misleading. }
-    MemStream.Position := 0;
-    PageExt := DetectImageFormat(MemStream);
-    if PageExt = '' then
-      PageExt := ExtractFileExt(OpenDialog.FileName);  { fallback }
+    Stream.Position := 0;
+    PageExt := DetectImageFormat(Stream);
+    if PageExt = '' then PageExt := '.img';
     if SameText(PageExt, EXT_WEBP) then
-      Img := WebPToIntfImage(MemStream.Memory, MemStream.Size)
+      Img := WebPToIntfImage(Stream.Memory, Stream.Size)
     else
-      Img := StreamToIntfImage(MemStream, ReaderClassForExt(PageExt));
-
+      Img := StreamToIntfImage(Stream, ReaderClassForExt(PageExt));
     if Img = nil then
     begin
-      SetStatus(Format('Cannot decode image: %s',
-        [ExtractFileName(OpenDialog.FileName)]));
+      SetStatus(Format('Cannot decode image: %s', [Desc]));
+      Exit;
+    end;
+    { Scaled thumbnail for the preview cache (owned by FPagePreviews). }
+    try
+      Thumb := ScaleIntfImage(Img, CacheW, CacheH);
+    finally
+      Img.Free;
+    end;
+    if Thumb = nil then
+    begin
+      SetStatus(Format('Cannot scale image: %s', [Desc]));
       Exit;
     end;
 
-    { Build a TPageState for the new front page.
-      Raw bytes are stored in original format; use Convert to WebP later
-      if WebP encoding is desired. }
-    NewPage.Image := Img;
+    NewPage.Image := Thumb;
     NewPage.Gone := False;
-    NewPage.OrigIndex := 0;
-    PageName := 'frontispiece' + PageExt;
-    NewPage.Data := TMemoryStream.Create;
-    MemStream.Position := 0;
-    NewPage.Data.CopyFrom(MemStream, MemStream.Size);
+    { -1 marks a page with no counterpart in the archive, as in ApplyPageEdit
+      and ubatchedit; the Data stream supplies its bytes. }
+    NewPage.OrigIndex := -1;
+    PageName := 'frontispiece-' + IntToStr(FAddFrontSeq) + PageExt;
+    Inc(FAddFrontSeq);
+    { Hand the bytes straight to the page instead of copying them: on a 20 MB
+      image the copy doubled peak RAM for no gain.  Stream is nil from here
+      on, so the finally below no longer frees it. }
+    Stream.Position := 0;
+    NewPage.Data := Stream;
+    Stream := nil;
 
     NewPage.Name := PageName;
     NewPage.OrigName := PageName;
 
-    { Insert at position 0 }
+    FPagePreviews.Add(Thumb);  { cache owns it; freed at preview close }
     PageInsertFront(FPages, FChanges, NewPage);
     FRenumber := True;
     UpdateStageBar;
     RenderPages;
-    SetStatus(Format('Inserted %s as page 1', [ExtractFileName(OpenDialog.FileName)]));
+    SetStatus(Format('Inserted %s as page 1', [Desc]));
   finally
-    MemStream.Free;
+    Stream.Free;
+  end;
+end;
+
+procedure TfrmMain.MnuPageAddFrontClick(Sender: TObject);
+var
+  MemStream: TMemoryStream;
+begin
+  if not PanelSingleFile.Visible then Exit;
+  if IsReadOnlyPreview then
+  begin
+    SetStatus('CBR previews are read-only');
+    Exit;
+  end;
+  if (FPagesThread <> nil) or (FPageFile = '') then Exit;
+  if not OpenDialog.Execute then Exit;
+
+  MemStream := TMemoryStream.Create;
+  try
+    MemStream.LoadFromFile(OpenDialog.FileName);
+  except
+    FreeAndNil(MemStream);
+    raise;
+  end;
+  AddFrontFromStream(MemStream, ExtractFileName(OpenDialog.FileName));
+end;
+
+{
+  MnuPageAddInternetClick
+  -----------------------
+  Opens the "add image from internet" dialog.  The chosen image is downloaded
+  by the dialog; ownership of the bytes is transferred here and staged as the
+  new first page via AddFrontFromStream (committed only when the user saves
+  via the stage bar).
+}
+procedure TfrmMain.MnuPageAddInternetClick(Sender: TObject);
+var
+  Dlg: TdlgAddImage;
+  Stream: TMemoryStream;
+begin
+  if not PanelSingleFile.Visible then Exit;
+  if IsReadOnlyPreview then
+  begin
+    SetStatus('CBR previews are read-only');
+    Exit;
+  end;
+  if (FPagesThread <> nil) or (FPageFile = '') then Exit;
+
+  Dlg := TdlgAddImage.Create(Self);
+  try
+    if Dlg.ShowModal = mrOk then
+    begin
+      Stream := Dlg.ReleaseImageStream;
+      if Assigned(Stream) then
+        AddFrontFromStream(Stream, 'image from internet');
+    end;
+  finally
+    Dlg.Free;
   end;
 end;
 

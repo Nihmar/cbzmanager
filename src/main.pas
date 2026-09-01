@@ -105,7 +105,8 @@ uses
   udlgbatchedit,
   ubatchedit,
   uimageedit,
-  uservicebase;
+  uservicebase,
+  uselection;
 
 type
   {
@@ -382,6 +383,7 @@ type
       and GetKeyState fails to reflect the live keyboard state. }
     FKeyShiftDown: boolean;
     FKeyCtrlDown: boolean;
+    procedure AppIdle(Sender: TObject; var Done: boolean);
     { Stages Stream as the new first page.  Takes ownership of Stream.
       Shared by the "add from file" and "add from internet" entry points. }
     procedure AddFrontFromStream(Stream: TMemoryStream; const Desc: string);
@@ -439,20 +441,8 @@ type
     procedure RenderPages;
     { Store the shift+click anchor for the given list (-1 = none). }
     procedure SetAnchor(ALV: TListView; AIndex: integer);
-    { Contiguous index range [Lo..Hi] (inclusive, ascending). }
-    function RangeSel(Lo, Hi: integer): TIntegerDynArray;
-    function HasSel(const A: TIntegerDynArray; V: integer): boolean;
-    function ToggleSel(const A: TIntegerDynArray; V: integer): TIntegerDynArray;
-    function UnionSel(const A, B: TIntegerDynArray): TIntegerDynArray;
-    { Make exactly the indices in A selected (clearing everything else); focus
-      the item at AFocus when the selection is a single item so the context menu
-      acts on the right row. }
-    { True when exactly the items in A are selected in ALV. }
-    function SelectionMatches(ALV: TListView; const A: array of integer): boolean;
     { Forget the pending re-assert. }
     procedure ClearPendingSel;
-    procedure ApplySelection(ALV: TListView; const A: array of integer;
-      AFocus: integer);
     { Record the selection to re-apply after the native reconcile and update the
       authoritative FSelFiles / FSelPages so subsequent Ctrl+click toggles base
       off our state, not the widgetset's. }
@@ -533,7 +523,7 @@ const
     Delete deletes.  Watch the selection until it has stayed ours for STABLE
     ticks in a row, and give up after MAX. }
   REASSERT_STABLE_TICKS = 2;
-  REASSERT_MAX_TICKS = 12;
+  REASSERT_MAX_TICKS = 30;
 
 resourcestring
   { Status-bar messages used from more than one handler. }
@@ -563,6 +553,7 @@ begin
   FPendingFocus := -1;
   FKeyShiftDown := False;
   FKeyCtrlDown := False;
+  Application.AddOnIdleHandler(@AppIdle);
   SetupILFilesFirstPages;
   SetupILPages;
   SetupLVFiles;
@@ -587,10 +578,25 @@ end;
 }
 procedure TfrmMain.FormDestroy(Sender: TObject);
 begin
+  Application.RemoveOnIdleHandler(@AppIdle);
   FreeLoadThread;
   FreePagesThread;
   FFirstPages.Free;
   FPagePreviews.Free;
+end;
+
+procedure TfrmMain.AppIdle(Sender: TObject; var Done: boolean);
+begin
+  { Sync stale modifier flags when no mouse button is held — GetKeyState is
+    unreliable during a mouse event (Qt6 drops modifiers) but reliable at
+    idle.  This clears a lingering Ctrl after the user released it between
+    two clicks, without breaking an in-progress Ctrl+Shift+click. }
+  if (GetKeyState(VK_LBUTTON) < 0) or (GetKeyState(VK_RBUTTON) < 0) or
+     (GetKeyState(VK_MBUTTON) < 0) then Exit;
+  if GetKeyState(VK_SHIFT) >= 0 then
+    FKeyShiftDown := False;
+  if GetKeyState(VK_CONTROL) >= 0 then
+    FKeyCtrlDown := False;
 end;
 
 {
@@ -1586,84 +1592,16 @@ end;
   fight the index-based model and produce "random" extra selections.  The single
   deferred apply wins over the native pass because it runs on the next message-loop
   tick (see LVFilesMouseUp / ReassertPendingSelection).
+
+  RangeSel / HasSel / ToggleSel / UnionSel / SelectionMatches / ApplySelection
+  are imported from the shared uselection unit.
 }
-function TfrmMain.RangeSel(Lo, Hi: integer): TIntegerDynArray;
-var
-  i, t: integer;
-begin
-  Result := nil;
-  if Lo > Hi then begin t := Lo; Lo := Hi; Hi := t; end;
-  SetLength(Result, Hi - Lo + 1);
-  for i := Lo to Hi do
-    Result[i - Lo] := i;
-end;
-
-function TfrmMain.HasSel(const A: TIntegerDynArray; V: integer): boolean;
-var
-  i: integer;
-begin
-  Result := False;
-  for i := 0 to High(A) do
-    if A[i] = V then Exit(True);
-end;
-
-function TfrmMain.ToggleSel(const A: TIntegerDynArray; V: integer): TIntegerDynArray;
-var
-  i, n: integer;
-begin
-  Result := nil;
-  if HasSel(A, V) then
-  begin
-    n := 0;
-    SetLength(Result, Length(A) - 1);
-    for i := 0 to High(A) do
-      if A[i] <> V then begin Result[n] := A[i]; Inc(n); end;
-  end
-  else
-  begin
-    SetLength(Result, Length(A) + 1);
-    for i := 0 to High(A) do Result[i] := A[i];
-    Result[High(Result)] := V;
-  end;
-end;
-
-function TfrmMain.UnionSel(const A, B: TIntegerDynArray): TIntegerDynArray;
-var
-  i, n: integer;
-begin
-  Result := Copy(A);
-  for i := 0 to High(B) do
-    if not HasSel(Result, B[i]) then
-    begin
-      n := Length(Result);
-      SetLength(Result, n + 1);
-      Result[n] := B[i];
-    end;
-end;
-
 procedure TfrmMain.SetAnchor(ALV: TListView; AIndex: integer);
 begin
   if ALV = LVFiles then
     FAnchorFiles := AIndex
   else
     FAnchorPages := AIndex;
-end;
-
-function TfrmMain.SelectionMatches(ALV: TListView;
-  const A: array of integer): boolean;
-var
-  i: integer;
-begin
-  Result := False;
-  { Compare sizes first: a selection of equal size that fully contains A is
-    A, since every index in A is unique by construction.  SelCount is a single
-    query, where counting item by item costs a widgetset round trip each. }
-  if ALV.SelCount <> Length(A) then Exit;
-  for i := 0 to High(A) do
-    if (A[i] < 0) or (A[i] >= ALV.Items.Count) or
-       not ALV.Items[A[i]].Selected then
-      Exit;
-  Result := True;
 end;
 
 procedure TfrmMain.ClearPendingSel;
@@ -1673,25 +1611,6 @@ begin
   FPendingFocus := -1;
   FReassertStable := 0;
   FReassertTicks := 0;
-end;
-
-procedure TfrmMain.ApplySelection(ALV: TListView; const A: array of integer;
-  AFocus: integer);
-var
-  i, idx: integer;
-begin
-  ALV.BeginUpdate;
-  try
-    for i := 0 to ALV.Items.Count - 1 do
-      ALV.Items[i].Selected := False;
-    for idx in A do
-      if (idx >= 0) and (idx < ALV.Items.Count) then
-        ALV.Items[idx].Selected := True;
-  finally
-    ALV.EndUpdate;
-  end;
-  if (Length(A) <= 1) and (AFocus >= 0) and (AFocus < ALV.Items.Count) then
-    ALV.Selected := ALV.Items[AFocus];
 end;
 
 procedure TfrmMain.SetPendingSel(ALV: TListView; const A: array of integer;
@@ -1753,31 +1672,31 @@ begin
     Qt6: a Ctrl+Shift+click is sometimes delivered with only ssCtrl set (ssShift
     dropped), which would misroute it into the Ctrl-toggle branch.  Back the event
     flags with the live keyboard state so Shift/Ctrl are detected regardless. }
-  { Prefer the live OnKeyDown/OnKeyUp tracking — the Qt6 widgetset sometimes
-    drops ssShift from the mouse event's Shift parameter (especially for
-    Ctrl+Shift+click), and GetKeyState can also fail to reflect the live
-    keyboard state during mouse events.  Fall back to the event flags and
-    GetKeyState for robustness. }
   ShiftDown := FKeyShiftDown or (ssShift in Shift) or (GetKeyState(VK_SHIFT) < 0);
   CtrlDown := FKeyCtrlDown or (ssCtrl in Shift) or (GetKeyState(VK_CONTROL) < 0);
 
-  { Any new mouse gesture cancels a pending re-assert, except the second press
-    of a double-click (which carries ssDouble) so the first click's pending
-    selection survives into the completed double-click. }
-  if not (ssDouble in Shift) then
-    ClearPendingSel;
-
+  { Right-click on an unselected item makes that item the sole selection so
+    the context menu acts on it alone; right-clicking an already-selected
+    item keeps the existing multi-selection intact — and must NOT cancel a
+    pending reassert from a preceding left-click. }
   if Button = mbRight then
   begin
-    { Right-click on an unselected item makes that item the sole selection so
-      the context menu acts on it alone; right-clicking an already-selected
-      item keeps the existing multi-selection intact. }
     if (It <> nil) and not It.Selected then
+    begin
+      if not (ssDouble in Shift) then
+        ClearPendingSel;
       SetPendingSel(ALV, [It.Index], It.Index);
+    end;
     Exit;
   end;
 
   if Button <> mbLeft then Exit;
+
+  { Any new left-click gesture cancels a pending re-assert, except the second
+    press of a double-click (which carries ssDouble) so the first click's
+    pending selection survives into the completed double-click. }
+  if not (ssDouble in Shift) then
+    ClearPendingSel;
 
   if It = nil then
   begin

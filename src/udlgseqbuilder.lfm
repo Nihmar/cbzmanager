@@ -10,7 +10,9 @@ object dlgSeqBuilder: TdlgSeqBuilder
   LCLVersion = '4.8.0.0'
   OnCreate = FormCreate
   OnDestroy = FormDestroy
+  OnDeactivate = FormDeactivate
   OnKeyDown = FormKeyDown
+  OnKeyUp = FormKeyUp
   OnShow = FormShow
   object PanelTop: TPanel
     Left = 0
@@ -263,6 +265,8 @@ object dlgSeqBuilder: TdlgSeqBuilder
       TabOrder = 1
       ViewStyle = vsIcon
       OnDblClick = LVChaptersDblClick
+      OnMouseDown = LVChaptersMouseDown
+      OnMouseUp = LVChaptersMouseUp
       OnSelectItem = LVChaptersSelectItem
     end
   end

@@ -7,7 +7,7 @@ interface
 uses
   Classes, SysUtils, Forms, Controls, Graphics, StdCtrls, ExtCtrls, ComCtrls,
   IntfGraphics, uloaderthread, uimgutil, uservicemerge, udlgbase,
-  upreviewloader, Types;
+  upreviewloader, Types, uselection;
 
 type
   { TdlgSeqBuilder }
@@ -39,7 +39,13 @@ type
     procedure FormDestroy(Sender: TObject);
     procedure FormShow(Sender: TObject);
     procedure FormKeyDown(Sender: TObject; var Key: word; Shift: TShiftState);
+    procedure FormKeyUp(Sender: TObject; var Key: word; Shift: TShiftState);
+    procedure FormDeactivate(Sender: TObject);
     procedure LVChaptersDblClick(Sender: TObject);
+    procedure LVChaptersMouseDown(Sender: TObject; Button: TMouseButton;
+      Shift: TShiftState; X, Y: integer);
+    procedure LVChaptersMouseUp(Sender: TObject; Button: TMouseButton;
+      Shift: TShiftState; X, Y: integer);
     procedure LVChaptersSelectItem(Sender: TObject; Item: TListItem;
       Selected: boolean);
     procedure BtnAddVolumeClick(Sender: TObject);
@@ -68,6 +74,18 @@ type
     FPreviewPages: TLazIntfImageList;
     FPreviewIndex: integer;
     FZoomLevel: double;
+    { Explorer-style selection state for LVChapters. }
+    FAnchor: integer;
+    FSel: TIntegerDynArray;
+    FPendingSel: TIntegerDynArray;
+    FPendingFocus: integer;
+    FPendingList: TListView;
+    FReassertTicks: integer;
+    FReassertStable: integer;
+    { Live modifier-key state tracked via OnKeyDown / OnKeyUp. }
+    FKeyShiftDown: boolean;
+    FKeyCtrlDown: boolean;
+    procedure AppIdle(Sender: TObject; var Done: boolean);
 
     procedure ApplyZoom(const AOldZoom: double);
     procedure RebuildGrid;
@@ -78,6 +96,11 @@ type
     procedure ClearPreview;
     procedure StopPreviewLoader;
     function SelectedCount: integer;
+    procedure ClearPendingSel;
+    procedure SetPendingSel(AList: TListView; const A: array of integer;
+      AFocus: integer);
+    procedure ReassertPendingSelection(Data: PtrInt);
+    function ItemAtPoint(ALV: TListView; X, Y: integer): TListItem;
   public
     { AFiles are the chapters in merge order; AImageIdx[i] is the index of
       AFiles[i]'s thumbnail inside AImages (may be -1). }
@@ -123,19 +146,39 @@ begin
   FPreviewLoader := nil;
   FPreviewIndex := 0;
   FZoomLevel := 1.0;
+  FAnchor := -1;
+  FPendingFocus := -1;
+  FPendingList := nil;
+  FKeyShiftDown := False;
+  FKeyCtrlDown := False;
+  Application.AddOnIdleHandler(@AppIdle);
 
   RebuildGrid;
 end;
 
 procedure TdlgSeqBuilder.FormDestroy(Sender: TObject);
 begin
+  Application.RemoveOnIdleHandler(@AppIdle);
   StopPreviewLoader;
   FreeAndNil(FPreviewPages);
+end;
+
+procedure TdlgSeqBuilder.AppIdle(Sender: TObject; var Done: boolean);
+begin
+  if (GetKeyState(VK_LBUTTON) < 0) or (GetKeyState(VK_RBUTTON) < 0) or
+     (GetKeyState(VK_MBUTTON) < 0) then Exit;
+  if GetKeyState(VK_SHIFT) >= 0 then
+    FKeyShiftDown := False;
+  if GetKeyState(VK_CONTROL) >= 0 then
+    FKeyCtrlDown := False;
 end;
 
 procedure TdlgSeqBuilder.FormKeyDown(Sender: TObject; var Key: word;
   Shift: TShiftState);
 begin
+  if Key = VK_SHIFT then FKeyShiftDown := True;
+  if Key = VK_CONTROL then FKeyCtrlDown := True;
+
   if (Key = VK_RETURN) and (ssCtrl in Shift) then
   begin
     if BtnAddVolume.Enabled then
@@ -172,6 +215,168 @@ begin
     end;
     Exit;
   end;
+end;
+
+procedure TdlgSeqBuilder.FormKeyUp(Sender: TObject; var Key: word;
+  Shift: TShiftState);
+begin
+  if Key = VK_SHIFT then FKeyShiftDown := False;
+  if Key = VK_CONTROL then FKeyCtrlDown := False;
+end;
+
+procedure TdlgSeqBuilder.FormDeactivate(Sender: TObject);
+begin
+  FKeyShiftDown := False;
+  FKeyCtrlDown := False;
+end;
+
+{
+  LVChaptersMouseDown
+  --------------------
+  Explorer/Dolphin-style selection for the chapter list, matching the main
+  form's LVFilesMouseDown semantics.
+}
+procedure TdlgSeqBuilder.LVChaptersMouseDown(Sender: TObject;
+  Button: TMouseButton; Shift: TShiftState; X, Y: integer);
+var
+  ALV: TListView;
+  It: TListItem;
+  Anchor: integer;
+  Cur: TIntegerDynArray;
+  ShiftDown, CtrlDown: boolean;
+begin
+  ALV := TListView(Sender);
+  It := ItemAtPoint(ALV, X, Y);
+
+  ShiftDown := FKeyShiftDown or (ssShift in Shift) or (GetKeyState(VK_SHIFT) < 0);
+  CtrlDown := FKeyCtrlDown or (ssCtrl in Shift) or (GetKeyState(VK_CONTROL) < 0);
+
+  if Button = mbRight then
+  begin
+    if (It <> nil) and not It.Selected then
+    begin
+      if not (ssDouble in Shift) then
+        ClearPendingSel;
+      SetPendingSel(ALV, [It.Index], It.Index);
+    end;
+    Exit;
+  end;
+
+  if Button <> mbLeft then Exit;
+
+  if not (ssDouble in Shift) then
+    ClearPendingSel;
+
+  if It = nil then
+  begin
+    SetPendingSel(ALV, [], -1);
+    FAnchor := -1;
+    Exit;
+  end;
+
+  if ShiftDown then
+  begin
+    Anchor := FAnchor;
+    if Anchor < 0 then
+    begin
+      if ALV.Selected <> nil then Anchor := ALV.Selected.Index
+      else Anchor := It.Index;
+    end;
+    if CtrlDown then
+    begin
+      Cur := FSel;
+      SetPendingSel(ALV, UnionSel(Cur, RangeSel(Anchor, It.Index)), It.Index);
+    end
+    else
+      SetPendingSel(ALV, RangeSel(Anchor, It.Index), It.Index);
+  end
+  else if CtrlDown then
+  begin
+    Cur := FSel;
+    SetPendingSel(ALV, ToggleSel(Cur, It.Index), It.Index);
+    FAnchor := It.Index;
+  end
+  else
+  begin
+    SetPendingSel(ALV, [It.Index], It.Index);
+    FAnchor := It.Index;
+  end;
+end;
+
+procedure TdlgSeqBuilder.LVChaptersMouseUp(Sender: TObject;
+  Button: TMouseButton; Shift: TShiftState; X, Y: integer);
+begin
+  if FPendingList = nil then Exit;
+  FReassertTicks := 30;
+  FReassertStable := 0;
+  Application.QueueAsyncCall(@ReassertPendingSelection, 0);
+end;
+
+procedure TdlgSeqBuilder.ReassertPendingSelection(Data: PtrInt);
+var
+  LV: TListView;
+begin
+  if (FPendingList = nil) or (FPendingList.Items.Count = 0) then
+  begin
+    ClearPendingSel;
+    Exit;
+  end;
+  LV := FPendingList;
+
+  if SelectionMatches(LV, FPendingSel) then
+    Inc(FReassertStable)
+  else
+  begin
+    ApplySelection(LV, FPendingSel, FPendingFocus);
+    FReassertStable := 0;
+  end;
+
+  if FReassertTicks > 0 then
+    Dec(FReassertTicks);
+  if (FReassertStable >= 2) or (FReassertTicks <= 0) then
+    ClearPendingSel
+  else
+    Application.QueueAsyncCall(@ReassertPendingSelection, 0);
+end;
+
+procedure TdlgSeqBuilder.ClearPendingSel;
+begin
+  FPendingList := nil;
+  FPendingSel := nil;
+  FPendingFocus := -1;
+  FReassertStable := 0;
+  FReassertTicks := 0;
+end;
+
+procedure TdlgSeqBuilder.SetPendingSel(AList: TListView;
+  const A: array of integer; AFocus: integer);
+var
+  i: integer;
+begin
+  FPendingList := AList;
+  SetLength(FPendingSel, Length(A));
+  for i := 0 to High(A) do FPendingSel[i] := A[i];
+  FPendingFocus := AFocus;
+  SetLength(FSel, Length(A));
+  for i := 0 to High(A) do FSel[i] := A[i];
+end;
+
+function TdlgSeqBuilder.ItemAtPoint(ALV: TListView; X, Y: integer): TListItem;
+var
+  i: integer;
+  R: TRect;
+  Pt: TPoint;
+begin
+  Result := ALV.GetItemAt(X, Y);
+  if Result <> nil then Exit;
+  Pt := Point(X, Y);
+  for i := 0 to ALV.Items.Count - 1 do
+  begin
+    R := ALV.Items[i].DisplayRect(drBounds);
+    if PtInRect(R, Pt) then
+      Exit(ALV.Items[i]);
+  end;
+  Result := nil;
 end;
 
 procedure TdlgSeqBuilder.FormShow(Sender: TObject);
@@ -521,6 +726,11 @@ begin
   ILChapters.Clear;
   ILChapters.Width := TW;
   ILChapters.Height := TH;
+
+  { Discard stale selection state — item indices change after the rebuild. }
+  ClearPendingSel;
+  FAnchor := -1;
+  FSel := nil;
 
   LVChapters.BeginUpdate;
   try

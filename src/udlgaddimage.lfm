@@ -49,6 +49,11 @@ inherited dlgAddImage: TdlgAddImage
       'Openverse'
       'Wikimedia Commons'
       'Open Library'
+      'Art Institute of Chicago'
+      'Metropolitan Museum'
+      'Cleveland Museum of Art'
+      'Wellcome Collection'
+      'NASA Images'
       'Image URL'
     )
     OnChange = CbProviderChange

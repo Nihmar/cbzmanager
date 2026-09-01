@@ -307,7 +307,6 @@ type
     procedure MnuPageRenumberClick(Sender: TObject);
     procedure MnuPageAddFrontClick(Sender: TObject);
     procedure MnuPageAddInternetClick(Sender: TObject);
-    procedure AddFrontFromStream(Stream: TMemoryStream; const Desc: string);
     procedure MnuPageReverseClick(Sender: TObject);
     procedure MnuPageSortClick(Sender: TObject);
     procedure MnuReloadClick(Sender: TObject);
@@ -373,6 +372,9 @@ type
       of times to guarantee our authoritative selection is the final word. }
     FReassertTicks: integer;
     FPendingList: TListView;
+    { Stages Stream as the new first page.  Takes ownership of Stream.
+      Shared by the "add from file" and "add from internet" entry points. }
+    procedure AddFrontFromStream(Stream: TMemoryStream; const Desc: string);
     procedure ThreadTerminated(Sender: TObject);
     procedure PagesThreadTerminated(Sender: TObject);
     procedure LoadBatchAdded(Sender: TObject);
@@ -2702,10 +2704,11 @@ end;
   ------------------
   Shared staging for "insert an image as the first page": decodes the image
   (magic-byte detection so a misleading extension is harmless), scales it to
-  a cache thumbnail, stores the raw bytes in a TMemoryStream on the new
-  TPageState, and inserts it at position 0.  The caller transfers ownership
-  of Stream — this routine frees it.  On save the new page is written into
-  the CBZ as page_0001 (FRenumber is set) and the rest shift down.
+  a cache thumbnail, stores the raw bytes on the new TPageState, and inserts
+  it at position 0.  The caller transfers ownership of Stream: it becomes the
+  page's Data on success, and is freed here otherwise.  On save the new page
+  is written into the CBZ as page_0001 (FRenumber is set) and the rest shift
+  down.
 }
 procedure TfrmMain.AddFrontFromStream(Stream: TMemoryStream; const Desc: string);
 var
@@ -2741,12 +2744,17 @@ begin
 
     NewPage.Image := Thumb;
     NewPage.Gone := False;
-    NewPage.OrigIndex := 0;
+    { -1 marks a page with no counterpart in the archive, as in ApplyPageEdit
+      and ubatchedit; the Data stream supplies its bytes. }
+    NewPage.OrigIndex := -1;
     PageName := 'frontispiece-' + IntToStr(FAddFrontSeq) + PageExt;
     Inc(FAddFrontSeq);
-    NewPage.Data := TMemoryStream.Create;
+    { Hand the bytes straight to the page instead of copying them: on a 20 MB
+      image the copy doubled peak RAM for no gain.  Stream is nil from here
+      on, so the finally below no longer frees it. }
     Stream.Position := 0;
-    NewPage.Data.CopyFrom(Stream, Stream.Size);
+    NewPage.Data := Stream;
+    Stream := nil;
 
     NewPage.Name := PageName;
     NewPage.OrigName := PageName;

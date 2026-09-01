@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="pkg/cbzmanager.svg" alt="cbzmanager" width="128">
+</p>
+
 # cbzmanager
 
 A FreePascal / Lazarus desktop application for managing CBZ (Comic Book ZIP) files.

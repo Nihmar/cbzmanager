@@ -24,6 +24,15 @@ const
 
 type
   EMaxDownloadSize = class(Exception);
+  { Raised inside the transfer callback when the caller asks to stop.  Lets a
+    worker thread abandon an in-flight download instead of running it to
+    completion after TThread.Terminate. }
+  EDownloadAborted = class(Exception);
+
+  { Polled during a transfer; returning True aborts it.  A TThread passes a
+    method returning its own Terminated flag. }
+  TAbortQuery = function: boolean of object;
+
   { Search backends exposed in the UI. }
   TImageSearchProvider = (ispOpenverse, ispWikimedia, ispUrl);
 
@@ -43,14 +52,17 @@ function ProviderToName(P: TImageSearchProvider): string;
 
 { Runs a search for AQuery using the given provider.  On success populates
   Results and returns True; on failure returns False and fills ErrMsg.  The
-  ispUrl provider treats AQuery itself as the image URL (no network call). }
+  ispUrl provider treats AQuery itself as the image URL (no network call).
+  AAbort, when supplied, is polled during the transfer to cancel it early. }
 function SearchImages(const AQuery: string; AProvider: TImageSearchProvider;
-  out Results: TSearchResults; out ErrMsg: string): boolean;
+  out Results: TSearchResults; out ErrMsg: string;
+  AAbort: TAbortQuery = nil): boolean;
 
 { Downloads the image at URL into a freshly created TMemoryStream (caller
-  owns it).  Returns True on HTTP 200 with a non-empty body. }
+  owns it).  Returns True on HTTP 200 with a non-empty body.  AAbort, when
+  supplied, is polled during the transfer to cancel it early. }
 function DownloadImage(const URL: string; out Stream: TMemoryStream;
-  out ErrMsg: string): boolean;
+  out ErrMsg: string; AAbort: TAbortQuery = nil): boolean;
 
 { Parses a raw Openverse / Wikimedia JSON body into result records.  Exposed
   separately from the network layer so it can be unit-tested offline. }
@@ -65,23 +77,40 @@ function GuessExtFromURL(const URL: string): string;
 implementation
 
 const
-  USER_AGENT = 'cbzmanager/1.0';
+  { Wikimedia's User-Agent policy requires a descriptive agent carrying a
+    contact URL; a bare product token is answered with 403. }
+  USER_AGENT = 'cbzmanager/1.0 (+https://github.com/Nihmar/cbzmanager)';
   OPENVERSE_API = 'https://api.openverse.org/v1/images/';
   WIKIMEDIA_API = 'https://commons.wikimedia.org/w/api.php';
   IMAGE_EXTS: array[0..7] of string =
     ('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tif', '.tiff');
 
-{ Tiny object whose OnDataReceived callback enforces the download cap.
-  Heap-allocated; the TFPHTTPClient holds only a plain-method pointer. }
+{ Tiny object whose OnDataReceived callback enforces the download cap and
+  polls the caller's abort query.  Heap-allocated; the TFPHTTPClient holds
+  only a plain-method pointer. }
 type
   TDownloadGuard = class
+  private
+    FAbort: TAbortQuery;
+  public
+    constructor Create(AAbort: TAbortQuery);
     procedure Check(Sender: TObject; const ContentLength, CurrentPos: Int64);
   end;
 
+constructor TDownloadGuard.Create(AAbort: TAbortQuery);
+begin
+  inherited Create;
+  FAbort := AAbort;
+end;
+
 procedure TDownloadGuard.Check(Sender: TObject; const ContentLength, CurrentPos: Int64);
 begin
-  if CurrentPos > MAX_DOWNLOAD_SIZE then
+  { Refuse a server-declared oversize body before reading it, then keep
+    checking the running total in case Content-Length lied or was absent. }
+  if (ContentLength > MAX_DOWNLOAD_SIZE) or (CurrentPos > MAX_DOWNLOAD_SIZE) then
     raise EMaxDownloadSize.Create('Download exceeds 20 MB limit');
+  if Assigned(FAbort) and FAbort() then
+    raise EDownloadAborted.Create('Cancelled');
 end;
 
 function ProviderToName(P: TImageSearchProvider): string;
@@ -143,7 +172,7 @@ end;
 { Single GET returning the body as a string.  Sets AllowRedirect and a
   descriptive User-Agent. }
 function HttpGetString(const URL: string; out Body: string;
-  out ErrMsg: string): boolean;
+  out ErrMsg: string; AAbort: TAbortQuery): boolean;
 var
   http: TFPHTTPClient;
   guard: TDownloadGuard;
@@ -151,7 +180,7 @@ begin
   Result := False;
   Body := '';
   ErrMsg := '';
-  guard := TDownloadGuard.Create;
+  guard := TDownloadGuard.Create(AAbort);
   http := TFPHTTPClient.Create(nil);
   try
     http.AllowRedirect := True;
@@ -177,7 +206,7 @@ begin
 end;
 
 function DownloadImage(const URL: string; out Stream: TMemoryStream;
-  out ErrMsg: string): boolean;
+  out ErrMsg: string; AAbort: TAbortQuery): boolean;
 var
   http: TFPHTTPClient;
   guard: TDownloadGuard;
@@ -185,7 +214,7 @@ begin
   Result := False;
   Stream := nil;
   ErrMsg := '';
-  guard := TDownloadGuard.Create;
+  guard := TDownloadGuard.Create(AAbort);
   http := TFPHTTPClient.Create(nil);
   try
     http.AllowRedirect := True;
@@ -249,14 +278,14 @@ begin
 end;
 
 function SearchOpenverse(const AQuery: string; out Results: TSearchResults;
-  out ErrMsg: string): boolean;
+  out ErrMsg: string; AAbort: TAbortQuery): boolean;
 var
   URL, Body: string;
 begin
   Result := False;
   SetLength(Results, 0);
   URL := OPENVERSE_API + '?q=' + URLEncode(AQuery) + '&page_size=20';
-  if not HttpGetString(URL, Body, ErrMsg) then Exit;
+  if not HttpGetString(URL, Body, ErrMsg, AAbort) then Exit;
   Result := ParseOpenverseResults(Body, Results, ErrMsg);
 end;
 
@@ -318,7 +347,7 @@ begin
 end;
 
 function SearchWikimedia(const AQuery: string; out Results: TSearchResults;
-  out ErrMsg: string): boolean;
+  out ErrMsg: string; AAbort: TAbortQuery): boolean;
 var
   URL, Body: string;
 begin
@@ -328,7 +357,7 @@ begin
     '?action=query&generator=search&gsrsearch=' + URLEncode(AQuery) +
     '&gsrnamespace=6&gsrlimit=20&prop=imageinfo' +
     '&iiprop=url%7Cextmetadata%7Cmime&iiurlwidth=320&format=json';
-  if not HttpGetString(URL, Body, ErrMsg) then Exit;
+  if not HttpGetString(URL, Body, ErrMsg, AAbort) then Exit;
   Result := ParseWikimediaResults(Body, Results, ErrMsg);
 end;
 
@@ -402,7 +431,8 @@ begin
 end;
 
 function SearchImages(const AQuery: string; AProvider: TImageSearchProvider;
-  out Results: TSearchResults; out ErrMsg: string): boolean;
+  out Results: TSearchResults; out ErrMsg: string;
+  AAbort: TAbortQuery): boolean;
 var
   q: string;
 begin
@@ -417,9 +447,9 @@ begin
   end;
   case AProvider of
     ispOpenverse:
-      Result := SearchOpenverse(q, Results, ErrMsg);
+      Result := SearchOpenverse(q, Results, ErrMsg, AAbort);
     ispWikimedia:
-      Result := SearchWikimedia(q, Results, ErrMsg);
+      Result := SearchWikimedia(q, Results, ErrMsg, AAbort);
     ispUrl:
       begin
         if not (StartsText('http://', q) or StartsText('https://', q)) then

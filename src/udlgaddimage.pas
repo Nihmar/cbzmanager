@@ -11,6 +11,19 @@ unit udlgaddimage;
   image as the new first page of the open CBZ (nothing is written until the
   user saves via the stage bar).
 
+  Threading
+  ---------
+  Every network operation runs on a worker thread, following the same
+  fire-and-forget pattern as TPagesThread in main.pas: FreeOnTerminate =
+  True, an OnTerminate handler that re-enables the UI, and a
+  "Sender = F<x>Thread" guard so a superseded worker's result is ignored.
+  A worker that is no longer wanted (the user searched again, picked another
+  result, or closed the dialog) is detached with
+  OnTerminate := nil; Terminate; F<x>Thread := nil.
+  Terminate is honoured mid-transfer via the TAbortQuery handed down to
+  uimgsrc, so a detached worker abandons its download at the next transfer
+  callback instead of running a 20 MB body to completion.
+
   Usage:
     dlg := TdlgAddImage.Create(Self);
     try
@@ -24,8 +37,8 @@ unit udlgaddimage;
 interface
 
 uses
-  Classes, SysUtils, Forms, Controls, Graphics, Dialogs, ExtCtrls, StdCtrls,
-  ComCtrls, IntfGraphics, udlgbase, usettings, uimgsrc, uzipeditor, uimgutil;
+  Classes, SysUtils, Forms, Controls, Graphics, ExtCtrls, StdCtrls,
+  IntfGraphics, udlgbase, usettings, uimgsrc, uzipeditor, uimgutil;
 
 type
   { Background worker that runs a provider search off the main thread. }
@@ -36,10 +49,13 @@ type
     FResults: TSearchResults;
     FErrMsg: string;
     FOk: boolean;
+    { Polled by uimgsrc during the transfer so Terminate takes effect. }
+    function IsAborted: boolean;
   public
     constructor Create(const AQuery: string; AProvider: TImageSearchProvider);
     procedure Execute; override;
     property Ok: boolean read FOk;
+    property Provider: TImageSearchProvider read FProvider;
     property Results: TSearchResults read FResults;
     property ErrMsg: string read FErrMsg;
   end;
@@ -52,13 +68,16 @@ type
     FImg: TLazIntfImage;
     FStream: TMemoryStream;
     FOk: boolean;
+    function IsAborted: boolean;
   public
     constructor Create(const AResult: TSearchResult; AIdx: integer);
     destructor Destroy; override;
     procedure Execute; override;
+    { Hand the decoded image / raw bytes to the caller, who then owns them. }
+    function ReleaseImg: TLazIntfImage;
+    function ReleaseStream: TMemoryStream;
     property Ok: boolean read FOk;
     property Img: TLazIntfImage read FImg;
-    property Stream: TMemoryStream read FStream;
     property Url: string read FUrl;
     property License: string read FLicense;
     property PageURL: string read FPageURL;
@@ -68,16 +87,17 @@ type
   { Background worker that downloads the full-resolution image to add. }
   TFetchThread = class(TThread)
   private
-    FUrl, FExt, FLicense, FPageURL: string;
+    FUrl: string;
     FStream: TMemoryStream;
     FErrMsg: string;
     FOk: boolean;
+    function IsAborted: boolean;
   public
     constructor Create(const AResult: TSearchResult);
     destructor Destroy; override;
     procedure Execute; override;
+    function ReleaseStream: TMemoryStream;
     property Ok: boolean read FOk;
-    property Stream: TMemoryStream read FStream;
     property ErrMsg: string read FErrMsg;
   end;
 
@@ -118,6 +138,8 @@ type
     procedure PreviewDone(Sender: TObject);
     procedure FetchDone(Sender: TObject);
     procedure SetBusy(ABusy: boolean);
+    { Detach every still-running worker so its OnTerminate can no longer
+      reach this form, and ask it to abandon its transfer. }
     procedure DetachThreads;
     procedure LoadSettings; override;
     procedure SaveSettings; override;
@@ -144,12 +166,17 @@ begin
   SetLength(FResults, 0);
   FErrMsg := '';
   FOk := False;
-  FreeOnTerminate := False;
+  FreeOnTerminate := True;
+end;
+
+function TSearchThread.IsAborted: boolean;
+begin
+  Result := Terminated;
 end;
 
 procedure TSearchThread.Execute;
 begin
-  FOk := SearchImages(FQuery, FProvider, FResults, FErrMsg);
+  FOk := SearchImages(FQuery, FProvider, FResults, FErrMsg, @Self.IsAborted);
 end;
 
 { TPreviewThread }
@@ -165,7 +192,7 @@ begin
   FImg := nil;
   FStream := nil;
   FOk := False;
-  FreeOnTerminate := False;
+  FreeOnTerminate := True;
 end;
 
 destructor TPreviewThread.Destroy;
@@ -175,12 +202,31 @@ begin
   inherited Destroy;
 end;
 
+function TPreviewThread.IsAborted: boolean;
+begin
+  Result := Terminated;
+end;
+
+function TPreviewThread.ReleaseImg: TLazIntfImage;
+begin
+  Result := FImg;
+  FImg := nil;
+end;
+
+function TPreviewThread.ReleaseStream: TMemoryStream;
+begin
+  Result := FStream;
+  FStream := nil;
+end;
+
 procedure TPreviewThread.Execute;
 var
   Err: string;
 begin
-  FOk := DownloadImage(FUrl, FStream, Err);
-  if FOk then
+  FOk := DownloadImage(FUrl, FStream, Err, @Self.IsAborted);
+  { Decoding a big thumbnail is not free — skip it if we were cancelled
+    while the bytes were coming in. }
+  if FOk and not Terminated then
   begin
     FImg := DecodeImage(FStream, FExt, 640, 640);
     if FImg = nil then
@@ -190,7 +236,10 @@ begin
     end;
   end
   else
+  begin
+    FOk := False;
     FreeAndNil(FStream);
+  end;
 end;
 
 { TFetchThread }
@@ -199,13 +248,10 @@ constructor TFetchThread.Create(const AResult: TSearchResult);
 begin
   inherited Create(True);
   FUrl := AResult.FullURL;
-  FExt := AResult.Ext;
-  FLicense := AResult.License;
-  FPageURL := AResult.PageURL;
   FStream := nil;
   FErrMsg := '';
   FOk := False;
-  FreeOnTerminate := False;
+  FreeOnTerminate := True;
 end;
 
 destructor TFetchThread.Destroy;
@@ -214,9 +260,20 @@ begin
   inherited Destroy;
 end;
 
+function TFetchThread.IsAborted: boolean;
+begin
+  Result := Terminated;
+end;
+
+function TFetchThread.ReleaseStream: TMemoryStream;
+begin
+  Result := FStream;
+  FStream := nil;
+end;
+
 procedure TFetchThread.Execute;
 begin
-  FOk := DownloadImage(FUrl, FStream, FErrMsg);
+  FOk := DownloadImage(FUrl, FStream, FErrMsg, @Self.IsAborted);
 end;
 
 { TdlgAddImage }
@@ -230,11 +287,33 @@ begin
     Result := ispOpenverse;
 end;
 
+procedure TdlgAddImage.DetachThreads;
+begin
+  if Assigned(FSearchThread) then
+  begin
+    FSearchThread.OnTerminate := nil;
+    FSearchThread.Terminate;
+    FSearchThread := nil;
+  end;
+  if Assigned(FPreviewThread) then
+  begin
+    FPreviewThread.OnTerminate := nil;
+    FPreviewThread.Terminate;
+    FPreviewThread := nil;
+  end;
+  if Assigned(FFetchThread) then
+  begin
+    FFetchThread.OnTerminate := nil;
+    FFetchThread.Terminate;
+    FFetchThread := nil;
+  end;
+end;
+
 procedure TdlgAddImage.ClearPreview;
 begin
   FreeAndNil(FPreviewStream);
   FPreviewURL := '';
-  ImgPreview.Picture := nil;
+  ImgPreview.Picture.Clear;
   LabelLicense.Caption := '';
   LabelLicense.Hint := '';
 end;
@@ -293,36 +372,23 @@ begin
   EdQuery.Enabled := not ABusy;
   BtnSearch.Enabled := not ABusy;
   LstResults.Enabled := not ABusy;
+  { Also frozen while busy: changing the provider mid-search would label the
+    incoming results with the wrong source, and a second Add would start a
+    competing download. }
+  CbProvider.Enabled := not ABusy;
   if ABusy then
-    Screen.Cursor := crHourGlass
+  begin
+    BtnAdd.Enabled := False;
+    Screen.Cursor := crHourGlass;
+  end
   else
     Screen.Cursor := crDefault;
 end;
 
-procedure TdlgAddImage.DetachThreads;
-begin
-  if Assigned(FSearchThread) then
-  begin
-    FSearchThread.OnTerminate := nil;
-    FSearchThread.Terminate;
-    FSearchThread := nil;
-  end;
-  if Assigned(FPreviewThread) then
-  begin
-    FPreviewThread.OnTerminate := nil;
-    FPreviewThread.Terminate;
-    FPreviewThread := nil;
-  end;
-  if Assigned(FFetchThread) then
-  begin
-    FFetchThread.OnTerminate := nil;
-    FFetchThread.Terminate;
-    FFetchThread := nil;
-  end;
-end;
-
 procedure TdlgAddImage.DoSearch;
 begin
+  { Detach any search still running: it keeps going until its next transfer
+    callback notices Terminated, and its OnTerminate becomes a no-op. }
   if Assigned(FSearchThread) then
   begin
     FSearchThread.OnTerminate := nil;
@@ -339,7 +405,6 @@ begin
   ShowInfo('Searching…', False);
   FSearchThread := TSearchThread.Create(EdQuery.Text, CurrentProvider);
   FSearchThread.OnTerminate := @SearchDone;
-  FSearchThread.FreeOnTerminate := True;
   FSearchThread.Start;
 end;
 
@@ -348,10 +413,12 @@ var
   th: TSearchThread;
   i: integer;
 begin
+  { Stale worker (superseded or detached at close) — ignore it. }
+  if Sender <> FSearchThread then Exit;
   th := TSearchThread(Sender);
   FSearchThread := nil;
   SetBusy(False);
-  if th.FOk then
+  if th.Ok then
   begin
     FResults := th.Results;
     if Length(FResults) = 0 then
@@ -360,8 +427,16 @@ begin
     begin
       for i := 0 to High(FResults) do
         LstResults.Items.Add(FResults[i].Title);
-      ShowInfo(Format('%d image(s) found. Pick one and press Add.',
-        [Length(FResults)]), False);
+      if (th.Provider = ispUrl) and (Length(FResults) = 1) then
+      begin
+        { A pasted URL yields exactly one hit — preview it straight away
+          instead of making the user click the single row. }
+        LstResults.ItemIndex := 0;
+        SelectResult(0);
+      end
+      else
+        ShowInfo(Format('%d image(s) found. Pick one and press Add.',
+          [Length(FResults)]), False);
     end;
   end
   else
@@ -400,15 +475,16 @@ begin
   ShowInfo('Loading preview…', False);
   FPreviewThread := TPreviewThread.Create(r, Idx);
   FPreviewThread.OnTerminate := @PreviewDone;
-  FPreviewThread.FreeOnTerminate := True;
   FPreviewThread.Start;
 end;
 
 procedure TdlgAddImage.PreviewDone(Sender: TObject);
 var
   th: TPreviewThread;
+  Img: TLazIntfImage;
   Bmp: TBitmap;
 begin
+  if Sender <> FPreviewThread then Exit;
   th := TPreviewThread(Sender);
   FPreviewThread := nil;
   SetBusy(False);
@@ -418,22 +494,30 @@ begin
     Exit;
   end;
 
-  Bmp := IntfToBitmap(th.Img);
+  Img := th.ReleaseImg;
   try
-    ImgPreview.Picture.Assign(Bmp);
+    Bmp := IntfToBitmap(Img);
+    try
+      if Bmp = nil then
+      begin
+        ShowInfo('Could not render the preview.', True);
+        Exit;
+      end;
+      ImgPreview.Picture.Assign(Bmp);
+    finally
+      Bmp.Free;
+    end;
   finally
-    Bmp.Free;
-    th.Img.Free;
-    th.FImg := nil;
+    Img.Free;
   end;
 
-  FPreviewStream := th.Stream;
-  th.FStream := nil;
+  FPreviewStream := th.ReleaseStream;
   FPreviewURL := th.Url;
   FSelected := th.Idx;
   LabelLicense.Caption := 'License: ' + th.License;
   if th.PageURL <> '' then
     LabelLicense.Hint := th.PageURL;
+  ShowInfo('Preview ready. Press Add to insert it as page 1.', False);
   BtnAdd.Enabled := True;
 end;
 
@@ -441,7 +525,7 @@ procedure TdlgAddImage.BtnAddClick(Sender: TObject);
 var
   r: TSearchResult;
 begin
-  if FSelected < 0 then
+  if (FSelected < 0) or (FSelected > High(FResults)) then
   begin
     ShowInfo('Select an image first.', True);
     Exit;
@@ -467,7 +551,6 @@ begin
   ShowInfo('Downloading image…', False);
   FFetchThread := TFetchThread.Create(r);
   FFetchThread.OnTerminate := @FetchDone;
-  FFetchThread.FreeOnTerminate := True;
   FFetchThread.Start;
 end;
 
@@ -475,17 +558,21 @@ procedure TdlgAddImage.FetchDone(Sender: TObject);
 var
   th: TFetchThread;
 begin
+  if Sender <> FFetchThread then Exit;
   th := TFetchThread(Sender);
   FFetchThread := nil;
   SetBusy(False);
   if th.Ok then
   begin
-    FImageStream := th.Stream;
-    th.FStream := nil;
+    FImageStream := th.ReleaseStream;
     ModalResult := mrOk;
   end
   else
+  begin
     ShowInfo('Could not download image: ' + th.ErrMsg, True);
+    { SetBusy(False) cleared it; the pick is still valid, so allow a retry. }
+    BtnAdd.Enabled := FSelected >= 0;
+  end;
 end;
 
 procedure TdlgAddImage.FormCloseQuery(Sender: TObject; var CanClose: boolean);

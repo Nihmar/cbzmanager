@@ -7,16 +7,17 @@ VERSION ?= 0.1.0
 FPC_VERSION ?= $(shell fpc -iV 2>/dev/null || echo 3.2.2)
 ARCH ?= x86_64-linux
 FPC_UNITS ?= /usr/lib/fpc/$(FPC_VERSION)/units/$(ARCH)
-LAZ_UNITS ?= /usr/lib/lazarus
+LAZ_BASE ?= /usr/lib/lazarus
 
 FPC_BASE_FU = \
   -Fu$(FPC_UNITS)/rtl \
-  -Fu$(LAZ_UNITS)/lcl/units/$(ARCH) \
-  -Fu$(LAZ_UNITS)/lcl/units/$(ARCH)/qt6 \
-  -Fu$(LAZ_UNITS)/components/lazutils/lib/$(ARCH) \
-  -Fu$(LAZ_UNITS)/packager/units/$(ARCH) \
-  -Fu$(LAZ_UNITS)/components/freetype/lib/$(ARCH) \
+  -Fu$(LAZ_BASE)/lcl/units/$(ARCH) \
+  -Fu$(LAZ_BASE)/lcl/units/$(ARCH)/qt6 \
+  -Fu$(LAZ_BASE)/components/lazutils/lib/$(ARCH) \
+  -Fu$(LAZ_BASE)/packager/units/$(ARCH) \
+  -Fu$(LAZ_BASE)/components/freetype/lib/$(ARCH) \
   -Fu$(FPC_UNITS)/fcl-web \
+  -Fu$(FPC_UNITS)/fcl-net \
   -Fu$(FPC_UNITS)/openssl \
   -Fu$$HOME/.lazarus/lib/units/$(ARCH)/qt6
 

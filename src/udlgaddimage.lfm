@@ -43,9 +43,10 @@ inherited dlgAddImage: TdlgAddImage
     Align = alNone
     Anchors = [akLeft, akTop, akRight]
     BorderSpacing.Around = 4
-    ItemIndex = 0
+    ItemIndex = 1
     Items.Strings = (
       'All sources'
+      'MangaDex (manga volumes)'
       'Openverse'
       'Wikimedia Commons'
       'Open Library'
@@ -59,7 +60,7 @@ inherited dlgAddImage: TdlgAddImage
     OnChange = CbProviderChange
     Style = csDropDownList
     TabOrder = 1
-    Text = 'All sources'
+    Text = 'MangaDex (manga volumes)'
   end
   object BtnSearch: TButton[3]
     Left = 456

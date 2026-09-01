@@ -48,6 +48,7 @@ inherited dlgAddImage: TdlgAddImage
       'All sources'
       'Openverse'
       'Wikimedia Commons'
+      'Open Library'
       'Image URL'
     )
     OnChange = CbProviderChange

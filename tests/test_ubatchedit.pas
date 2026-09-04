@@ -15,6 +15,13 @@ uses
   ubatchedit;
 
 type
+  { Records progress callbacks (they run on the main thread: the test
+    runner pumps CheckSynchronize through WaitFor). }
+  TProgressRecorder = class
+    Pcts: array of integer;
+    procedure OnProgress(APercent: integer; const AMsg: string);
+  end;
+
   TBatchEditTest = class(TTestCase)
   private
     FTempDir: string;
@@ -34,6 +41,7 @@ type
     procedure Worker_EditsAllPages;
     procedure Worker_DecodesDataOverArchive;
     procedure Worker_SplitsAllPages;
+    procedure Worker_PoolProgressMonotonic;
     procedure Staging_SingleSplit;
     procedure Staging_MultiPageDescending;
     procedure Staging_ReplaceOnly;
@@ -91,6 +99,12 @@ begin
     APieces[i].Stream.Free;
     APieces[i].Thumb.Free;
   end;
+end;
+
+procedure TProgressRecorder.OnProgress(APercent: integer; const AMsg: string);
+begin
+  SetLength(Pcts, Length(Pcts) + 1);
+  Pcts[High(Pcts)] := APercent;
 end;
 
 procedure TBatchEditTest.SetUp;
@@ -680,6 +694,83 @@ begin
 
   for i := 0 to High(Pages) do
     Pages[i].Data.Free;
+end;
+
+{ Pool path with a live progress callback: four pages on four workers must
+  produce the same results as the sequential path, and the percentages must
+  arrive monotonic and finish at 100.  The callback runs on the main thread
+  (pumped through WaitFor); the Drained barrier in the pool guarantees no
+  queued progress outlives its worker. }
+procedure TBatchEditTest.Worker_PoolProgressMonotonic;
+var
+  Path: string;
+  Pngs: array[0..3] of TMemoryStream;
+  Names: array[0..3] of string;
+  Inputs: TMultiEditPageInputs;
+  P: TMultiEditParams;
+  W: TMultiEditWorker;
+  R: TProgressRecorder;
+  i, Prev: integer;
+begin
+  for i := 0 to 3 do
+  begin
+    Pngs[i] := MakePNG(80, 60);
+    Names[i] := Format('page_000%d.png', [i + 1]);
+  end;
+  try
+    Path := FTempDir + 'book.cbz';
+    CreateCBZ(Path, [Pngs[0], Pngs[1], Pngs[2], Pngs[3]],
+      [Names[0], Names[1], Names[2], Names[3]]);
+
+    SetLength(Inputs, 4);
+    for i := 0 to 3 do
+    begin
+      Inputs[i].Idx := i;
+      Inputs[i].OrigName := Names[i];
+      Inputs[i].Data := nil;
+      Inputs[i].Ext := '.png';
+    end;
+
+    P.Resize := True;
+    P.Percent := 50;
+    P.Adj := NeutralColorAdjust;
+    P.Split := False;
+    P.Horizontal := True;
+    P.Lines := nil;
+
+    R := TProgressRecorder.Create;
+    try
+      { Explicit Threads=4 forces the pool path on any CPU count. }
+      W := TMultiEditWorker.Create(Path, Inputs, P, 96, 128,
+        @R.OnProgress, 4);
+      W.FreeOnTerminate := False;
+      try
+        W.Start;
+        W.WaitFor;
+        AssertEquals('four results', 4, Length(W.Results));
+        for i := 0 to 3 do
+        begin
+          AssertEquals('result index', i, W.Results[i].Idx);
+          AssertEquals('one piece per page', 1, Length(W.Results[i].Pieces));
+        end;
+        AssertTrue('progress reported', Length(R.Pcts) > 0);
+        AssertEquals('progress ends at 100', 100, R.Pcts[High(R.Pcts)]);
+        Prev := 0;
+        for i := 0 to High(R.Pcts) do
+        begin
+          AssertTrue('progress monotonic', R.Pcts[i] >= Prev);
+          Prev := R.Pcts[i];
+        end;
+      finally
+        W.Free;
+      end;
+    finally
+      R.Free;
+    end;
+  finally
+    for i := 0 to 3 do
+      Pngs[i].Free;
+  end;
 end;
 
 initialization

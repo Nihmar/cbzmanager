@@ -100,7 +100,9 @@ type
                         instead of creating an undersized final volume.
       Delete          — If True, original chapter files are deleted after a
                         successful merge; otherwise they are renamed to
-                        *_OLD.cbz. }
+                        *_OLD.cbz.
+      Threads         — Volume-build workers (0 = automatic, capped at
+                        MAX_MERGE_THREADS; 1 = sequential). }
 
   TMergeOptions = record
     SeriesName: string;
@@ -111,6 +113,7 @@ type
     Force: boolean;
     Delete: boolean;
     GenerateComicInfo: boolean;
+    Threads: integer;
   end;
 
   { TMergeResult — Outcome of a merge operation.
@@ -177,17 +180,24 @@ type
                   absorbs remaining chapters (even if they exceed CPV).
         AOnProgress — Optional callback invoked before each volume write;
                       receives (percent, description).
+        AThreads — Worker-pool size for building volumes in parallel
+                   (0 = automatic: CPU count capped at MAX_MERGE_THREADS —
+                   every worker holds a whole volume decompressed in RAM;
+                   1 = sequential).  Volumes are independent (disjoint
+                   inputs and outputs), so the result is byte-identical
+                   for any thread count.
 
       Returns a TMergeResult with Success, VolumesCreated, and ErrorMsg. }
     class function Merge(const AFiles: TStringArray; const ADir: string;
       const Options: TMergeOptions;
-      AOnProgress: TServiceProgressEvent = nil): TMergeResult;
+      AOnProgress: TServiceProgressEvent = nil;
+      AThreads: integer = 0): TMergeResult;
   end;
 
 implementation
 
 uses
-  StrUtils, ucomicinfo;
+  Math, StrUtils, ucomicinfo;
 
 { Extracts the chapter-number portion of a filename as a raw string,
   preserving leading zeros and any formatting.
@@ -629,25 +639,201 @@ end;
       re-checks the strict classification so volume files, backups, and
       files of other series can never be renamed or deleted.
   --------------------------------------------------------------------------- }
-class function TMergeService.Merge(const AFiles: TStringArray;
-  const ADir: string; const Options: TMergeOptions;
-  AOnProgress: TServiceProgressEvent = nil): TMergeResult;
+type
+  { One pre-planned volume: the chapter batch with its preassigned volume
+    number and output path.  Planning is sequential and I/O-free, so the
+    numbering is deterministic regardless of the thread count.  (Edge case:
+    a batch whose chapters contain no images produces no file in both the
+    sequential and the pooled path; with pooling the preassigned numbers
+    of later volumes are kept rather than compacted — only reachable with
+    imageless chapter files.) }
+  TMergeBatch = record
+    Files: TStringArray;
+    VolNum: integer;
+    FullPath: string;
+  end;
+  TMergeBatchArray = array of TMergeBatch;
+
+{ Builds a single pre-planned volume: collects the batch chapters via
+  MergeIntoVolume, optionally generates the volume ComicInfo.xml, and
+  writes the volume file.  AWrote is set True before the write so that a
+  partially written volume from a failed write is still rolled back by
+  the caller.  Raises on unreadable chapters or write errors. }
+procedure BuildOneVolume(const B: TMergeBatch; const ADir: string;
+  GenerateComicInfo: boolean; const SeriesName: string;
+  AOnProgress: TServiceProgressEvent; out AWrote: boolean);
 var
-  i, n, CPV, VolNum, TotalCreated, Remaining, TotalBatches: integer;
-  ChIdx, ListIdx, BatchSize: integer;
-  UseList: boolean;
-  CPVF: Double;
-  SeriesName, VolName, FullPath: string;
-  ChBatch, Batch, ToClean: TStringArray;
-  CreatedPaths: TStringArray;
-  Chapters: TChapterArray;
-  CleanSeries: string;
-  CleanNum: integer;
-  CleanSpecial: boolean;
   VolEntries: TZipEntries;
   CI: TComicInfo;
   XML: string;
   k, ChFirst, ChLast: integer;
+begin
+  AWrote := False;
+  VolEntries := MergeIntoVolume(B.Files, ADir, AOnProgress);
+  try
+    if Length(VolEntries) = 0 then Exit;
+    if GenerateComicInfo then
+    begin
+      CI := DefaultComicInfo;
+      CI.Series := SeriesName;
+      CI.Volume := B.VolNum;
+      ChFirst := ExtractChapterNum(B.Files[0]);
+      ChLast := ExtractChapterNum(B.Files[High(B.Files)]);
+      if (ChFirst > 0) and (ChLast > 0) then
+        CI.Number := Format('%d-%d', [ChFirst, ChLast])
+      else
+        CI.Number := IntToStr(B.VolNum);
+      CI.Title := Format('%s Vol.%d', [SeriesName, B.VolNum]);
+      CI.PageCount := Length(VolEntries);
+      CI.Manga := 'Unknown';
+      XML := GenerateComicInfoXML(CI);
+      k := Length(VolEntries);
+      SetLength(VolEntries, k + 1);
+      VolEntries[k].Name := COMICINFO_XML;
+      VolEntries[k].Data := TMemoryStream.Create;
+      if Length(XML) > 0 then
+        VolEntries[k].Data.Write(XML[1], Length(XML));
+      VolEntries[k].Data.Position := 0;
+    end;
+    { Track the write before performing it so a partially written volume
+      from a failed WriteZipFromEntriesDeflated is rolled back too. }
+    AWrote := True;
+    WriteZipFromEntriesDeflated(B.FullPath, VolEntries);
+  finally
+    FreeZipEntries(VolEntries);
+  end;
+end;
+
+type
+  { Shared state of a merge pool: the pre-planned batches, the per-batch
+    Wrote flags and the claim counter.  Mutable fields are guarded by
+    Lock; each worker writes only Wrote[Idx] with the Idx it claimed, so
+    slot writes need no lock.  The first worker exception is recorded in
+    Error and stops further claiming; the caller rolls back every volume
+    written in this run, mirroring the sequential path. }
+  TMergePoolState = class
+    Lock: TRTLCriticalSection;
+    Batches: TMergeBatchArray;
+    Dir: string;
+    GenerateComicInfo: boolean;
+    SeriesName: string;
+    Wrote: array of boolean;
+    Next: integer;             { next batch index (under Lock) }
+    Completed: integer;        { finished batches (under Lock) }
+    Total: integer;
+    OnProgress: TServiceProgressEvent;
+    Error: string;             { first worker exception (under Lock) }
+    constructor Create;
+    destructor Destroy; override;
+  end;
+
+  { Pool worker: claims the next batch index under the lock, builds that
+    volume (the per-volume logic never shares mutable state — each call
+    owns its TUnZipper/TZipper instances), then reports progress —
+    serialized, monotonic via the completed counter. }
+  TMergeVolumeWorker = class(TThread)
+  private
+    FPool: TMergePoolState;
+    FProgress: TLockedProgress;
+  protected
+    procedure Execute; override;
+  public
+    constructor Create(APool: TMergePoolState;
+      AProgress: TLockedProgress);
+  end;
+
+constructor TMergePoolState.Create;
+begin
+  inherited Create;
+  InitCriticalSection(Lock);
+end;
+
+destructor TMergePoolState.Destroy;
+begin
+  DoneCriticalSection(Lock);
+  inherited Destroy;
+end;
+
+constructor TMergeVolumeWorker.Create(APool: TMergePoolState;
+  AProgress: TLockedProgress);
+begin
+  { Created suspended: the caller Start()s every worker before joining. }
+  inherited Create(True);
+  FPool := APool;
+  FProgress := AProgress;
+end;
+
+procedure TMergeVolumeWorker.Execute;
+var
+  Idx: integer;
+  W: boolean;
+begin
+  while True do
+  begin
+    EnterCriticalSection(FPool.Lock);
+    try
+      if (FPool.Error <> '') or (FPool.Next >= Length(FPool.Batches)) then Exit;
+      Idx := FPool.Next;
+      Inc(FPool.Next);
+    finally
+      LeaveCriticalSection(FPool.Lock);
+    end;
+
+    W := False;
+    try
+      BuildOneVolume(FPool.Batches[Idx], FPool.Dir,
+        FPool.GenerateComicInfo, FPool.SeriesName, @FProgress.Translate, W);
+      FPool.Wrote[Idx] := W;
+    except
+      on E: Exception do
+      begin
+        { W is True when the write itself failed (partial file on disk),
+          so the caller still rolls it back. }
+        FPool.Wrote[Idx] := W;
+        EnterCriticalSection(FPool.Lock);
+        try
+          if FPool.Error = '' then
+            FPool.Error := E.Message;
+        finally
+          LeaveCriticalSection(FPool.Lock);
+        end;
+        Exit;
+      end;
+    end;
+
+    EnterCriticalSection(FPool.Lock);
+    try
+      Inc(FPool.Completed);
+      if Assigned(FPool.OnProgress) then
+        FPool.OnProgress((FPool.Completed * 100) div FPool.Total,
+          Format('Writing volume %d/%d', [FPool.Completed, FPool.Total]));
+    finally
+      LeaveCriticalSection(FPool.Lock);
+    end;
+  end;
+end;
+
+class function TMergeService.Merge(const AFiles: TStringArray;
+  const ADir: string; const Options: TMergeOptions;
+  AOnProgress: TServiceProgressEvent; AThreads: integer): TMergeResult;
+var
+  i, n, CPV, VolNum, TotalCreated, Remaining, TotalBatches, ThreadCount: integer;
+  ChIdx, ListIdx, BatchSize, b: integer;
+  UseList: boolean;
+  CPVF: Double;
+  SeriesName, FullPath: string;
+  ChBatch, ToClean: TStringArray;
+  Chapters: TChapterArray;
+  CleanSeries: string;
+  CleanNum: integer;
+  CleanSpecial: boolean;
+  Batches: TMergeBatchArray;
+  Wrote: array of boolean;
+  W: boolean;
+  Pool: TMergePoolState;
+  Locked: TLockedProgress;
+  Workers: array of TMergeVolumeWorker;
+  Started: boolean;
 begin
   Result.Success := False;
   Result.VolumesCreated := 0;
@@ -699,7 +885,7 @@ begin
     Exit;
   end;
 
-  { ---- Phase 2: Volume creation ----------------------------------------- }
+  { ---- Phase 2a: Planning (sequential, no I/O) --------------------------- }
 
   UseList := Length(Options.ChaptersList) > 0;
 
@@ -712,132 +898,159 @@ begin
       count stays the same. }
     TotalBatches := Trunc(Length(ChBatch) / CPVF);
 
-  TotalCreated := 0;
   { Number new volumes after the highest existing one, so repeated merges
     extend the series instead of overwriting earlier volumes. }
   VolNum := LastVolumeNumber(AFiles, SeriesName) + 1;
   ChIdx := 0;
   ListIdx := 0;
-  CreatedPaths := nil;
+  Batches := nil;
+
+  while ChIdx < Length(ChBatch) do
+  begin
+    { Without Force: stop after full volumes, leaving leftovers untouched.
+      TotalBatches = 0 (fewer chapters than CPV — the Python reference's
+      "Not enough chapters") breaks immediately, so nothing is created. }
+    if not Options.Force then
+      if Length(Batches) >= TotalBatches then
+        Break;
+
+    Remaining := Length(ChBatch) - ChIdx;
+
+    if UseList then
+    begin
+      if ListIdx > High(Options.ChaptersList) then
+        Break;
+      BatchSize := Options.ChaptersList[ListIdx];
+      Inc(ListIdx);
+      { A batch that does not fully fit the remaining chapters is skipped
+        entirely (Python reference: "if plan.ch_index + count > num_chapters:
+        break") — its chapters stay unmerged, which is exactly what the
+        dialog preview shows for the overflow rows ('-').  The BatchSize <= 0
+        guard also prevents an infinite loop from a malformed list. }
+      if (BatchSize <= 0) or (BatchSize > Remaining) then
+        Break;
+    end
+    else
+    begin
+      BatchSize := CPV;
+      if BatchSize > Remaining then
+      begin
+        if Options.Force then
+          BatchSize := Remaining   // absorb remainder into last volume
+        else
+          Break;                   // skip incomplete final volume
+      end
+      else if Options.Force and (TotalBatches > 0) and
+        (Length(Batches) + 1 >= TotalBatches) then
+      begin
+        { Last full batch with Force: absorb any trailing leftovers now }
+        BatchSize := Remaining;
+      end;
+    end;
+
+    SetLength(Batches, Length(Batches) + 1);
+    SetLength(Batches[High(Batches)].Files, BatchSize);
+    for n := 0 to BatchSize - 1 do
+      Batches[High(Batches)].Files[n] := ChBatch[ChIdx + n];
+    Batches[High(Batches)].VolNum := VolNum;
+    Inc(VolNum);
+    Batches[High(Batches)].FullPath :=
+      CBZFullPath(ADir, Format('%s V%.3d.cbz',
+        [SeriesName, Batches[High(Batches)].VolNum]));
+
+    Inc(ChIdx, BatchSize);
+  end;
 
   if Assigned(AOnProgress) and (TotalBatches > 0) then
     AOnProgress(0, Format('Merging 0/%d volumes', [TotalBatches]));
 
+  { ---- Phase 2b: Execution (sequential or pooled) ------------------------- }
+
+  ThreadCount := AThreads;
+  if ThreadCount <= 0 then
+    ThreadCount := Min(OnlineCpuCount, MAX_MERGE_THREADS);
+  ThreadCount := Min(ThreadCount, Length(Batches));
+
+  SetLength(Wrote, Length(Batches));
+  TotalCreated := 0;
+
   try
-    while ChIdx < Length(ChBatch) do
+    if ThreadCount <= 1 then
     begin
-      { Without Force: stop after full volumes, leaving leftovers untouched.
-        TotalBatches = 0 (fewer chapters than CPV — the Python reference's
-        "Not enough chapters") breaks immediately, so nothing is created. }
-      if not Options.Force then
-        if TotalCreated >= TotalBatches then
-          Break;
-
-      Remaining := Length(ChBatch) - ChIdx;
-
-      if Assigned(AOnProgress) and (TotalBatches > 0) then
-        AOnProgress((TotalCreated * 100) div TotalBatches,
-          Format('Writing volume %d/%d', [TotalCreated + 1, TotalBatches]));
-
-      if UseList then
+      { Sequential: exactly the historical behaviour. }
+      for b := 0 to High(Batches) do
       begin
-        if ListIdx > High(Options.ChaptersList) then
-          Break;
-        BatchSize := Options.ChaptersList[ListIdx];
-        Inc(ListIdx);
-        { A batch that does not fully fit the remaining chapters is skipped
-          entirely (Python reference: "if plan.ch_index + count > num_chapters:
-          break") — its chapters stay unmerged, which is exactly what the
-          dialog preview shows for the overflow rows ('-').  The BatchSize <= 0
-          guard also prevents an infinite loop from a malformed list. }
-        if (BatchSize <= 0) or (BatchSize > Remaining) then
-          Break;
-      end
-      else
-      begin
-        BatchSize := CPV;
-        if BatchSize > Remaining then
-        begin
-          if Options.Force then
-            BatchSize := Remaining   // absorb remainder into last volume
-          else
-            Break;                   // skip incomplete final volume
-        end
-        else if Options.Force and (TotalBatches > 0) and
-          (TotalCreated + 1 >= TotalBatches) then
-        begin
-          { Last full batch with Force: absorb any trailing leftovers now }
-          BatchSize := Remaining;
-        end;
+        if Assigned(AOnProgress) and (TotalBatches > 0) then
+          AOnProgress((TotalCreated * 100) div TotalBatches,
+            Format('Writing volume %d/%d', [TotalCreated + 1, TotalBatches]));
+        BuildOneVolume(Batches[b], ADir, Options.GenerateComicInfo,
+          SeriesName, AOnProgress, W);
+        Wrote[b] := W;
+        if W then Inc(TotalCreated);
       end;
-
-      Batch := nil;
-      SetLength(Batch, BatchSize);
-      for n := 0 to BatchSize - 1 do
-        Batch[n] := ChBatch[ChIdx + n];
-
-      VolName := Format('%s V%.3d.cbz', [SeriesName, VolNum]);
-      FullPath := CBZFullPath(ADir, VolName);
-
-      VolEntries := MergeIntoVolume(Batch, ADir, AOnProgress);
+    end
+    else
+    begin
+      { Parallel: a pool of volume workers claims pre-planned batches and
+        writes each volume into its own preassigned file, so the output is
+        byte-identical for any thread count. }
+      Pool := TMergePoolState.Create;
+      Locked := TLockedProgress.Create;
+      Workers := nil;
+      Started := False;
       try
-        if Length(VolEntries) > 0 then
-        begin
-          if Options.GenerateComicInfo then
-          begin
-            CI := DefaultComicInfo;
-            CI.Series := SeriesName;
-            CI.Volume := VolNum;
-            ChFirst := ExtractChapterNum(Batch[0]);
-            ChLast := ExtractChapterNum(Batch[High(Batch)]);
-            if (ChFirst > 0) and (ChLast > 0) then
-              CI.Number := Format('%d-%d', [ChFirst, ChLast])
-            else
-              CI.Number := IntToStr(VolNum);
-            CI.Title := Format('%s Vol.%d', [SeriesName, VolNum]);
-            CI.PageCount := Length(VolEntries);
-            CI.Manga := 'Unknown';
-            XML := GenerateComicInfoXML(CI);
-            k := Length(VolEntries);
-            SetLength(VolEntries, k + 1);
-            VolEntries[k].Name := COMICINFO_XML;
-            VolEntries[k].Data := TMemoryStream.Create;
-            if Length(XML) > 0 then
-              VolEntries[k].Data.Write(XML[1], Length(XML));
-            VolEntries[k].Data.Position := 0;
-          end;
-          { Track the path before writing so a partially written volume
-            from a failed WriteZipFromEntriesDeflated is rolled back too. }
-          SetLength(CreatedPaths, Length(CreatedPaths) + 1);
-          CreatedPaths[High(CreatedPaths)] := FullPath;
-          WriteZipFromEntriesDeflated(FullPath, VolEntries);
-          Inc(TotalCreated);
-          { Only chapters merged into a volume that was actually written are
-            eligible for cleanup — an empty/ComicInfo-only batch produces no
-            volume and its sources must be left alone. }
-          for n := 0 to BatchSize - 1 do
-          begin
-            SetLength(ToClean, Length(ToClean) + 1);
-            ToClean[High(ToClean)] := Batch[n];
-          end;
-          { Advance the volume number only for volumes actually written, so a
-            skipped batch does not leave a numbering gap. }
-          Inc(VolNum);
+        Pool.Batches := Batches;
+        Pool.Dir := ADir;
+        Pool.GenerateComicInfo := Options.GenerateComicInfo;
+        Pool.SeriesName := SeriesName;
+        Pool.Wrote := Wrote;
+        Pool.Total := Length(Batches);
+        Pool.OnProgress := AOnProgress;
+        Locked.Lock := @Pool.Lock;
+        Locked.Inner := AOnProgress;
+        SetLength(Workers, ThreadCount);
+        try
+          for i := 0 to ThreadCount - 1 do
+            Workers[i] := TMergeVolumeWorker.Create(Pool, Locked);
+          Started := True;
+          for i := 0 to ThreadCount - 1 do
+            Workers[i].Start;
+          for i := 0 to High(Workers) do
+            Workers[i].WaitFor;
+          { Pool.Wrote shares its array reference with Wrote, so the worker
+            results are already visible — no copy-back needed.  A worker
+            failure fails the whole run, exactly like the sequential path's
+            exception propagation (rolled back below). }
+          if Pool.Error <> '' then
+            raise Exception.Create(Pool.Error);
+        finally
+          { Join and free the workers here — also covers a mid-spawn failure,
+            where only the created (started) workers must be waited for. }
+          if Started then
+            for i := 0 to High(Workers) do
+              Workers[i].WaitFor;
+          for i := 0 to High(Workers) do
+            if Workers[i] <> nil then
+              Workers[i].Free;
         end;
       finally
-        FreeZipEntries(VolEntries);
+        Pool.Free;
+        Locked.Free;
       end;
-
-      Inc(ChIdx, BatchSize);
+      TotalCreated := 0;
+      for b := 0 to High(Wrote) do
+        if Wrote[b] then Inc(TotalCreated);
     end;
   except
     on E: Exception do
     begin
       { Roll back every volume created in this run, mirroring the Python
         reference (created_paths.unlink()), so a re-run cannot duplicate
-        the content of already-merged chapters. }
-      for n := 0 to High(CreatedPaths) do
-        DeleteFile(CreatedPaths[n]);
+        the content of already-merged chapters.  Wrote is set before the
+        write, so partially written volumes are removed too. }
+      for b := 0 to High(Batches) do
+        if (b <= High(Wrote)) and Wrote[b] then
+          DeleteFile(Batches[b].FullPath);
       Result.Success := False;
       Result.VolumesCreated := 0;
       Result.ErrorMsg := Format(
@@ -846,6 +1059,18 @@ begin
       Exit;
     end;
   end;
+
+  { Only chapters merged into a volume that was actually written are
+    eligible for cleanup — an empty batch produces no volume and its
+    sources must be left alone. }
+  ToClean := nil;
+  for b := 0 to High(Batches) do
+    if Wrote[b] then
+      for n := 0 to High(Batches[b].Files) do
+      begin
+        SetLength(ToClean, Length(ToClean) + 1);
+        ToClean[High(ToClean)] := Batches[b].Files[n];
+      end;
 
   Result.Success := TotalCreated > 0;
   Result.VolumesCreated := TotalCreated;

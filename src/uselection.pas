@@ -23,8 +23,10 @@ function UnionSel(const A, B: TIntegerDynArray): TIntegerDynArray;
 { True when exactly the items at indices in A are selected in ALV. }
 function SelectionMatches(ALV: TListView; const A: array of integer): boolean;
 
-{ Make exactly the indices in A selected (clearing everything else);
-  focus the item at AFocus when the selection is a single item. }
+{ Make exactly the indices in A selected (clearing everything else):
+  an empty A also clears the focus (so a later shift+click with no anchor
+  starts from the clicked item instead of a stale focused row); a single
+  item focuses AFocus. }
 procedure ApplySelection(ALV: TListView; const A: array of integer;
   AFocus: integer);
 
@@ -113,7 +115,9 @@ begin
   finally
     ALV.EndUpdate;
   end;
-  if (Length(A) <= 1) and (AFocus >= 0) and (AFocus < ALV.Items.Count) then
+  if Length(A) = 0 then
+    ALV.Selected := nil
+  else if (Length(A) = 1) and (AFocus >= 0) and (AFocus < ALV.Items.Count) then
     ALV.Selected := ALV.Items[AFocus];
 end;
 

@@ -31,7 +31,8 @@ uses
   test_userviceconvert,
   test_uservicecbr,
   test_upageeditmodel,
-  test_uimageedit;
+  test_uimageedit,
+  test_uselection;
 var
   App: TTestRunner;
 begin

@@ -25,7 +25,7 @@ unit uthreadservice;
 interface
 
 uses
-  Classes, SysUtils,
+  Classes, SysUtils, Math,
   uzipcore, uZipEditor, uservicebase, userviceconvert, uservicemerge, uservicevalidate,
   uservicecomicinfo, uservicecbr;
 
@@ -131,6 +131,7 @@ type
     FFiles: TStringArray;            // list of .cbz filenames to merge
     FDir: string;                    // directory containing the files
     FOptions: TMergeOptions;         // merge parameters (grouping, naming)
+    FThreads: integer;               // volume-build workers (0 = automatic)
     FResult: TMergeResult;           // outcome populated by Execute
   protected
     procedure Execute; override;
@@ -138,9 +139,11 @@ type
     { @param AFiles      Array of chapter .cbz filenames.
       @param ADir        Directory containing the files.
       @param AOptions    Merge configuration.
-      @param AOnProgress Optional progress callback. }
+      @param AOnProgress Optional progress callback.
+      @param AThreads    Volume-build workers (0 = automatic, 1 = sequential). }
     constructor Create(const AFiles: TStringArray; const ADir: string;
-      const AOptions: TMergeOptions; AOnProgress: TServiceProgressEvent);
+      const AOptions: TMergeOptions; AOnProgress: TServiceProgressEvent;
+      AThreads: integer = 0);
     property Result: TMergeResult read FResult;
   end;
 
@@ -208,6 +211,7 @@ type
     FRenumber: boolean;              // whether to renumber surviving pages
     FDeletePerm: boolean;
     // if True, write directly; if False, use ReplaceCBZ (with backup)
+    FThreads: integer;               // per-file workers (0 = automatic)
     FResult: TDeletePagesResult;     // outcome populated by Execute
   protected
     procedure Execute; override;
@@ -219,10 +223,13 @@ type
       @param ARenumber       If True, surviving pages are renumbered 001…NNN.
       @param ADeletePerm     If True, write directly over the CBZ; otherwise
                              use the safe ReplaceCBZ with backup.
-      @param AOnProgress     Optional progress callback. }
+      @param AOnProgress     Optional progress callback.
+      @param AThreads        Per-file workers (0 = automatic, CPU count capped
+                             at 4 — every worker holds a whole archive in RAM;
+                             1 = sequential). }
     constructor Create(const AFiles: TStringArray; const ADir: string;
       const APagesToDelete: array of boolean; ARenumber, ADeletePerm: boolean;
-      AOnProgress: TServiceProgressEvent);
+      AOnProgress: TServiceProgressEvent; AThreads: integer = 0);
     property Result: TDeletePagesResult read FResult;
   end;
 
@@ -239,7 +246,8 @@ implementation
   reference counting and the dynamic array is duplicated element-by-element. }
 constructor TDeletePagesThread.Create(const AFiles: TStringArray;
   const ADir: string; const APagesToDelete: array of boolean;
-  ARenumber, ADeletePerm: boolean; AOnProgress: TServiceProgressEvent);
+  ARenumber, ADeletePerm: boolean; AOnProgress: TServiceProgressEvent;
+  AThreads: integer);
 var
   i: integer;
 begin
@@ -252,6 +260,142 @@ begin
     FPagesToDelete[i] := APagesToDelete[i];
   FRenumber := ARenumber;
   FDeletePerm := ADeletePerm;
+  FThreads := AThreads;
+end;
+
+type
+  { Per-file outcome slot of a delete-pages pool.  Written once by the
+    worker that claimed the index, aggregated in order after the join so
+    the result is deterministic for any thread count. }
+  TDeletePagesSlot = record
+    Written: boolean;      { True when the file was rewritten }
+    ErrorMsg: string;      { non-empty when this file failed }
+  end;
+
+  { Shared state of a delete-pages pool: the file list, the per-file
+    result slots and the claim counter.  Mutable fields are guarded by
+    Lock; each worker writes only Slots[Idx] with the Idx it claimed. }
+  TDeletePagesPoolState = class
+    Lock: TRTLCriticalSection;
+    Files: TStringArray;
+    Dir: string;
+    PagesToDelete: array of boolean;
+    Renumber: boolean;
+    DeletePerm: boolean;
+    Slots: array of TDeletePagesSlot;
+    Next: integer;             { next file index (under Lock) }
+    Completed: integer;        { finished files (under Lock) }
+    Total: integer;
+    OnProgress: TServiceProgressEvent;
+    constructor Create;
+    destructor Destroy; override;
+  end;
+
+  { Pool worker: claims the next file index under the lock, filters that
+    file's pages and writes it back, then reports progress — serialized,
+    monotonic via the completed counter. }
+  TDeletePagesPoolWorker = class(TThread)
+  private
+    FPool: TDeletePagesPoolState;
+    FProgress: TLockedProgress;
+  protected
+    procedure Execute; override;
+  public
+    constructor Create(APool: TDeletePagesPoolState;
+      AProgress: TLockedProgress);
+  end;
+
+constructor TDeletePagesPoolState.Create;
+begin
+  inherited Create;
+  InitCriticalSection(Lock);
+end;
+
+destructor TDeletePagesPoolState.Destroy;
+begin
+  DoneCriticalSection(Lock);
+  inherited Destroy;
+end;
+
+constructor TDeletePagesPoolWorker.Create(APool: TDeletePagesPoolState;
+  AProgress: TLockedProgress);
+begin
+  { Created suspended: the coordinator Start()s every worker before joining.
+    FreeOnTerminate stays False — the coordinator frees the workers after
+    the join. }
+  inherited Create(True);
+  FPool := APool;
+  FProgress := AProgress;
+end;
+
+{ Filters one file (claimed index Idx) and writes it back.  Never raises:
+  failures land in the result slot. }
+procedure TDeletePagesPoolWorker.Execute;
+var
+  Idx: integer;
+  FullPath: string;
+  Entries: TZipEntries;
+  Ok: boolean;
+begin
+  while True do
+  begin
+    if Terminated then Exit;
+    EnterCriticalSection(FPool.Lock);
+    try
+      if FPool.Next >= Length(FPool.Files) then Exit;
+      Idx := FPool.Next;
+      Inc(FPool.Next);
+    finally
+      LeaveCriticalSection(FPool.Lock);
+    end;
+
+    FullPath := IncludeTrailingPathDelimiter(FPool.Dir) + FPool.Files[Idx];
+    try
+      // FilterPagesFromCBZ reads the archive, drops marked pages,
+      // optionally renumbers, and returns the surviving entries.
+      Entries := FilterPagesFromCBZ(FullPath, FPool.PagesToDelete,
+        FPool.Renumber);
+      try
+        if Length(Entries) > 0 then
+        begin
+          // Always write through the safe temp-file + rename path
+          // (ReplaceCBZ), matching the sequential behaviour.
+          Ok := ReplaceCBZ(FullPath, Entries);
+          if Ok and FPool.DeletePerm then
+          begin
+            // "Delete permanently": drop the _OLD.cbz backup so no recovery
+            // copy remains.
+            if DeleteFile(ChangeFileExt(FullPath, '') + BACKUP_SUFFIX) then
+              ;  // backup removed
+          end;
+          if Ok then
+            FPool.Slots[Idx].Written := True
+          else
+            FPool.Slots[Idx].ErrorMsg :=
+              Format('Failed to write %s', [FPool.Files[Idx]]);
+        end;
+        { Length(Entries) = 0: silent no-op, like the sequential path —
+          the slot stays neutral. }
+      finally
+        FreeZipEntries(Entries);  // always free the temporary entry list
+      end;
+    except
+      on E: Exception do
+        FPool.Slots[Idx].ErrorMsg :=
+          Format('%s: %s', [FPool.Files[Idx], E.Message]);
+    end;
+
+    EnterCriticalSection(FPool.Lock);
+    try
+      Inc(FPool.Completed);
+      if Assigned(FPool.OnProgress) then
+        FPool.OnProgress((FPool.Completed * 100) div FPool.Total,
+          Format('Deleting pages from %s (%d/%d)', [FPool.Files[Idx],
+            FPool.Completed, FPool.Total]));
+    finally
+      LeaveCriticalSection(FPool.Lock);
+    end;
+  end;
 end;
 
 { TDeletePagesThread.Execute
@@ -266,70 +410,160 @@ end;
   Checks Terminated before each file to support cooperative cancellation. }
 procedure TDeletePagesThread.Execute;
 var
-  i: integer;
+  i, ThreadCount, W: integer;
   FullPath: string;
   Entries: TZipEntries;
   Ok: boolean;
+  Pool: TDeletePagesPoolState;
+  Locked: TLockedProgress;
+  Workers: array of TDeletePagesPoolWorker;
+  AllDone: boolean;
 begin
   FResult.Success := True;
   FResult.Processed := 0;
   FResult.ErrorMsg := '';
-  for i := 0 to High(FFiles) do
+
+  ThreadCount := FThreads;
+  if ThreadCount <= 0 then
+    { Every worker holds a whole archive in RAM — same cap as the CBR and
+      merge pools. }
+    ThreadCount := Min(OnlineCpuCount, MAX_CBR_CONVERT_THREADS);
+  ThreadCount := Min(ThreadCount, Length(FFiles));
+
+  if ThreadCount <= 1 then
   begin
-    if Terminated then
+    { Sequential: exactly the historical behaviour. }
+    for i := 0 to High(FFiles) do
     begin
-      FResult.ErrorMsg := 'Cancelled';
-      FResult.Success := False;
-      Exit;
-    end;
-    // Build the full path from directory + filename.
-    FullPath := IncludeTrailingPathDelimiter(FDir) + FFiles[i];
-    Progress((i * 100) div Length(FFiles),
-      Format('Deleting pages from %s (%d/%d)', [FFiles[i], i + 1, Length(FFiles)]));
-    // Each file is processed independently: a failure must not abort the rest
-    // of the batch (mirrors the other service threads).  Errors are captured
-    // in FResult and surfaced by the termination handler.
-    try
-      // FilterPagesFromCBZ reads the archive, drops marked pages,
-      // optionally renumbers, and returns the surviving entries.
-      Entries := FilterPagesFromCBZ(FullPath, FPagesToDelete, FRenumber);
-      try
-        if Length(Entries) > 0 then
-        begin
-          // Always write through the safe temp-file + rename path
-          // (ReplaceCBZ).  Overwriting the live file in place via
-          // WriteZipFromEntriesDeflated was the only branch that created the
-          // output stream on the original name, which fails on filesystems
-          // that lease/reject overwriting an open archive (e.g. CIFS/SMB) with
-          // "Unable to create file".  ReplaceCBZ writes to a .new temp file and
-          // renames, matching every other service.
-          Ok := ReplaceCBZ(FullPath, Entries);
-          if Ok and FDeletePerm then
-          begin
-            // "Delete permanently": drop the _OLD.cbz backup so no recovery
-            // copy remains.
-            if DeleteFile(ChangeFileExt(FullPath, '') + BACKUP_SUFFIX) then
-              ;  // backup removed
-          end;
-          if Ok then
-            Inc(FResult.Processed)
-          else
-          begin
-            FResult.Success := False;
-            if FResult.ErrorMsg = '' then
-              FResult.ErrorMsg := Format('Failed to write %s', [FFiles[i]]);
-          end;
-        end;
-      finally
-        FreeZipEntries(Entries);  // always free the temporary entry list
-      end;
-    except
-      on E: Exception do
+      if Terminated then
       begin
+        FResult.ErrorMsg := 'Cancelled';
         FResult.Success := False;
-        if FResult.ErrorMsg = '' then
-          FResult.ErrorMsg := Format('%s: %s', [FFiles[i], E.Message]);
+        Exit;
       end;
+      // Build the full path from directory + filename.
+      FullPath := IncludeTrailingPathDelimiter(FDir) + FFiles[i];
+      Progress((i * 100) div Length(FFiles),
+        Format('Deleting pages from %s (%d/%d)', [FFiles[i], i + 1, Length(FFiles)]));
+      // Each file is processed independently: a failure must not abort the rest
+      // of the batch (mirrors the other service threads).  Errors are captured
+      // in FResult and surfaced by the termination handler.
+      try
+        // FilterPagesFromCBZ reads the archive, drops marked pages,
+        // optionally renumbers, and returns the surviving entries.
+        Entries := FilterPagesFromCBZ(FullPath, FPagesToDelete, FRenumber);
+        try
+          if Length(Entries) > 0 then
+          begin
+            // Always write through the safe temp-file + rename path
+            // (ReplaceCBZ).  Overwriting the live file in place via
+            // WriteZipFromEntriesDeflated was the only branch that created the
+            // output stream on the original name, which fails on filesystems
+            // that lease/reject overwriting an open archive (e.g. CIFS/SMB) with
+            // "Unable to create file".  ReplaceCBZ writes to a .new temp file and
+            // renames, matching every other service.
+            Ok := ReplaceCBZ(FullPath, Entries);
+            if Ok and FDeletePerm then
+            begin
+              // "Delete permanently": drop the _OLD.cbz backup so no recovery
+              // copy remains.
+              if DeleteFile(ChangeFileExt(FullPath, '') + BACKUP_SUFFIX) then
+                ;  // backup removed
+            end;
+            if Ok then
+              Inc(FResult.Processed)
+            else
+            begin
+              FResult.Success := False;
+              if FResult.ErrorMsg = '' then
+                FResult.ErrorMsg := Format('Failed to write %s', [FFiles[i]]);
+            end;
+          end;
+        finally
+          FreeZipEntries(Entries);  // always free the temporary entry list
+        end;
+      except
+        on E: Exception do
+        begin
+          FResult.Success := False;
+          if FResult.ErrorMsg = '' then
+            FResult.ErrorMsg := Format('%s: %s', [FFiles[i], E.Message]);
+        end;
+      end;
+    end;
+  end
+  else
+  begin
+    { Parallel: a pool of file workers claims indices and writes each
+      result into its own slot; the outcome is aggregated in order after
+      the join, so it is identical for any thread count.  Per-file
+      failures never abort the batch, mirroring the sequential path. }
+    Pool := TDeletePagesPoolState.Create;
+    Locked := TLockedProgress.Create;
+    Workers := nil;
+    try
+      Pool.Files := FFiles;
+      Pool.Dir := FDir;
+      Pool.PagesToDelete := FPagesToDelete;
+      Pool.Renumber := FRenumber;
+      Pool.DeletePerm := FDeletePerm;
+      SetLength(Pool.Slots, Length(FFiles));
+      Pool.Total := Length(FFiles);
+      { Both the per-file completion reports and the locked within-file
+        progress funnel through the service thread's synchronized Progress,
+        serialized by the pool lock (same shape as the CBR pool). }
+      Pool.OnProgress := @Progress;
+      Locked.Lock := @Pool.Lock;
+      Locked.Inner := @Progress;
+      SetLength(Workers, ThreadCount);
+      try
+        for i := 0 to ThreadCount - 1 do
+          Workers[i] := TDeletePagesPoolWorker.Create(Pool, Locked);
+        for i := 0 to ThreadCount - 1 do
+          Workers[i].Start;
+        { Join with cancel propagation: terminating the service thread
+          terminates the pool workers so they exit at the next claim. }
+        while True do
+        begin
+          AllDone := True;
+          for W := 0 to High(Workers) do
+            if (Workers[W] <> nil) and not Workers[W].Finished then
+            begin
+              AllDone := False;
+              Break;
+            end;
+          if AllDone then Break;
+          if Terminated then
+            for W := 0 to High(Workers) do
+              if Workers[W] <> nil then
+                Workers[W].Terminate;
+          Sleep(5);
+        end;
+        for i := 0 to High(Workers) do
+          if Workers[i] <> nil then
+            Workers[i].WaitFor;
+      finally
+        for i := 0 to High(Workers) do
+          Workers[i].Free;
+      end;
+      for i := 0 to High(FFiles) do
+      begin
+        if Pool.Slots[i].Written then
+          Inc(FResult.Processed);
+        if (Pool.Slots[i].ErrorMsg <> '') and (FResult.ErrorMsg = '') then
+        begin
+          FResult.Success := False;
+          FResult.ErrorMsg := Pool.Slots[i].ErrorMsg;
+        end;
+      end;
+      if Terminated then
+      begin
+        FResult.ErrorMsg := 'Cancelled';
+        FResult.Success := False;
+      end;
+    finally
+      Pool.Free;
+      Locked.Free;
     end;
   end;
   Progress(100, Format('Complete: %d files processed', [FResult.Processed]));
@@ -447,12 +681,14 @@ end;
 
   Copies merge parameters into thread-owned fields. }
 constructor TMergeThread.Create(const AFiles: TStringArray; const ADir: string;
-  const AOptions: TMergeOptions; AOnProgress: TServiceProgressEvent);
+  const AOptions: TMergeOptions; AOnProgress: TServiceProgressEvent;
+  AThreads: integer);
 begin
   inherited Create(AOnProgress);
   FFiles := AFiles;
   FDir := ADir;
   FOptions := AOptions;
+  FThreads := AThreads;
 end;
 
 { TMergeThread.Execute
@@ -461,7 +697,7 @@ end;
   inherited Progress mechanism. }
 procedure TMergeThread.Execute;
 begin
-  FResult := TMergeService.Merge(FFiles, FDir, FOptions, @Progress);
+  FResult := TMergeService.Merge(FFiles, FDir, FOptions, @Progress, FThreads);
 end;
 
 { ============================================================================

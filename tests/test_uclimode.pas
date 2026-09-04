@@ -42,6 +42,7 @@ type
     procedure RunHeadless_Merge_MultiSeries;
     procedure RunHeadless_Merge_NoChapters;
     procedure RunHeadless_Merge_MutuallyExclusive;
+    procedure RunHeadless_Merge_Threads;
   end;
 
 implementation
@@ -119,8 +120,6 @@ begin
     RunHeadless(['convert-webp', FTempDir, '--threads', '-1']));
   AssertEquals('non-numeric --threads value', EXIT_USAGE,
     RunHeadless(['convert-webp', FTempDir, '--threads', 'abc']));
-  AssertEquals('--threads not valid for merge', EXIT_USAGE,
-    RunHeadless(['merge', FTempDir, '--threads', '4']));
 end;
 
 procedure TClimodeTest.RunHeadless_UnknownCommand;
@@ -536,6 +535,36 @@ begin
   Args[4] := '--chapters-per-volume';
   Args[5] := '2';
   AssertEquals('mutually exclusive flags', EXIT_ERROR, RunHeadless(Args));
+end;
+
+procedure TClimodeTest.RunHeadless_Merge_Threads;
+var
+  Png: TMemoryStream;
+  Args: TStringArray;
+  i: integer;
+begin
+  { --threads is accepted for merge and builds the same volumes. }
+  for i := 1 to 6 do
+  begin
+    Png := CreateMinimalPNGStream;
+    CreateCBZ(FTempDir + Format('Test - %.2d.cbz', [i]), [Png],
+      [Format('c%d.jpg', [i])]);
+    Png.Free;
+  end;
+  SetLength(Args, 6);
+  Args[0] := 'merge';
+  Args[1] := FTempDir;
+  Args[2] := '--chapters-per-volume';
+  Args[3] := '3';
+  Args[4] := '--threads';
+  Args[5] := '4';
+  AssertEquals(EXIT_OK, RunHeadless(Args));
+  AssertTrue('V001 exists', FileExists(FTempDir + 'Test V001.cbz'));
+  AssertTrue('V002 exists', FileExists(FTempDir + 'Test V002.cbz'));
+  AssertEquals('V001 has 3 pages', 3,
+    GetImageCount(FTempDir + 'Test V001.cbz'));
+  AssertEquals('V002 has 3 pages', 3,
+    GetImageCount(FTempDir + 'Test V002.cbz'));
 end;
 
 initialization

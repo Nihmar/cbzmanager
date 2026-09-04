@@ -199,13 +199,13 @@ inherited dlgMerge: TdlgMerge
     end
     object GBOutput: TGroupBox
       Left = 4
-      Height = 81
-      Top = 405
+      Height = 113
+      Top = 373
       Width = 272
       Align = alBottom
       BorderSpacing.Around = 4
       Caption = 'Output'
-      ClientHeight = 52
+      ClientHeight = 84
       ClientWidth = 268
       TabOrder = 2
       object CbDelete: TCheckBox
@@ -227,6 +227,24 @@ inherited dlgMerge: TdlgMerge
         BorderSpacing.Around = 2
         Caption = 'Generate ComicInfo.xml per vol'
         TabOrder = 1
+      end
+      object LblThreads: TLabel
+        Left = 4
+        Height = 28
+        Top = 52
+        Width = 150
+        Caption = 'Parallel threads (0=auto)'
+        Layout = tlCenter
+      end
+      object SpinThreads: TSpinEdit
+        Left = 184
+        Height = 28
+        Top = 52
+        Width = 78
+        MaxValue = 32
+        MinValue = 0
+        TabOrder = 2
+        Value = 0
       end
     end
   end

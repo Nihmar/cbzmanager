@@ -38,9 +38,14 @@ const
 
   { Automatic worker-pool caps.  Every worker holds its working set in RAM:
     convert-webp keeps one full-resolution image per worker, cbr-to-cbz a
-    whole decompressed archive per worker — hence the lower CBR cap. }
+    whole decompressed archive per worker — hence the lower CBR cap.
+    Batch-edit and merge workers likewise hold full-resolution data (one
+    page plus its split pieces, respectively one whole volume), so they
+    share the conservative cap of 4. }
   MAX_WEBP_CONVERT_THREADS = 8;
   MAX_CBR_CONVERT_THREADS = 4;
+  MAX_MULTIEDIT_THREADS = 4;
+  MAX_MERGE_THREADS = 4;
 
 type
   { ------------------------------------------------------------------------

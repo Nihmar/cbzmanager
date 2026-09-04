@@ -45,7 +45,8 @@ uses
   ExtCtrls,
   ComCtrls,
   Controls,
-  Generics.Collections;
+  Generics.Collections,
+  uzipcore;
 
 const
   { Dimensione massima delle immagini tenute in RAM: coincide con il massimo
@@ -190,15 +191,61 @@ type
 
   { TPagesThread: all pages of a single .cbz }
 
+  TPagesThread = class;  { forward — referenced by TPagesWorker }
+
+  { TPagesWorker: single worker of the TPagesThread pool.  Pulls entry
+    indices from the shared job cursor until the pool is exhausted or the
+    pool is terminated.  Each worker keeps its own batch machinery, so
+    multiple workers can queue batches to the main thread concurrently
+    (same shape as TLoadWorker). }
+
+  TPagesWorker = class(TThumbThread)
+  private
+    FPool: TPagesThread;
+  protected
+    procedure Produce; override;
+    procedure Execute; override;
+  public
+    constructor Create(APool: TPagesThread);
+    { No-op drained on the main thread to flush the worker's queued batches
+      before it frees itself (see Execute). }
+    procedure Drained;
+  end;
+
   TPagesThread = class(TThumbThread)
   private
     FFile: string;
+    FThreads: integer;
+    { Pool state: the collected entries (read-only source), the job list
+      (entry indices of image pages), the alphabetical rank per entry
+      index, and the shared cursors.  Freed after every worker finished. }
+    FEntries: TZipEntries;
+    FJobs: array of integer;
+    FRanks: array of integer;
+    FJobCursor: integer;
+    FFinished: integer;
+    FWorkers: array of TPagesWorker;
     procedure HandlePage(const AName: string; AImage: TLazIntfImage;
       AIndex: integer; var ACancel: boolean);
+    procedure WorkerTerminated(Sender: TObject);
+    { Next job position in FJobs, or -1 when exhausted.  Thread-safe:
+      workers compete on an atomic cursor. }
+    function NextJob: integer;
+    { Sequential path: the historical streaming walk (one page in RAM at
+      a time). }
+    procedure ProduceSequential;
+    { Parallel path: collect the archive once, then decode + scale pages
+      on a worker pool.  Every worker holds only its current page in RAM,
+      but the collected entries stay alive until the last worker finished. }
+    procedure ProduceParallel(AThreadCount: integer);
   protected
     procedure Produce; override;
   public
-    constructor Create(const AFile: string);
+    { Constructs the thread in a suspended state; the caller must set
+      ListView, Pages, and Images before calling Start.
+      AThreads selects the page-decode pool size: 0 = automatic
+      (WorkerCount), 1 = sequential streaming. }
+    constructor Create(const AFile: string; AThreads: integer = 0);
   end;
 
 implementation
@@ -616,26 +663,216 @@ begin
   end;
 end;
 
+{ TPagesWorker }
+
+constructor TPagesWorker.Create(APool: TPagesThread);
+begin
+  inherited Create;
+  FPool := APool;
+end;
+
+{ No-op method used by Execute to flush the main thread's queue before the
+  worker frees itself (same rationale as TLoadWorker.Execute). }
+procedure TPagesWorker.Drained;
+begin
+end;
+
+procedure TPagesWorker.Execute;
+begin
+  inherited Execute;
+  if not Terminated then
+    Synchronize(@Drained);
+end;
+
+{ Claims entry indices from the pool's job list, decoding each page at
+  CacheW×CacheH (JPEG DCT scaling when possible) and emitting the scaled
+  thumbnail with its alphabetical rank — the same two steps as the
+  sequential HandlePage.  Stops when the list is exhausted or the pool is
+  terminated. }
+procedure TPagesWorker.Produce;
+var
+  JobPos, EntryIdx: integer;
+  Img, Small: TLazIntfImage;
+begin
+  while not Terminated do
+  begin
+    JobPos := FPool.NextJob;
+    if JobPos < 0 then Exit;
+    EntryIdx := FPool.FJobs[JobPos];
+    { DecodeImage never raises (failures become nil); ScaleIntfImage is
+      nil-safe.  A nil Small is emitted like the sequential path does for
+      undecodable pages — the consumer must check before using it. }
+    Img := DecodeImage(FPool.FEntries[EntryIdx].Data,
+      ExtractFileExt(FPool.FEntries[EntryIdx].Name), CacheW, CacheH);
+    Small := ScaleIntfImage(Img, CacheW, CacheH);
+    Img.Free;
+    Emit(FPool.FEntries[EntryIdx].Name, Small, False,
+      FPool.FRanks[EntryIdx]);
+  end;
+end;
+
 { TPagesThread }
 
 { Stores the single CBZ file whose pages should be loaded. }
-constructor TPagesThread.Create(const AFile: string);
+constructor TPagesThread.Create(const AFile: string; AThreads: integer);
 begin
   inherited Create;
   FFile := AFile;
+  FThreads := AThreads;
 end;
 
 { Opens the single archive and iterates over every page via ForEachImage
   (or ForEachCbrImage for RAR/CBR archives).  HandlePage receives each
   decoded page.  Pages are decoded at CacheW×CacheH (JPEG DCT scaling) so
   large archives load quickly. }
-procedure TPagesThread.Produce;
+procedure TPagesThread.ProduceSequential;
 begin
-  Log('Pages: opening %s', [ExtractFileName(FFile)]);
   if SameText(ExtractFileExt(FFile), CBR_EXT) then
     ForEachCbrImage(FFile, @HandlePage, CacheW, CacheH)
   else
     ForEachImage(FFile, @HandlePage, CacheW, CacheH);
+end;
+
+{ Byte-wise name comparison (Python sorted() order), independent of the
+  locale collation used by TStringList.Sort.  (Local copy of the uzipeditor
+  helper, which is not exported.) }
+function ComparePageNames(List: TStringList; Index1, Index2: integer): integer;
+begin
+  Result := CompareStr(List[Index1], List[Index2]);
+end;
+
+{ Binary search for S in a CompareStr-sorted list.  Returns the rank or -1.
+  (Local copy of the uzipeditor helper, which is not exported.) }
+function PagesRank(List: TStringList; const S: string): integer;
+var
+  L, R, M, C: integer;
+begin
+  L := 0;
+  R := List.Count - 1;
+  while L <= R do
+  begin
+    M := (L + R) div 2;
+    C := CompareStr(S, List[M]);
+    if C = 0 then Exit(M);
+    if C > 0 then
+      L := M + 1
+    else
+      R := M - 1;
+  end;
+  Result := -1;
+end;
+
+{ Runs on the coordinator thread at its end; counts a worker as finished.
+  The worker has already drained the main thread's queue by this point (see
+  TPagesWorker.Execute), so the coordinator can finish as soon as every
+  worker is counted. }
+procedure TPagesThread.WorkerTerminated(Sender: TObject);
+begin
+  InterlockedIncrement(FFinished);
+end;
+
+function TPagesThread.NextJob: integer;
+begin
+  Result := InterlockedIncrement(FJobCursor) - 1;
+  if Result >= Length(FJobs) then
+    Result := -1;
+end;
+
+procedure TPagesThread.ProduceParallel(AThreadCount: integer);
+var
+  i: integer;
+  Names: TStringList;
+begin
+  { RAR archives (no central directory) are collected through libarchive;
+    like the streaming path this raises when libarchive is missing or the
+    archive is unreadable — TThumbThread.Execute logs it, so no pages load. }
+  if SameText(ExtractFileExt(FFile), CBR_EXT) then
+    FEntries := CollectCbrEntries(FFile)
+  else
+    FEntries := CollectZipEntries(FFile);
+  try
+    FJobs := nil;
+    for i := 0 to High(FEntries) do
+      if IsImageExt(ExtractFileExt(FEntries[i].Name)) then
+      begin
+        SetLength(FJobs, Length(FJobs) + 1);
+        FJobs[High(FJobs)] := i;
+      end;
+    if Length(FJobs) = 0 then Exit;
+
+    { Alphabetical ranks (CompareStr order, like the streaming walker's
+      SortedRank): the sorted insertion in SyncAddThumbs displays pages in
+      reading order even when the archive stores them scrambled. }
+    Names := TStringList.Create;
+    try
+      for i := 0 to High(FJobs) do
+        Names.Add(FEntries[FJobs[i]].Name);
+      Names.CustomSort(@ComparePageNames);
+      SetLength(FRanks, Length(FEntries));
+      for i := 0 to High(FRanks) do
+        FRanks[i] := -1;
+      for i := 0 to High(FJobs) do
+        FRanks[FJobs[i]] := PagesRank(Names, FEntries[FJobs[i]].Name);
+    finally
+      Names.Free;
+    end;
+
+    FJobCursor := 0;
+    FFinished := 0;
+    SetLength(FWorkers, Min(AThreadCount, Length(FJobs)));
+    for i := 0 to High(FWorkers) do
+    begin
+      FWorkers[i] := TPagesWorker.Create(Self);
+      FWorkers[i].OnTerminate := @WorkerTerminated;
+      FWorkers[i].ListView := FListView;
+      FWorkers[i].Pages := FPages;
+      FWorkers[i].Images := FImages;
+      FWorkers[i].OnBatchAdded := FOnBatchAdded;
+      FWorkers[i].OwnerEpoch := FOwnerEpoch;
+      FWorkers[i].FreeOnTerminate := True;
+    end;
+    for i := 0 to High(FWorkers) do
+      if FWorkers[i] <> nil then
+        FWorkers[i].Start;
+
+    { Wait for every worker; on cancellation terminate them so their
+      pending batches are discarded and they exit promptly.  Workers read
+      the shared entries at the end of each iteration, after the decode,
+      so Produce must not return — and the coordinator must not free
+      FEntries — until every worker has really finished. }
+    while FFinished < Length(FWorkers) do
+    begin
+      if Terminated then
+      begin
+        for i := 0 to High(FWorkers) do
+          if FWorkers[i] <> nil then
+            FWorkers[i].Terminate;
+        while FFinished < Length(FWorkers) do
+          Sleep(5);
+        Break;
+      end;
+      Sleep(5);
+    end;
+  finally
+    { The entries stay alive until every worker finished (see above). }
+    FreeZipEntries(FEntries);
+    FEntries := nil;
+    FWorkers := nil;
+  end;
+end;
+
+procedure TPagesThread.Produce;
+var
+  ThreadCount: integer;
+begin
+  Log('Pages: opening %s', [ExtractFileName(FFile)]);
+  ThreadCount := FThreads;
+  if ThreadCount <= 0 then
+    ThreadCount := WorkerCount;
+  if ThreadCount <= 1 then
+    ProduceSequential
+  else
+    ProduceParallel(ThreadCount);
 end;
 
 { ForEachImage callback: scales the decoded full-size image to the

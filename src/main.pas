@@ -390,6 +390,7 @@ type
     procedure ThreadTerminated(Sender: TObject);
     procedure PagesThreadTerminated(Sender: TObject);
     procedure LoadBatchAdded(Sender: TObject);
+    procedure PagesBatchAdded(Sender: TObject);
     procedure ClearThumbnails;
     procedure FreeLoadThread;
     procedure FreePagesThread;
@@ -439,6 +440,15 @@ type
       is read-only and the conversion path is the only way to edit it. }
     function IsReadOnlyPreview: boolean;
     procedure RenderPages;
+    { Rebuild the authoritative FSelFiles / FSelPages and the anchor from
+      the list's live native state (used when the selection changed without
+      going through LVFilesMouseDown: keyboard navigation, Ctrl+A). }
+    procedure SyncAuthoritativeSelection(ALV: TListView);
+    { Native selection-change hook: resyncs the authoritative state after
+      keyboard-driven changes.  Ignored while a reassert is in flight (the
+      events then belong to the native reconcile or our own apply). }
+    procedure LVFilesSelectItem(Sender: TObject; Item: TListItem;
+      Selected: boolean);
     { Store the shift+click anchor for the given list (-1 = none). }
     procedure SetAnchor(ALV: TListView; AIndex: integer);
     { Forget the pending re-assert. }
@@ -656,10 +666,21 @@ begin
   end
   else if (ssCtrl in Shift) and (Key = Ord('A')) then
   begin
+    { SelectAll changes the native selection behind the gesture
+      machinery's back: fold it into the authoritative state at once so
+      the next Ctrl/shift+click toggles from the full set (the
+      OnSelectItem hook would catch up eventually, but a fast Ctrl+A,
+      Ctrl+click sequence must already see it). }
     if PanelSingleFile.Visible then
-      LVPages.SelectAll
+    begin
+      LVPages.SelectAll;
+      SyncAuthoritativeSelection(LVPages);
+    end
     else
+    begin
       LVFiles.SelectAll;
+      SyncAuthoritativeSelection(LVFiles);
+    end;
     Key := 0;
   end
   else if (Key = VK_SPACE) and (Shift = []) and PanelSingleFile.Visible then
@@ -1162,7 +1183,12 @@ begin
   FPageFile := '';
   PanelStageBar.Visible := False;
   LVPages.Clear;
+  { The rows are gone: drop the page selection state (FSelPages was missed
+    here historically, leaking stale indices into the next preview) and any
+    reassert still in flight for the old rows. }
   FAnchorPages := -1;
+  FSelPages := nil;
+  ClearPendingSel;
   ILPages.Clear;
   FPagePreviews.Clear;
   LblPreviewFile.Caption := ' ';
@@ -1532,6 +1558,7 @@ begin
   SetPageOpsEnabled(False);
   FPagesThread := TPagesThread.Create(FPageFile);
   FPagesThread.OnTerminate := @PagesThreadTerminated;
+  FPagesThread.OnBatchAdded := @PagesBatchAdded;
   FPagesThread.ListView := LVPages;
   FPagesThread.Images := ILPages;
   FPagesThread.Pages := FPagePreviews;
@@ -1602,6 +1629,69 @@ begin
     FAnchorFiles := AIndex
   else
     FAnchorPages := AIndex;
+end;
+
+{
+  SyncAuthoritativeSelection
+  --------------------------
+  Rebuilds the authoritative selection (FSelFiles / FSelPages) and the
+  shift anchor from the list's live native state.  Call after any selection
+  change that bypasses LVFilesMouseDown — keyboard navigation (arrows,
+  Shift+arrows, Ctrl+Space, Home/End) and the Ctrl+A handler — so the next
+  Ctrl/shift+click computes from the truth instead of a stale snapshot.
+}
+procedure TfrmMain.SyncAuthoritativeSelection(ALV: TListView);
+var
+  i, n: integer;
+begin
+  n := 0;
+  if ALV = LVFiles then
+  begin
+    SetLength(FSelFiles, ALV.Items.Count);
+    for i := 0 to ALV.Items.Count - 1 do
+      if ALV.Items[i].Selected then
+      begin
+        FSelFiles[n] := i;
+        Inc(n);
+      end;
+    SetLength(FSelFiles, n);
+    if ALV.Selected <> nil then
+      FAnchorFiles := ALV.Selected.Index
+    else
+      FAnchorFiles := -1;
+  end
+  else
+  begin
+    SetLength(FSelPages, ALV.Items.Count);
+    for i := 0 to ALV.Items.Count - 1 do
+      if ALV.Items[i].Selected then
+      begin
+        FSelPages[n] := i;
+        Inc(n);
+      end;
+    SetLength(FSelPages, n);
+    if ALV.Selected <> nil then
+      FAnchorPages := ALV.Selected.Index
+    else
+      FAnchorPages := -1;
+  end;
+end;
+
+{
+  LVFilesSelectItem
+  -----------------
+  Native selection-change hook (wired to both LVFiles and LVPages).  Picks
+  up selection changes the mouse-gesture machinery never sees — keyboard
+  navigation above all — and folds them into the authoritative state.
+  While a reassert is in flight (FPendingList <> nil) the events belong to
+  the native click reconcile or to our own ApplySelection and are ignored.
+  This handler never modifies the selection itself, so it cannot recurse.
+}
+procedure TfrmMain.LVFilesSelectItem(Sender: TObject; Item: TListItem;
+  Selected: boolean);
+begin
+  if FPendingList <> nil then Exit;
+  SyncAuthoritativeSelection(TListView(Sender));
 end;
 
 procedure TfrmMain.ClearPendingSel;
@@ -2177,7 +2267,9 @@ var
   Options: TMergeOptions;
   SeriesName: string;
   Thread: TMergeThread;
+  MergeThreads: integer;
 begin
+  MergeThreads := 0;
   if not RequireFiles(True, Files) then Exit;
 
   { Auto-detect series name }
@@ -2201,12 +2293,14 @@ begin
     Options.Force := Dlg.CbForce.Checked;
     Options.Delete := Dlg.CbDelete.Checked;
     Options.GenerateComicInfo := Dlg.GenerateComicInfo;
+    MergeThreads := Dlg.Threads;
   finally
     Dlg.Free;
   end;
 
   { Run merge in background thread }
-  Thread := TMergeThread.Create(Files, FDir, Options, @UpdateProgress);
+  Thread := TMergeThread.Create(Files, FDir, Options, @UpdateProgress,
+    MergeThreads);
   BeginServiceThread(Thread, 'Merge started...', @MergeThreadTerminated,
     TbMerge, MnuMerge);
 end;
@@ -3183,6 +3277,28 @@ begin
   if FLoadThread <> nil then
     Total := FLoadThread.TotalFiles;
   SetStatus(Format('Loading thumbnails %d/%d', [LVFiles.Items.Count, Total]));
+  { Batches sorted-insert, so every batch shifts the rows captured by an
+    anchor, a pending reassert or the authoritative selection made before
+    it arrived.  Gestures across batches are best-effort: drop the
+    row-based state (the native highlight stays) so post-load gestures
+    start from a clean slate instead of a stale one. }
+  ClearPendingSel;
+  FAnchorFiles := -1;
+  FSelFiles := nil;
+end;
+
+{
+  PagesBatchAdded
+  ---------------
+  Same index-shift guard as LoadBatchAdded, for the single-archive page
+  preview: page batches sorted-insert while streaming, so row-based
+  gesture state from before a batch is stale afterwards.
+}
+procedure TfrmMain.PagesBatchAdded(Sender: TObject);
+begin
+  ClearPendingSel;
+  FAnchorPages := -1;
+  FSelPages := nil;
 end;
 
 {

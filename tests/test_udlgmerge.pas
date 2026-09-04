@@ -53,6 +53,9 @@ begin
     AssertFalse('manual CPV disabled initially', Dlg.EditCPV.Enabled);
     AssertNotNull('sequence builder button streamed', Dlg.BtnBuildSeq);
     AssertFalse('sequence builder disabled initially', Dlg.BtnBuildSeq.Enabled);
+    AssertNotNull('threads spin streamed', Dlg.SpinThreads);
+    AssertEquals('threads default (auto)', 0, Dlg.SpinThreads.Value);
+    AssertEquals('threads max', 32, Dlg.SpinThreads.MaxValue);
   finally
     Dlg.Free;
   end;

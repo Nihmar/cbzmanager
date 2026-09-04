@@ -100,6 +100,7 @@ begin
   WriteLn('  --force                      Append remaining chapters to the last volume');
   WriteLn('  --chapters N1,N2,N3,...      Exact chapter counts per volume');
   WriteLn('  --chapters-per-volume N      Fixed chapters per volume');
+  WriteLn('  --threads N                  Build volumes on N worker threads (default: one per CPU core, max 4)');
   WriteLn;
   WriteLn('cbr-to-cbz options:');
   WriteLn('  --delete                     Delete the .cbr source after conversion (default: keep)');
@@ -362,12 +363,6 @@ begin
       'Error: --chapters and --chapters-per-volume are mutually exclusive');
     Exit(EXIT_ERROR);                    // Python reference returns 1 here
   end;
-  if Flags.Threads > 0 then
-  begin
-    WriteLn(ErrOutput, 'Error: option not valid for ''merge''');
-    WriteLn(ErrOutput, 'Try ''cbzmanager --help'' for usage.');
-    Exit(EXIT_USAGE);
-  end;
 
   Files := CollectCBZFiles(ADir);
 
@@ -404,7 +399,8 @@ begin
         Opts.Force := Flags.Force;
         Opts.Delete := Flags.Delete;
         Opts.GenerateComicInfo := False;
-        Res := TMergeService.Merge(Files, ADir, Opts, @Progress.Progress);
+        Res := TMergeService.Merge(Files, ADir, Opts, @Progress.Progress,
+          Flags.Threads);   { 0 = automatic (CPU count, capped at 4) }
         if Res.Success then
           WriteLn(Format('%s: %d volume(s) created',
             [SeriesList[i], Res.VolumesCreated]))

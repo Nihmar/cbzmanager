@@ -158,6 +158,11 @@ to override.  Only full volumes are created: chapters that do not fill a
 complete volume are reported and skipped unless
 .B \-\-force
 is given.  Volume numbering continues after the highest existing volume.
+Volumes are built in parallel on one worker thread per CPU core (at most
+4, because every worker holds a whole volume decompressed in RAM);
+.B \-\-threads
+selects an explicit number (1 = sequential).  The output is identical
+regardless of the thread count.
 Exits 0 on success or on a benign no-op ("not enough chapters", "no
 chapter files"), 1 on error.
 .TP
@@ -225,11 +230,12 @@ Mutually exclusive with
 .BR \-\-chapters .
 .TP
 .BI \-\-threads " N"
-.B validate
-.BR convert\-webp
+.B validate ,
+.BR convert\-webp ,
+.B merge
 and
 .B cbr\-to\-cbz
-only: validate/convert on
+only: validate/convert/merge on
 .I N
 worker threads.  The default (0 / omitted) is one worker per CPU core —
 capped at 8 for
@@ -237,8 +243,11 @@ capped at 8 for
 and
 .B convert\-webp
 and at 4 for
+.B merge
+and
 .B cbr\-to\-cbz
-(every CBR worker holds a whole decompressed archive in RAM).
+(every merge/CBR worker holds a whole volume/archive decompressed in
+RAM).
 .TP
 .BR \-\-help ", " \-h ", " help
 Print usage information and exit 0.

@@ -70,6 +70,7 @@ type
     procedure Merge_CustomSeqOverflowSkipsBatch;
     procedure Merge_OtherSeriesUntouched;
     procedure Merge_ResumesAfterVolumes;
+    procedure Merge_ThreadsDeterministic;
   end;
 
 implementation
@@ -1330,6 +1331,61 @@ begin
   for i := 7 to 12 do
     AssertTrue(Format('Chapter %d backed up', [i]),
       FileExists(FTempDir + Format('Test - %.4d_OLD.cbz', [i])));
+end;
+
+procedure TMergeServiceTest.Merge_ThreadsDeterministic;
+var
+  Png: TMemoryStream;
+  Files: TStringArray;
+  Opts: TMergeOptions;
+  Res1, Res4: TMergeResult;
+  Dir1, Msg: string;
+  i: integer;
+begin
+  { Threads 1 vs 4 over 3 volumes must produce byte-identical archives. }
+  Dir1 := CreateTempDir('cbzmerge_t1_');
+  try
+    for i := 1 to 6 do
+    begin
+      Png := CreateMinimalPNGStream;
+      CreateCBZ(FTempDir + Format('Test - %.2d.cbz', [i]), [Png],
+        [Format('c%d.jpg', [i])]);
+      Png.Free;
+      Png := CreateMinimalPNGStream;
+      CreateCBZ(Dir1 + Format('Test - %.2d.cbz', [i]), [Png],
+        [Format('c%d.jpg', [i])]);
+      Png.Free;
+    end;
+
+    SetLength(Files, 6);
+    for i := 1 to 6 do
+      Files[i - 1] := Format('Test - %.2d.cbz', [i]);
+
+  Opts.SeriesName := 'Test';
+  Opts.ChapterStart := 1;
+  Opts.ChapterEnd := 99;
+  Opts.ChaptersPerVolume := 2;
+  Opts.Force := False;
+  Opts.Delete := False;
+  Opts.GenerateComicInfo := False;
+  Msg := '';
+
+  Res1 := TMergeService.Merge(Files, FTempDir, Opts, nil, 1);
+    AssertTrue('Sequential merge succeeded', Res1.Success);
+    AssertEquals('3 volumes created', 3, Res1.VolumesCreated);
+
+    Res4 := TMergeService.Merge(Files, Dir1, Opts, nil, 4);
+    AssertTrue('Pooled merge succeeded', Res4.Success);
+    AssertEquals('3 volumes created', 3, Res4.VolumesCreated);
+
+    for i := 1 to 3 do
+      AssertTrue(Format('V%.3d identical (threads 1 vs 4): %s', [i, Msg]),
+        ZipFilesEqual(FTempDir + Format('Test V%.3d.cbz', [i]),
+          Dir1 + Format('Test V%.3d.cbz', [i]), Msg));
+  finally
+    if DirectoryExists(Dir1) then
+      DeleteDirectory(Dir1, False);
+  end;
 end;
 
 initialization

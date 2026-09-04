@@ -24,6 +24,8 @@ type
     EditChapterEnd: TSpinEdit;
     EditChapterStart: TSpinEdit;
     EditCPV: TSpinEdit;
+    LblThreads: TLabel;
+    SpinThreads: TSpinEdit;
     GBSource: TGroupBox;
     GBVolumes: TGroupBox;
     GBOutput: TGroupBox;
@@ -69,12 +71,14 @@ type
     procedure RefreshVolumeColumn;
     function GetChaptersList: TIntArray;
     function GetGenerateComicInfo: boolean;
+    function GetThreads: integer;
   protected
     procedure LoadSettings; override;
     procedure SaveSettings; override;
   public
     property ChaptersList: TIntArray read GetChaptersList;
     property GenerateComicInfo: boolean read GetGenerateComicInfo;
+    property Threads: integer read GetThreads;
     property SeriesName: string read FSeriesName;
     property Images: TLazIntfImageList read FImages write FImages;
     procedure LoadChapters(const AFiles: TStringArray; const ADir: string;
@@ -118,6 +122,7 @@ begin
     AppSettings.ReadBool('Merge', 'GenerateComicInfo', True);
   CbManualCPV.Checked := AppSettings.ReadBool('Merge', 'ManualCPV', False);
   EditCPV.Value := AppSettings.ReadInteger('Merge', 'CPV', 7);
+  SpinThreads.Value := AppSettings.ReadInteger('Merge', 'Threads', 0);
   { Sync the CPV editor's enabled state without invoking the full change
     handler (which touches the volume column before chapters are loaded). }
   EditCPV.Enabled := CbManualCPV.Checked;
@@ -131,6 +136,7 @@ begin
     CbGenerateComicInfo.Checked);
   AppSettings.WriteBool('Merge', 'ManualCPV', CbManualCPV.Checked);
   AppSettings.WriteInteger('Merge', 'CPV', EditCPV.Value);
+  AppSettings.WriteInteger('Merge', 'Threads', SpinThreads.Value);
 end;
 
 procedure TdlgMerge.CbManualCPVChange(Sender: TObject);
@@ -250,6 +256,11 @@ end;
 function TdlgMerge.GetGenerateComicInfo: boolean;
 begin
   Result := CbGenerateComicInfo.Checked;
+end;
+
+function TdlgMerge.GetThreads: integer;
+begin
+  Result := SpinThreads.Value;
 end;
 
 procedure TdlgMerge.RefreshVolumeColumn;

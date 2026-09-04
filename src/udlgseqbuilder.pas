@@ -387,8 +387,30 @@ end;
 procedure TdlgSeqBuilder.LVChaptersSelectItem(Sender: TObject;
   Item: TListItem; Selected: boolean);
 var
-  N: integer;
+  i, n: integer;
 begin
+  { Keyboard-driven selection changes bypass LVChaptersMouseDown: fold them
+    into the authoritative FSel/anchor while no reassert is in flight (the
+    events then belong to the native reconcile or our own apply).  This
+    handler never modifies the selection itself, so it cannot recurse.
+    (RebuildGrid resets FSel/FAnchor explicitly and ends with everything
+    unselected, which is also a consistent sync target.) }
+  if FPendingList = nil then
+  begin
+    n := 0;
+    SetLength(FSel, LVChapters.Items.Count);
+    for i := 0 to LVChapters.Items.Count - 1 do
+      if LVChapters.Items[i].Selected then
+      begin
+        FSel[n] := i;
+        Inc(n);
+      end;
+    SetLength(FSel, n);
+    if LVChapters.Selected <> nil then
+      FAnchor := LVChapters.Selected.Index
+    else
+      FAnchor := -1;
+  end;
   N := SelectedCount;
   if N > 0 then
   begin

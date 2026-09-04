@@ -32,7 +32,8 @@ uses
   test_uservicecbr,
   test_upageeditmodel,
   test_uimageedit,
-  test_uselection;
+  test_uselection,
+  test_mainform;
 var
   App: TTestRunner;
 begin

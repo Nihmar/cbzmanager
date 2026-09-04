@@ -271,6 +271,11 @@ type
       Shift: TShiftState; X, Y: integer);
     procedure LVFilesMouseUp(Sender: TObject; Button: TMouseButton;
       Shift: TShiftState; X, Y: integer);
+    { Native selection-change hook (wired to both lists in main.lfm): folds
+      keyboard-driven changes into the authoritative selection.  Must stay
+      published: the .lfm streams it by name. }
+    procedure LVFilesSelectItem(Sender: TObject; Item: TListItem;
+      Selected: boolean);
     { Re-applies the pending single-item selection on the next message-loop
       tick, after the Qt6 widgetset's native press/release selection reconcile
       has run.  See LVFilesMouseDown / LVFilesMouseUp. }
@@ -444,11 +449,6 @@ type
       the list's live native state (used when the selection changed without
       going through LVFilesMouseDown: keyboard navigation, Ctrl+A). }
     procedure SyncAuthoritativeSelection(ALV: TListView);
-    { Native selection-change hook: resyncs the authoritative state after
-      keyboard-driven changes.  Ignored while a reassert is in flight (the
-      events then belong to the native reconcile or our own apply). }
-    procedure LVFilesSelectItem(Sender: TObject; Item: TListItem;
-      Selected: boolean);
     { Store the shift+click anchor for the given list (-1 = none). }
     procedure SetAnchor(ALV: TListView; AIndex: integer);
     { Forget the pending re-assert. }

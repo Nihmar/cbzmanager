@@ -67,7 +67,7 @@ class _PageEditorDialogState extends State<_PageEditorDialog> {
   ColorAdjust _adjust = ColorAdjust.neutral;
   bool _split = false;
   bool _horizontal = true;
-  int _pieces = 2;
+  final List<double> _cuts = <double>[];
 
   @override
   void dispose() {
@@ -99,6 +99,71 @@ class _PageEditorDialogState extends State<_PageEditorDialog> {
     return encodeImage(image, '.png');
   }
 
+  /// Interactive preview: cut lines can be added (tap), moved (drag) and
+  /// removed (long-press) once splitting is enabled.
+  Widget _buildPreview(BoxConstraints constraints) {
+    final aspect = _origW / _origH;
+    final boxAspect = constraints.maxWidth / constraints.maxHeight;
+    final w = aspect > boxAspect
+        ? constraints.maxWidth
+        : constraints.maxHeight * aspect;
+    final h = aspect > boxAspect
+        ? constraints.maxWidth / aspect
+        : constraints.maxHeight;
+
+    return Center(
+      child: SizedBox(
+        width: w,
+        height: h,
+        child: GestureDetector(
+          onTapUp: !_split
+              ? null
+              : (details) {
+                  final frac = _horizontal
+                      ? details.localPosition.dy / h
+                      : details.localPosition.dx / w;
+                  setState(() {
+                    _cuts
+                      ..add(frac.clamp(0.02, 0.98))
+                      ..sort();
+                  });
+                },
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Image.memory(_preview(), fit: BoxFit.fill),
+              if (_split)
+                for (var i = 0; i < _cuts.length; i++)
+                  Positioned(
+                    left: _horizontal ? 0 : _cuts[i] * w - 4,
+                    top: _horizontal ? _cuts[i] * h - 4 : 0,
+                    width: _horizontal ? w : 8,
+                    height: _horizontal ? 8 : h,
+                    child: GestureDetector(
+                      onPanUpdate: (details) => setState(() {
+                        final delta = _horizontal
+                            ? details.delta.dy / h
+                            : details.delta.dx / w;
+                        _cuts[i] = (_cuts[i] + delta).clamp(0.02, 0.98);
+                      }),
+                      onLongPress: () => setState(() => _cuts.removeAt(i)),
+                      child: MouseRegion(
+                        cursor: _horizontal
+                            ? SystemMouseCursors.resizeUpDown
+                            : SystemMouseCursors.resizeLeftRight,
+                        child: Container(
+                          color: Colors.red.withValues(alpha: 0.6),
+                        ),
+                      ),
+                    ),
+                  ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   List<Uint8List> _build() => applyEditPipeline(
         widget.source,
         width: _intOf(_width, _origW),
@@ -106,7 +171,7 @@ class _PageEditorDialogState extends State<_PageEditorDialog> {
         adjust: _adjust,
         split: _split,
         horizontal: _horizontal,
-        pieces: _pieces + 1,
+        cuts: _cuts,
         targetExt: widget.targetExt,
       );
 
@@ -121,13 +186,20 @@ class _PageEditorDialogState extends State<_PageEditorDialog> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
+            SizedBox(
               width: 220,
-              margin: const EdgeInsets.only(right: 16),
-              decoration: BoxDecoration(
-                border: Border.all(color: theme.dividerColor),
+              child: Padding(
+                padding: const EdgeInsets.only(right: 16),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: theme.dividerColor),
+                  ),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) =>
+                        _buildPreview(constraints),
+                  ),
+                ),
               ),
-              child: Image.memory(_preview(), fit: BoxFit.contain),
             ),
             Expanded(
               child: SingleChildScrollView(
@@ -174,12 +246,12 @@ class _PageEditorDialogState extends State<_PageEditorDialog> {
                       contentPadding: EdgeInsets.zero,
                       title: const Text('Split page'),
                       subtitle: Text(
-                        _split ? '${_pieces + 1} pieces' : 'Off',
+                        _split ? '${_cuts.length + 1} pieces' : 'Off',
                       ),
                       value: _split,
                       onChanged: (v) => setState(() => _split = v),
                     ),
-                    if (_split)
+                    if (_split) ...[
                       Row(
                         children: [
                           SegmentedButton<bool>(
@@ -188,24 +260,31 @@ class _PageEditorDialogState extends State<_PageEditorDialog> {
                               ButtonSegment(value: false, label: Text('Columns')),
                             ],
                             selected: {_horizontal},
-                            onSelectionChanged: (s) =>
-                                setState(() => _horizontal = s.first),
+                            onSelectionChanged: (s) => setState(() {
+                              _horizontal = s.first;
+                              _cuts.clear();
+                            }),
                           ),
-                          Expanded(
-                            child: Slider(
-                              value: _pieces.toDouble(),
-                              min: 1,
-                              max: 6,
-                              divisions: 5,
-                              label: '${_pieces + 1}',
-                              onChanged: (v) =>
-                                  setState(() => _pieces = v.round()),
-                            ),
+                          const Spacer(),
+                          Text('${_cuts.length} line(s)'),
+                          TextButton(
+                            onPressed: _cuts.isEmpty
+                                ? null
+                                : () => setState(_cuts.clear),
+                            child: const Text('Clear'),
                           ),
                         ],
                       ),
+                      Text(
+                        'Tap the preview to add a cut, drag to move it, '
+                        'long-press to remove.',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 4),
+                    ],
                     Text(
-                      'Output: ${widget.targetExt} (${_split ? '${_pieces + 1} pages' : '1 page'})',
+                      'Output: ${widget.targetExt} '
+                      '(${_split ? '${_cuts.length + 1} pages' : '1 page'})',
                       style: theme.textTheme.bodySmall,
                     ),
                   ],
@@ -221,7 +300,9 @@ class _PageEditorDialogState extends State<_PageEditorDialog> {
           child: const Text('Cancel'),
         ),
         FilledButton.icon(
-          onPressed: () => Navigator.of(context).pop(_build()),
+          onPressed: _split && _cuts.isEmpty
+              ? null
+              : () => Navigator.of(context).pop(_build()),
           icon: const Icon(Icons.check),
           label: const Text('Apply'),
         ),

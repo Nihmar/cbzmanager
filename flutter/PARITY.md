@@ -53,7 +53,7 @@ documented simplification; _Deferred_ = not ported (see `PLAN.md`).
 | `src/udlgmerge.pas` | `features/merge/dialog.dart` | Done |
 | `src/udlgseqbuilder.pas` | `features/merge/sequence_builder.dart` | Partial (chapter list, not a zoomable grid) |
 | `src/udlgpageview.pas` | `features/browser/page_view.dart` | Partial (preview has zoom; no floating window) |
-| `src/udlgpageeditor.pas` | `features/page_editor/editor.dart` | Partial (equal-size split; drag-and-drop reorder done, no draggable lines) |
+| `src/udlgpageeditor.pas` | `features/page_editor/editor.dart` | Partial (drag&drop reorder + draggable cut lines; no zoomable grid) |
 | `src/udlgaddimage.pas` | `features/image_search/dialog.dart` | Done |
 | `src/udlgbatchedit.pas` | `features/batch_edit/dialog.dart` | Done |
 | `src/udlgconvertresults.pas` | `features/*/results_dialog.dart` | Done |

@@ -356,8 +356,10 @@ like the reference.
 - [x] Tests: resample/colour/split, model semantics, save/load with metadata
       preservation, batch resize/grayscale/split and neutral no-op (111 green).
 - [x] Drag-and-drop page reordering (`ReorderableListView` + drag handle).
-- [ ] Draggable split cut lines and a zoomable page grid — deferred
-      (equal-split + drag/arrow reordering cover the workflow).
+- [x] Draggable split cut lines in the page editor: tap the preview to add a
+      cut, drag to move, long-press to remove (explicit cut fractions in the
+      pipeline, not just equal slices).
+- [ ] Zoomable page grid — deferred.
 
 **DoD:** the single-file editor supersedes the reference's delete/renumber use
 case; batch edit matches the reference pipeline.

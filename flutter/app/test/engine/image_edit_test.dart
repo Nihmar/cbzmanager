@@ -115,4 +115,32 @@ void main() {
       );
     });
   });
+
+  group('applyEditPipeline', () {
+    test('honours explicit cut fractions', () {
+      final pieces = applyEditPipeline(
+        solid(10, 10, 0, 0, 0),
+        split: true,
+        horizontal: true,
+        cuts: const [0.2, 0.8],
+        targetExt: '.png',
+      );
+      expect(pieces.length, 3);
+      expect(
+        [for (final p in pieces) img.decodeImage(p)!.height],
+        [2, 6, 2],
+      );
+    });
+
+    test('falls back to equal pieces when no cuts are given', () {
+      final pieces = applyEditPipeline(
+        solid(10, 10, 0, 0, 0),
+        split: true,
+        horizontal: true,
+        pieces: 2,
+        targetExt: '.png',
+      );
+      expect(pieces.length, 2);
+    });
+  });
 }

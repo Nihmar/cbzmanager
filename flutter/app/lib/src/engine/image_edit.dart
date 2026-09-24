@@ -199,7 +199,9 @@ Uint8List encodeImage(img.Image image, String targetExt) {
 
 /// Applies an edit pipeline to [src] and returns the encoded page piece(s):
 /// optional resize → colour adjust → optional split → encode for [targetExt].
-/// [pieces] equal vertical/horizontal slices are produced when [split] is set.
+///
+/// When [split] is set, the cut positions come from [cuts] (fractions 0..1) when
+/// non-empty, otherwise [pieces] equal slices are produced.
 List<Uint8List> applyEditPipeline(
   img.Image src, {
   int? width,
@@ -208,6 +210,7 @@ List<Uint8List> applyEditPipeline(
   bool split = false,
   bool horizontal = true,
   int pieces = 2,
+  List<double>? cuts,
   required String targetExt,
 }) {
   var image = src;
@@ -219,12 +222,11 @@ List<Uint8List> applyEditPipeline(
   }
 
   final List<img.Image> images;
-  if (split && pieces >= 2) {
-    images = splitImage(
-      image,
-      horizontal: horizontal,
-      cuts: [for (var i = 1; i < pieces; i++) i / pieces],
-    );
+  if (split) {
+    final effective = (cuts != null && cuts.isNotEmpty)
+        ? cuts
+        : <double>[for (var i = 1; i < pieces; i++) i / pieces];
+    images = splitImage(image, horizontal: horizontal, cuts: effective);
   } else {
     images = [image];
   }

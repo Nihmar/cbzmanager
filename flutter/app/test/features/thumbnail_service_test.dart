@@ -1,5 +1,6 @@
 import 'package:cbzmanager/src/features/browser/archive_item.dart';
 import 'package:cbzmanager/src/features/browser/thumbnail_service.dart';
+import 'package:cbzmanager/src/native/cbr_reader.dart';
 import 'package:cbzmanager/src/vfs/memory_vfs.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -30,5 +31,26 @@ void main() {
     final bytes = await vfs.readAll('book.cbz');
     expect(await service.pageCount(bytes, 'book.cbz'), 2);
     expect(await service.pageThumbnail('k', bytes, 'book.cbz', 1), isNotNull);
+  });
+
+  test('ThumbnailService decodes a zip-format CBR through an isolate', () async {
+    if (!CbrReader.isSupported) {
+      markTestSkipped('libarchive is not available on this host');
+      return;
+    }
+    final vfs = MemoryVfs();
+    await vfs.writeAll(
+      'book.cbr',
+      makeZip({'a.png': makeSolidPng(32, 32)}),
+    );
+    final service = ThumbnailService(readConcurrency: 1, decodeConcurrency: 1);
+    addTearDown(service.dispose);
+    const item = ArchiveItem(
+      name: 'book.cbr',
+      path: 'book.cbr',
+      size: 0,
+      isCbr: true,
+    );
+    expect(await service.archiveThumbnail(vfs, item), isNotNull);
   });
 }

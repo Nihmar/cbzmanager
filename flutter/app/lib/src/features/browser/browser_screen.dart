@@ -6,8 +6,11 @@ import 'package:path/path.dart' as p;
 
 import '../../engine/engine_provider.dart';
 import '../../jobs/job_controller.dart';
+import '../../native/cbr_reader.dart';
 import '../../vfs/local_vfs.dart';
 import '../../vfs/smb_vfs.dart';
+import '../cbr/cbr_dialog.dart';
+import '../cbr/cbr_service.dart';
 import '../comicinfo/comicinfo_editor_dialog.dart';
 import '../comicinfo/comicinfo_service.dart';
 import '../convert/convert_dialog.dart';
@@ -106,6 +109,22 @@ class BrowserScreen extends ConsumerWidget {
                     onPressed: job?.running == true
                         ? null
                         : () => _merge(context, ref, source, browser.items),
+                  ),
+                if (source != null && browser.items.any((i) => i.isCbr))
+                  IconButton(
+                    tooltip: 'Convert CBR to CBZ',
+                    icon: const Icon(Icons.swap_horiz),
+                    onPressed: job?.running == true
+                        ? null
+                        : () => _convertCbr(
+                              context,
+                              ref,
+                              source,
+                              [
+                                for (final i in browser.items)
+                                  if (i.isCbr) i.name,
+                              ],
+                            ),
                   ),
                 PopupMenuButton<String>(
                   tooltip: 'Open source',
@@ -273,6 +292,50 @@ class BrowserScreen extends ConsumerWidget {
     } catch (e) {
       job.finish();
       if (context.mounted) _snack(context, 'Conversion failed: $e');
+    }
+  }
+
+  Future<void> _convertCbr(
+    BuildContext context,
+    WidgetRef ref,
+    ArchiveSource source,
+    List<String> names,
+  ) async {
+    if (names.isEmpty) {
+      _snack(context, 'No CBR files to convert');
+      return;
+    }
+    if (!CbrReader.isSupported) {
+      _snack(context, 'CBR support requires libarchive, which is not available');
+      return;
+    }
+
+    final request = await showCbrOptionsDialog(
+      context,
+      fileCount: names.length,
+    );
+    if (request == null || !context.mounted) return;
+
+    final job = ref.read(jobProvider.notifier);
+    job.start('CBR → CBZ', message: 'Converting ${names.length} file(s)...');
+    try {
+      final outcomes = await const CbrConvertService().convertMany(
+        source.vfs,
+        source.root,
+        names,
+        skipExisting: request.skipExisting,
+        deleteSource: request.deleteSource,
+        threads: request.threads,
+        onProgress: (percent, message) => job.progress(percent, message),
+        isCancelled: () => job.cancelRequested,
+      );
+      job.finish();
+      if (!context.mounted) return;
+      await showCbrResultsDialog(context, outcomes);
+      await ref.read(browserProvider.notifier).load(source.vfs, source.root);
+    } catch (e) {
+      job.finish();
+      if (context.mounted) _snack(context, 'CBR conversion failed: $e');
     }
   }
 
@@ -570,6 +633,13 @@ class _ArchiveTile extends ConsumerWidget {
                               source,
                               item,
                             );
+                          case 'cbr':
+                            await _BrowserActions.cbrToCbz(
+                              context,
+                              ref,
+                              source,
+                              item,
+                            );
                           case 'comicinfo':
                             await _BrowserActions.editComicInfo(
                               context,
@@ -586,16 +656,21 @@ class _ArchiveTile extends ConsumerWidget {
                             );
                         }
                       },
-                      itemBuilder: (context) => const [
-                        PopupMenuItem(
+                      itemBuilder: (context) => [
+                        const PopupMenuItem(
                           value: 'validate',
                           child: Text('Validate'),
                         ),
-                        PopupMenuItem(
+                        const PopupMenuItem(
                           value: 'convert',
                           child: Text('Convert to WebP'),
                         ),
-                        PopupMenuItem(
+                        if (item.isCbr)
+                          const PopupMenuItem(
+                            value: 'cbr',
+                            child: Text('Convert to CBZ'),
+                          ),
+                        const PopupMenuItem(
                           value: 'comicinfo',
                           child: Text('Edit ComicInfo…'),
                         ),
@@ -667,6 +742,33 @@ class _BrowserActions {
     } catch (e) {
       job.finish();
       if (context.mounted) _snack(context, 'Conversion failed: $e');
+    }
+  }
+
+  static Future<void> cbrToCbz(
+    BuildContext context,
+    WidgetRef ref,
+    ArchiveSource source,
+    ArchiveItem item,
+  ) async {
+    final request = await showCbrOptionsDialog(context, fileCount: 1);
+    if (request == null || !context.mounted) return;
+    final job = ref.read(jobProvider.notifier);
+    job.start('CBR → CBZ', message: item.name);
+    try {
+      final outcomes = await const CbrConvertService().convertMany(
+        source.vfs,
+        source.root,
+        [item.name],
+        skipExisting: request.skipExisting,
+        deleteSource: request.deleteSource,
+        threads: request.threads,
+      );
+      job.finish();
+      if (context.mounted) await showCbrResultsDialog(context, outcomes);
+    } catch (e) {
+      job.finish();
+      if (context.mounted) _snack(context, 'CBR conversion failed: $e');
     }
   }
 

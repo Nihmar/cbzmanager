@@ -40,6 +40,12 @@ int pagePaddingFor(int pageCount) {
   return digits > kPagePadMin ? digits : kPagePadMin;
 }
 
+/// Lower-case extension including the leading dot, or '' when absent.
+String extensionOf(String name) {
+  final dot = name.lastIndexOf('.');
+  return dot < 0 ? '' : name.substring(dot).toLowerCase();
+}
+
 /// Returns the leading-dot, lower-case extension to encode a page with.
 ///
 /// JPEG and WebP keep their format; PNG and BMP are kept; GIF/TIFF have no

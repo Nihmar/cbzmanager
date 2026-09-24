@@ -312,14 +312,21 @@ AGENTS notes) and a working sequence builder.
 
 ### Phase 5 — CBR and `cbr-to-cbz`  *(6–10 d)*
 
-- [ ] Engine CBR: read via libarchive (dynamic load + graceful degradation),
-      list/read entries; ensure the native lib is bundled on Android and found on
-      desktop.
-- [ ] CBR preview (read-only) feeding the browser/preview from Phase 1.
-- [ ] `cbr-to-cbz` feature: folder scope, skip-existing, delete-source, threads,
-      results summary; exit/status semantics when libarchive is missing.
-- [ ] Tests: zip-format `.cbr` fixtures, a guarded real-RAR test, parallel
-      determinism (threads 1 vs 4), delete-source and skip-existing.
+**Status: complete** (Android per-ABI bundling still pending).
+
+- [x] Engine CBR: read via libarchive (dynamic load + graceful degradation),
+      list/read entries; thumbnails and page previews already route `.cbr`
+      through it.
+- [x] CBR preview (read-only) feeding the browser/preview from Phase 1, with a
+      read-only badge and no page operations.
+- [x] `cbr-to-cbz` engine: drop ComicInfo/non-images, renumber `page_NNNN.*`
+      (padding via `pagePaddingFor`), write DEFLATE CBZ.
+- [x] `CbrConvertService`: folder/batch scope, skip-existing, delete-source,
+      threads (0 = auto, cap 4), progress + cancellation, per-file error
+      isolation, deterministic output, libarchive-missing degradation.
+- [x] Tests: pure renumbering, zip-format `.cbr` conversion, skip-existing,
+      delete-source, imageless error, thread-count determinism, thumbnail isolate.
+- [ ] Bundle `libarchive` for the Android ABIs and verify on a device/emulator.
 
 **DoD:** CBR archives preview and convert; missing libarchive degrades exactly
 like the reference.

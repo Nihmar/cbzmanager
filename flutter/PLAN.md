@@ -365,12 +365,23 @@ case; batch edit matches the reference pipeline.
 
 ### Phase 7 — Image search / add image from internet  *(4–7 d)*
 
-- [ ] Engine/client `imageSearch`: MangaDex (default) and the other providers
-      from `uimgsrc.pas`, plus pasted URL; HTTPS with certificate validation.
-- [ ] UI: provider combo, query, results list with thumbnails and license/source
-      line, download progress, "Add as first page" (staged in the page model).
-- [ ] Offline-testable JSON parsers (mirror `test_uimgsrc`).
-- [ ] Rate-limit/error UX (e.g. anonymous Openverse limits).
+**Status: complete for a first provider set** (MangaDex, Openverse, Wikimedia, URL).
+
+- [x] Offline-testable parsers ported from `uimgsrc.pas`: `parseOpenverseResults`,
+      `parseWikimediaResults`, `parseMangaDexSeries`, `parseMangaDexCovers`,
+      `guessExtFromURL` (with `ImageResult`/`MangaSeries` models).
+- [x] `ImageSearchService` over `package:http` (descriptive User-Agent):
+      MangaDex two-stage series→covers (default), Openverse, Wikimedia, and a
+      pasted-URL provider; downloads capped at 20 MB.
+- [x] `AddImageDialog`: provider dropdown, query, results grid with network
+      thumbnails and titles, download with progress and error UX.
+- [x] Wired into the page editor: "Add image from internet" inserts the
+      downloaded bytes as a new first page (staged in the page model).
+- [x] Tests: parser fixtures for all four providers, `guessExtFromURL`,
+      error/invalid-JSON paths (118 green).
+- [ ] Remaining reference providers (Open Library, Art Institute, Met, Cleveland,
+      Wellcome, NASA) and multi-provider fan-out — deferred; the parser/service
+      shape makes each one a small addition.
 
 **DoD:** parity with the reference "add image from internet" flow.
 

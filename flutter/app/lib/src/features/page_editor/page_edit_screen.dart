@@ -8,6 +8,7 @@ import '../../engine/zip_ops.dart';
 import '../../vfs/vfs.dart';
 import '../browser/archive_item.dart';
 import '../browser/thumbnail_isolate.dart';
+import '../image_search/add_image_dialog.dart';
 import 'page_edit_service.dart';
 import 'page_editor_dialog.dart';
 
@@ -104,6 +105,21 @@ class _PageEditScreenState extends State<PageEditScreen> {
     });
   }
 
+  Future<void> _addImage() async {
+    final result = await showAddImageDialog(context);
+    if (result == null || !mounted) return;
+    final model = _model!;
+    setState(() {
+      model.insertAt(0, [
+        PageState(origName: '', name: 'added${result.ext}', data: result.bytes),
+      ]);
+      _thumbs.clear();
+      _selected
+        ..clear()
+        ..add(0);
+    });
+  }
+
   Future<void> _save() async {
     final model = _model;
     if (model == null) return;
@@ -145,6 +161,11 @@ class _PageEditScreenState extends State<PageEditScreen> {
             onPressed: _selected.length == 1
                 ? () => _openEditor(_selected.first)
                 : null,
+          ),
+          IconButton(
+            tooltip: 'Add image from internet',
+            icon: const Icon(Icons.add_photo_alternate_outlined),
+            onPressed: _addImage,
           ),
           IconButton(
             tooltip: 'Delete selected',

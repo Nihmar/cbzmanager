@@ -12,6 +12,8 @@ import '../comicinfo/comicinfo_editor_dialog.dart';
 import '../comicinfo/comicinfo_service.dart';
 import '../convert/convert_dialog.dart';
 import '../convert/convert_service.dart';
+import '../merge/merge_dialog.dart';
+import '../merge/merge_service.dart';
 import '../sources/smb_dialog.dart';
 import '../sources/source_controller.dart';
 import '../validate/validate_results_dialog.dart';
@@ -96,6 +98,14 @@ class BrowserScreen extends ConsumerWidget {
                     onPressed: () => ref
                         .read(selectionProvider.notifier)
                         .select(browser.items.map((i) => i.path)),
+                  ),
+                if (source != null && browser.items.isNotEmpty)
+                  IconButton(
+                    tooltip: 'Merge chapters',
+                    icon: const Icon(Icons.merge_type),
+                    onPressed: job?.running == true
+                        ? null
+                        : () => _merge(context, ref, source, browser.items),
                   ),
                 PopupMenuButton<String>(
                   tooltip: 'Open source',
@@ -188,6 +198,50 @@ class BrowserScreen extends ConsumerWidget {
     }
     job.finish();
     if (context.mounted) await showValidateResultsDialog(context, outcomes);
+  }
+
+  Future<void> _merge(
+    BuildContext context,
+    WidgetRef ref,
+    ArchiveSource source,
+    List<ArchiveItem> items,
+  ) async {
+    final files = <String>[
+      for (final item in items)
+        if (item.name.toLowerCase().endsWith('.cbz')) item.name,
+    ];
+    if (files.isEmpty) {
+      _snack(context, 'No CBZ files to merge');
+      return;
+    }
+
+    final options = await showMergeDialog(context, files: files);
+    if (options == null || !context.mounted) return;
+
+    final job = ref.read(jobProvider.notifier);
+    job.start('Merge', message: 'Planning...');
+    try {
+      final outcome = await const MergeService().merge(
+        source.vfs,
+        source.root,
+        options,
+        onProgress: (percent, message) => job.progress(percent, message),
+        isCancelled: () => job.cancelRequested,
+      );
+      job.finish();
+      if (!context.mounted) return;
+      if (outcome.success) {
+        _snack(context, 'Created ${outcome.volumesCreated} volume(s)');
+        await ref
+            .read(browserProvider.notifier)
+            .load(source.vfs, source.root);
+      } else {
+        _snack(context, outcome.error ?? 'Merge produced no volumes');
+      }
+    } catch (e) {
+      job.finish();
+      if (context.mounted) _snack(context, 'Merge failed: $e');
+    }
   }
 
   Future<void> _convert(

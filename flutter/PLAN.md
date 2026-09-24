@@ -283,16 +283,27 @@ reference for identical inputs (excluding timestamps).
 
 ### Phase 4 — Merge + sequence builder  *(8–12 d)*
 
-- [ ] Engine `merge`: classification, CPV arithmetic (real division, Python-exact),
-      numbering continuation, force, chapters list, chapters-per-volume,
-      rollback, parallel volume build, optional per-volume ComicInfo.
-- [ ] Merge dialog: source range, CPV manual/auto, force, custom sequence,
-      delete/backup, threads, live volume preview column.
-- [ ] Sequence builder: zoomable thumbnail grid, multi-select, N-chapter volumes,
-      add/undo, preview of resulting volumes.
-- [ ] Multi-series handling (one dialog run per series, like the reference).
-- [ ] Tests: CPV edge cases, force, overflow skipping, resume after existing
-      volumes, parallel determinism.
+**Status: complete** (sequence builder is chapter-list based, not a thumbnail grid).
+
+- [x] Engine `merge`: strict classification (`V`, `-`, `_OLD`, decimals, specials),
+      Python-exact CPV `(lowest-1)/volumes`, numbering continuation, force,
+      chapters list, chapters-per-volume, rollback, optional per-volume ComicInfo.
+- [x] `BuildVolumeBytes`: images only, byte-wise sort, renumber `page_NNNN.*`,
+      empty batch → no volume.
+- [x] `MergeService`: concurrent volume build on isolates (0 = auto, cap 4) with
+      progress + cancellation, rollback of partial writes, `_OLD` backup/delete
+      cleanup guarded by re-classification.
+- [x] Merge dialog: series, chapter range, CPV auto/manual, force, ComicInfo,
+      backup/delete, threads and a live volume preview.
+- [x] Sequence builder: chapter list with `Vol.N` labels, add/undo/clear,
+      preview via `customSequenceLabels`.
+- [x] Tests: classification, CPV, specials, force, overflow, resume after existing
+      volumes, backup/delete, thread-count determinism (78 green).
+- [x] **Bug fix (documented divergence):** the reference preview checked a batch's
+      fit on every row and could show `-` where the merge itself succeeds; the
+      port checks only at batch start so the preview matches the merge.
+- [ ] Multi-series auto-run (currently one dialog run per series, chosen by the
+      user) — deferred.
 
 **DoD:** parity with the documented merge divergences (see the reference
 AGENTS notes) and a working sequence builder.

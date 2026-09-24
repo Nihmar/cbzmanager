@@ -21,7 +21,7 @@ documented simplification; _Deferred_ = not ported (see `PLAN.md`).
 | `src/upageeditmodel.pas` | `TPageState`, `TChange`, `PageInsertAt`, `TSaveChangesThread` | `features/page_editor/model` | Done |
 | `src/ucomicinfo.pas` | parse/generate ComicInfo.xml | `engine/comicinfo` | Done |
 | `src/ubatchedit.pas` | batch pipeline + worker pool | `features/batch_edit/engine` | Done |
-| `src/uimgsrc.pas` | image search/download (MangaDex/Openverse/Wikimedia/URL) | `features/image_search/client` | Partial |
+| `src/uimgsrc.pas` | image search/download (MangaDex/Openverse/Wikimedia/Open Library/Art Institute/Met/Cleveland/Wellcome/NASA/URL) | `features/image_search/client` | Done |
 | `src/ulog.pas` | thread-safe logger | `app/app_logger.dart` | Done |
 
 ## 2. Services
@@ -54,7 +54,7 @@ documented simplification; _Deferred_ = not ported (see `PLAN.md`).
 | `src/udlgseqbuilder.pas` | `features/merge/sequence_builder.dart` | Partial (chapter list, not a zoomable grid) |
 | `src/udlgpageview.pas` | `features/browser/page_view.dart` | Partial (preview has zoom; no floating window) |
 | `src/udlgpageeditor.pas` | `features/page_editor/editor.dart` | Partial (equal-size split, no draggable lines) |
-| `src/udlgaddimage.pas` | `features/image_search/dialog.dart` | Partial (4 of the reference providers) |
+| `src/udlgaddimage.pas` | `features/image_search/dialog.dart` | Done |
 | `src/udlgbatchedit.pas` | `features/batch_edit/dialog.dart` | Done |
 | `src/udlgconvertresults.pas` | `features/*/results_dialog.dart` | Done |
 | `src/ufrmjobmonitor.pas` | `jobs/job_monitor.dart` (window/bottom sheet) | Done |
@@ -65,8 +65,8 @@ documented simplification; _Deferred_ = not ported (see `PLAN.md`).
 | Lazarus | Flutter target | Status |
 |---|---|---|
 | `cbzmanager.lpr` (GUI) | `app/lib/main.dart` | Done |
-| `src/uclimode.pas` (headless CLI) | optional `flutter/cli/` (see PLAN §10 Q3) | Deferred |
-| `man/cbzmanager.1` | `flutter/docs/cli.md` (if CLI shipped) | Deferred |
+| `src/uclimode.pas` (headless CLI) | `bin/cbzmanager.dart` | Partial (validate/convert-webp/merge/cbr-to-cbz; no comicinfo) |
+| `man/cbzmanager.1` | `bin/cbzmanager.dart --help` | Partial |
 
 ## 5. Behavioural parity checklist
 

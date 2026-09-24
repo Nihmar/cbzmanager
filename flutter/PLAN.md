@@ -379,9 +379,10 @@ case; batch edit matches the reference pipeline.
       downloaded bytes as a new first page (staged in the page model).
 - [x] Tests: parser fixtures for all four providers, `guessExtFromURL`,
       error/invalid-JSON paths (118 green).
-- [ ] Remaining reference providers (Open Library, Art Institute, Met, Cleveland,
-      Wellcome, NASA) and multi-provider fan-out — deferred; the parser/service
-      shape makes each one a small addition.
+- [x] All reference providers: Open Library, Art Institute of Chicago, The Met
+      (two-stage), Cleveland Museum of Art, Wellcome Collection and NASA Images,
+      plus an 'All sources' fan-out that skips a failing source.
+- [x] Tests: parser fixtures for every provider (15 image-search tests).
 
 **DoD:** parity with the reference "add image from internet" flow.
 
@@ -406,8 +407,10 @@ CLI and signed store artifacts deferred.**
       the parity checklist in `PARITY.md`.
 - [ ] Signed store artifacts (Play AAB, AppImage/deb, Inno installer) and CI
       release jobs — scripted locally but not wired to CI/signing yet.
-- [ ] Headless CLI in Flutter (Q3) — deferred; the Lazarus binary remains the
-      reference CLI.
+- [ ] Headless CLI in Flutter (Q3) — **done** as `bin/cbzmanager.dart`
+      (`validate`, `convert-webp`, `merge`, `cbr-to-cbz`; exit codes 0/1/2; runs
+      under plain `dart run`, no Flutter). The reference's `comicinfo`
+      subcommand and the man page are not ported.
 - [ ] Full ARB coverage, accessibility pass and desktop keyboard shortcuts.
 
 **Parity statement:** the port implements the full functional scope (browser +

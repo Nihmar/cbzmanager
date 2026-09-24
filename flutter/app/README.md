@@ -40,6 +40,19 @@ CBZ_SMB_TEST=1 LD_LIBRARY_PATH=build/linux/x64/debug/bundle/lib \
   flutter test test/smb/
 ```
 
+## Headless CLI
+
+```bash
+dart run bin/cbzmanager.dart --help
+dart run bin/cbzmanager.dart validate <dir> [--threads N]
+dart run bin/cbzmanager.dart convert-webp <dir> [--delete] [--threads N]
+dart run bin/cbzmanager.dart merge <dir> [--delete] [--force] [--chapters N1,N2] [--chapters-per-volume N] [--threads N]
+dart run bin/cbzmanager.dart cbr-to-cbz <dir> [--delete] [--threads N]
+```
+
+Runs under plain `dart run` (the engine/services are Flutter-free); exit codes
+0/1/2 mirror the reference CLI.
+
 ## Release
 
 ```bash

@@ -53,6 +53,8 @@ lib/
 !flutter/app/lib/
 units/
 bin/
+# ...same for the Flutter CLI entrypoint under bin/.
+!flutter/app/bin/
 obj/
 backup/
 porting/

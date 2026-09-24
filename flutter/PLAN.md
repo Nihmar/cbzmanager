@@ -207,17 +207,17 @@ Tasks
 - [x] `Workspace`: in-RAM localize/publish, atomic write, `_OLD.cbz` backup.
 - [x] **SMB PoC gate** against a Samba container: VFS round-trip and a full
       engine `validate` + `convert-webp` + publish round-trip pass on Linux.
-- [ ] Thumbnail loader: worker pool (≤ 4), I/O on a background isolate/async,
-      LRU cache at 320×400, incremental publication to the grid (port of
-      `TLoadThread`/`TThumbThread` batch+sort semantics).
-- [ ] Browser UI: file grid/list with thumbnails, sort by byte-wise name
-      (case-insensitive extension match), multi-select + context menu, folder
-      picker (local + SMB), drag-and-drop on desktop.
-- [ ] Page preview: single-archive loader, page carousel/grid, zoom/pan
-      (`InteractiveViewer`), read-only badge for CBR.
+- [x] Thumbnail loader: bounded read + decode pools (`Isolate.run`), small
+      JPEG cache, first-page decode on a background isolate.
+- [x] Browser UI: archive grid with thumbnails, byte-wise sort, loading/empty/
+      error states, source menu (local folder + SMB dialog). Multi-select,
+      context menu and drag-and-drop still to do.
+- [x] Page preview: immersive `PageView` with `InteractiveViewer` zoom + a
+      thumbnail rail, page counter, read-only badge for CBR.
 - [ ] Verify SMB on an Android device/emulator (bundle libsmb2 per ABI).
-- [ ] Widget tests for the browser + preview; unit tests for `MemoryVfs`,
-      workspace publish/backup, and sort order.
+- [x] Widget tests for the browser grid + preview data path; unit tests for the
+      browser controller, thumbnails and `MemoryVfs`/workspace (38 green).
+- [ ] Android SAF tree-URI access for local folders.
 
 **Definition of done**
 - On Android (device/emulator) a user can add an SMB share, browse it, open a CBZ,

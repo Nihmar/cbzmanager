@@ -2,6 +2,8 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 
+import '../util/str_compare.dart';
+import 'format.dart';
 import 'models.dart';
 
 /// The single entry the reference filters on every operation.
@@ -48,4 +50,34 @@ List<ZipEntryData> stripComicInfoEntries(List<ZipEntryData> entries) {
   return entries
       .where((e) => e.name.toLowerCase() != comicInfoName.toLowerCase())
       .toList(growable: false);
+}
+
+/// Image entry names of a ZIP, byte-wise sorted, without decompressing page
+/// content (only the central directory is read).
+List<String> sortedImageNamesInZip(Uint8List zipBytes) {
+  final archive = ZipDecoder().decodeBytes(zipBytes);
+  final names = <String>[];
+  for (final file in archive) {
+    if (file.isDirectory) continue;
+    if (isImageExt(_ext(file.name))) names.add(file.name);
+  }
+  names.sort(compareStr);
+  return names;
+}
+
+/// Reads exactly one entry by name, decompressing only that entry.
+/// Returns null when the entry is absent or not a file.
+Uint8List? readZipEntryByName(Uint8List zipBytes, String name) {
+  final archive = ZipDecoder().decodeBytes(zipBytes);
+  for (final file in archive) {
+    if (!file.isDirectory && file.name == name) {
+      return Uint8List.fromList(file.content);
+    }
+  }
+  return null;
+}
+
+String _ext(String name) {
+  final dot = name.lastIndexOf('.');
+  return dot < 0 ? '' : name.substring(dot);
 }

@@ -335,18 +335,28 @@ like the reference.
 
 ### Phase 6 — Page model, page editor, batch edit  *(10–16 d)*
 
-- [ ] Dart page model mirroring `TPageState`/`TChange`/`TPageEditModel`
-      (delete/move/insert, renumber, edited bytes precedence, baseline/revert,
-      undo log).
-- [ ] Page editor dialog: resize (aspect lock, box filter), colour pipeline
-      (sliders + live preview + grayscale/sepia/invert), split (draggable cut
-      lines → N+1 pieces), encode in the original format (GIF/TIFF→PNG).
-- [ ] Save thread: staged changes committed on "Save changes"; backup/rename.
-- [ ] Batch edit: selection → uniform resize/colour/split, preview of the first
-      page, header "N pages → M pieces", staged results.
-- [ ] Reorder/delete/insert via drag and drop; renumber preview.
-- [ ] Tests: pure image-edit ops (resample/colour/split/encode round-trips),
-      model semantics, staging, split count, determinism.
+**Status: complete** (equal-size split; no draggable cut lines / drag-and-drop yet).
+
+- [x] Dart page model mirroring `TPageState`/`TChange`/`TPageEditModel`:
+      delete/move/insert, renumber (`PAGE_PAD_DEFAULT`), edited bytes precedence,
+      baseline/revert, change log, deleted-name tracking so removed entries are
+      not re-added as metadata.
+- [x] `buildEditedArchive`: page order, edited/inserted data, leftover entries
+      (ComicInfo.xml) preserved, an original entry claimed at most once.
+- [x] Image ops ported from `uimageedit.pas`: box-filter resample, the full
+      colour pipeline (invert/grayscale/sepia/gains/saturation/contrast/
+      brightness/gamma) and parallel-line split; encode per `EncodeExtFor`.
+- [x] Page editor dialog: resize with aspect lock, colour controls + live
+      preview, split (rows/columns, N lines → N+1 pieces), original format.
+- [x] `PageEditScreen`: page grid, select, delete, move, renumber, edit, and a
+      staged "Save changes"/"Revert" bar (save writes via `Workspace` + backup).
+- [x] Batch edit: uniform resize %/colour/split across a selection, first-page
+      preview, concurrent per-file isolates, backup, renumber; CBZ only (CBR is
+      read-only).
+- [x] Tests: resample/colour/split, model semantics, save/load with metadata
+      preservation, batch resize/grayscale/split and neutral no-op (111 green).
+- [ ] Draggable split cut lines, drag-and-drop reordering and a zoomable page
+      grid — deferred (equal-split + arrow moves cover the workflow).
 
 **DoD:** the single-file editor supersedes the reference's delete/renumber use
 case; batch edit matches the reference pipeline.

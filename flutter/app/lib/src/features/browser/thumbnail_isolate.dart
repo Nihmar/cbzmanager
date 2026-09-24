@@ -34,6 +34,26 @@ Future<Uint8List?> decodePageThumbInIsolate(
 Future<int> countPagesInIsolate(Uint8List bytes, String name) =>
     Isolate.run(() => countImagePages(bytes, name));
 
+/// Thumbnail of arbitrary image bytes (used for edited/inserted pages).
+Uint8List? decodeBytesThumbnail(
+  Uint8List imageBytes,
+  int maxWidth,
+  int maxHeight,
+) {
+  final decoded = img.decodeImage(imageBytes);
+  if (decoded == null) return null;
+  return Uint8List.fromList(
+    img.encodeJpg(_fit(decoded, maxWidth, maxHeight), quality: 80),
+  );
+}
+
+Future<Uint8List?> decodeBytesThumbnailInIsolate(
+  Uint8List imageBytes,
+  int maxWidth,
+  int maxHeight,
+) =>
+    Isolate.run(() => decodeBytesThumbnail(imageBytes, maxWidth, maxHeight));
+
 /// Top-level functions safe to run in a background isolate (via `Isolate.run`).
 
 /// Decodes the alphabetically-first image page of an archive into a small JPEG.

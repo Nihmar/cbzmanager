@@ -5,12 +5,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
 import '../../engine/engine_provider.dart';
+import '../../engine/zip_ops.dart';
 import '../../jobs/job_controller.dart';
 import '../../native/cbr_reader.dart';
 import '../../vfs/local_vfs.dart';
 import '../../vfs/smb_vfs.dart';
+import '../batch_edit/batch_edit_dialog.dart';
+import '../batch_edit/batch_edit_service.dart';
 import '../cbr/cbr_dialog.dart';
 import '../cbr/cbr_service.dart';
+import '../page_editor/page_edit_screen.dart';
 import '../comicinfo/comicinfo_editor_dialog.dart';
 import '../comicinfo/comicinfo_service.dart';
 import '../convert/convert_dialog.dart';
@@ -67,6 +71,13 @@ class BrowserScreen extends ConsumerWidget {
                   onPressed: job?.running == true || source == null
                       ? null
                       : () => _convert(context, ref, source, selectedItems),
+                ),
+                IconButton(
+                  tooltip: 'Batch edit pages',
+                  icon: const Icon(Icons.tune),
+                  onPressed: job?.running == true || source == null
+                      ? null
+                      : () => _batchEdit(context, ref, source, selectedItems),
                 ),
                 IconButton(
                   tooltip: 'Remove ComicInfo',
@@ -260,6 +271,66 @@ class BrowserScreen extends ConsumerWidget {
     } catch (e) {
       job.finish();
       if (context.mounted) _snack(context, 'Merge failed: $e');
+    }
+  }
+
+  Future<void> _batchEdit(
+    BuildContext context,
+    WidgetRef ref,
+    ArchiveSource source,
+    List<ArchiveItem> items,
+  ) async {
+    final editable = <ArchiveItem>[
+      for (final item in items)
+        if (!item.isCbr) item,
+    ];
+    if (editable.isEmpty) {
+      _snack(context, 'CBR archives are read-only — convert them first');
+      return;
+    }
+
+    final previewBytes = await _firstPageBytes(source, editable.first);
+    if (!context.mounted) return;
+
+    final params = await showBatchEditDialog(
+      context,
+      fileCount: editable.length,
+      previewBytes: previewBytes,
+    );
+    if (params == null || !context.mounted) return;
+
+    final job = ref.read(jobProvider.notifier);
+    job.start('Batch edit', message: 'Editing ${editable.length} file(s)...');
+    try {
+      final outcomes = await const BatchEditService().applyMany(
+        source.vfs,
+        editable,
+        params,
+        onProgress: (percent, message) => job.progress(percent, message),
+        isCancelled: () => job.cancelRequested,
+      );
+      job.finish();
+      if (!context.mounted) return;
+      final ok = outcomes.where((o) => o.success).length;
+      _snack(context, 'Edited $ok of ${outcomes.length} file(s)');
+      await ref.read(browserProvider.notifier).load(source.vfs, source.root);
+    } catch (e) {
+      job.finish();
+      if (context.mounted) _snack(context, 'Batch edit failed: $e');
+    }
+  }
+
+  Future<Uint8List?> _firstPageBytes(
+    ArchiveSource source,
+    ArchiveItem item,
+  ) async {
+    try {
+      final bytes = await source.vfs.readAll(item.path);
+      final names = sortedImageNamesInZip(bytes);
+      if (names.isEmpty) return null;
+      return readZipEntryByName(bytes, names.first);
+    } catch (_) {
+      return null;
     }
   }
 
@@ -640,6 +711,20 @@ class _ArchiveTile extends ConsumerWidget {
                               source,
                               item,
                             );
+                          case 'pages':
+                            await Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => PageEditScreen(
+                                  vfs: source.vfs,
+                                  item: item,
+                                ),
+                              ),
+                            );
+                            if (context.mounted) {
+                              await ref
+                                  .read(browserProvider.notifier)
+                                  .load(source.vfs, source.root);
+                            }
                           case 'comicinfo':
                             await _BrowserActions.editComicInfo(
                               context,
@@ -669,6 +754,11 @@ class _ArchiveTile extends ConsumerWidget {
                           const PopupMenuItem(
                             value: 'cbr',
                             child: Text('Convert to CBZ'),
+                          ),
+                        if (!item.isCbr)
+                          const PopupMenuItem(
+                            value: 'pages',
+                            child: Text('Edit pages…'),
                           ),
                         const PopupMenuItem(
                           value: 'comicinfo',

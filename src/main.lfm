@@ -521,11 +521,11 @@ object frmMain: TfrmMain
         ViewStyle = vsIcon
         OnDragDrop = LVPagesDragDrop
         OnDragOver = LVPagesDragOver
-      OnDblClick = LVPagesDblClick
-      OnMouseDown = LVFilesMouseDown
-      OnMouseUp = LVFilesMouseUp
-      OnSelectItem = LVFilesSelectItem
-    end
+        OnDblClick = LVPagesDblClick
+        OnMouseDown = LVFilesMouseDown
+        OnMouseUp = LVFilesMouseUp
+        OnSelectItem = LVFilesSelectItem
+      end
     end
     object SplitterPreview: TSplitter
       Left = 515

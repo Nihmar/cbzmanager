@@ -4,13 +4,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
+import '../../engine/engine_provider.dart';
+import '../../jobs/job_controller.dart';
 import '../../vfs/local_vfs.dart';
 import '../../vfs/smb_vfs.dart';
+import '../comicinfo/comicinfo_editor_dialog.dart';
+import '../comicinfo/comicinfo_service.dart';
 import '../sources/smb_dialog.dart';
 import '../sources/source_controller.dart';
+import '../validate/validate_results_dialog.dart';
+import '../validate/validate_service.dart';
 import 'archive_item.dart';
 import 'browser_controller.dart';
 import 'preview_screen.dart';
+import 'selection_controller.dart';
 import 'thumbnail_service.dart';
 
 class BrowserScreen extends ConsumerWidget {
@@ -20,38 +27,102 @@ class BrowserScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final source = ref.watch(sourceProvider);
     final browser = ref.watch(browserProvider);
+    final selection = ref.watch(selectionProvider);
+    final job = ref.watch(jobProvider);
+    final selecting = selection.isNotEmpty;
+    final selectedItems =
+        browser.items.where((i) => selection.contains(i.path)).toList();
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(source == null ? 'CBZ Manager' : source.label),
-        actions: [
-          if (source != null)
-            IconButton(
-              tooltip: 'Refresh',
-              icon: const Icon(Icons.refresh),
-              onPressed: () => ref
-                  .read(browserProvider.notifier)
-                  .load(source.vfs, source.root),
-            ),
-          PopupMenuButton<String>(
-            tooltip: 'Open source',
-            onSelected: (value) {
-              if (value == 'local') {
-                _openLocal(context, ref);
-              } else {
-                _openSmb(context, ref);
-              }
-            },
-            itemBuilder: (context) => [
-              if (!kIsWeb && defaultTargetPlatform != TargetPlatform.android)
-                const PopupMenuItem(value: 'local', child: Text('Open local folder')),
-              const PopupMenuItem(value: 'smb', child: Text('Connect to SMB share')),
-            ],
-          ),
-        ],
+        leading: selecting
+            ? IconButton(
+                tooltip: 'Cancel selection',
+                icon: const Icon(Icons.close),
+                onPressed: () => ref.read(selectionProvider.notifier).clear(),
+              )
+            : null,
+        title: Text(
+          selecting ? '${selection.length} selected' : (source?.label ?? 'CBZ Manager'),
+        ),
+        actions: selecting
+            ? [
+                IconButton(
+                  tooltip: 'Validate',
+                  icon: const Icon(Icons.fact_check_outlined),
+                  onPressed: job?.running == true || source == null
+                      ? null
+                      : () => _validate(context, ref, source, selectedItems),
+                ),
+                IconButton(
+                  tooltip: 'Remove ComicInfo',
+                  icon: const Icon(Icons.bookmark_remove_outlined),
+                  onPressed: job?.running == true || source == null
+                      ? null
+                      : () => _removeComicInfo(context, ref, source, selectedItems),
+                ),
+                IconButton(
+                  tooltip: 'Select all',
+                  icon: const Icon(Icons.select_all),
+                  onPressed: () => ref
+                      .read(selectionProvider.notifier)
+                      .select(browser.items.map((i) => i.path)),
+                ),
+              ]
+            : [
+                if (source != null)
+                  IconButton(
+                    tooltip: 'Refresh',
+                    icon: const Icon(Icons.refresh),
+                    onPressed: job?.running == true
+                        ? null
+                        : () => ref
+                            .read(browserProvider.notifier)
+                            .load(source.vfs, source.root),
+                  ),
+                if (source != null && browser.items.isNotEmpty)
+                  IconButton(
+                    tooltip: 'Select',
+                    icon: const Icon(Icons.checklist),
+                    onPressed: () => ref
+                        .read(selectionProvider.notifier)
+                        .select(browser.items.map((i) => i.path)),
+                  ),
+                PopupMenuButton<String>(
+                  tooltip: 'Open source',
+                  onSelected: (value) {
+                    if (value == 'local') {
+                      _openLocal(context, ref);
+                    } else {
+                      _openSmb(context, ref);
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    if (!kIsWeb &&
+                        defaultTargetPlatform != TargetPlatform.android)
+                      const PopupMenuItem(
+                        value: 'local',
+                        child: Text('Open local folder'),
+                      ),
+                    const PopupMenuItem(
+                      value: 'smb',
+                      child: Text('Connect to SMB share'),
+                    ),
+                  ],
+                ),
+              ],
+        bottom: job == null
+            ? null
+            : PreferredSize(
+                preferredSize: const Size.fromHeight(44),
+                child: _JobBar(job: job),
+              ),
       ),
       body: source == null
-          ? _Welcome(onLocal: () => _openLocal(context, ref), onSmb: () => _openSmb(context, ref))
+          ? _Welcome(
+              onLocal: () => _openLocal(context, ref),
+              onSmb: () => _openSmb(context, ref),
+            )
           : _BrowserBody(source: source, browser: browser),
     );
   }
@@ -79,8 +150,113 @@ class BrowserScreen extends ConsumerWidget {
   }
 
   void _apply(WidgetRef ref, ArchiveSource source) {
+    ref.read(selectionProvider.notifier).clear();
     ref.read(sourceProvider.notifier).set(source);
     ref.read(browserProvider.notifier).load(source.vfs, source.root);
+  }
+
+  Future<void> _validate(
+    BuildContext context,
+    WidgetRef ref,
+    ArchiveSource source,
+    List<ArchiveItem> items,
+  ) async {
+    final job = ref.read(jobProvider.notifier);
+    job.start('Validate', message: 'Validating ${items.length} file(s)...');
+    List<ValidateOutcome> outcomes;
+    try {
+      outcomes = await ValidateService(ref.read(cbzEngineProvider)).validateMany(
+        source.vfs,
+        items,
+        onProgress: (done, total, message) =>
+            job.progress(total == 0 ? 0 : done * 100 ~/ total, message),
+        isCancelled: () => job.cancelRequested,
+      );
+    } catch (e) {
+      job.finish();
+      if (context.mounted) _snack(context, 'Validation failed: $e');
+      return;
+    }
+    job.finish();
+    if (context.mounted) await showValidateResultsDialog(context, outcomes);
+  }
+
+  Future<void> _removeComicInfo(
+    BuildContext context,
+    WidgetRef ref,
+    ArchiveSource source,
+    List<ArchiveItem> items,
+  ) async {
+    final job = ref.read(jobProvider.notifier);
+    job.start('Remove ComicInfo', message: 'Scanning ${items.length} file(s)...');
+    try {
+      final result = await ComicInfoService(ref.read(cbzEngineProvider))
+          .removeMany(
+        source.vfs,
+        items,
+        onProgress: (done, total, message) =>
+            job.progress(total == 0 ? 0 : done * 100 ~/ total, message),
+        isCancelled: () => job.cancelRequested,
+      );
+      job.finish();
+      if (context.mounted) {
+        _snack(
+          context,
+          'ComicInfo removed from ${result.changed} of ${result.scanned} '
+          'file(s), ${result.skipped} already clean'
+          '${result.errors.isEmpty ? '' : ', ${result.errors.length} error(s)'}',
+        );
+      }
+    } catch (e) {
+      job.finish();
+      if (context.mounted) _snack(context, 'Remove failed: $e');
+    }
+  }
+}
+
+void _snack(BuildContext context, String message) {
+  ScaffoldMessenger.of(context)
+    ..clearSnackBars()
+    ..showSnackBar(SnackBar(content: Text(message)));
+}
+
+class _JobBar extends ConsumerWidget {
+  const _JobBar({required this.job});
+
+  final JobState job;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 8, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          LinearProgressIndicator(
+            value: job.percent <= 0 ? null : job.percent / 100.0,
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '${job.label}: ${job.message}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelSmall,
+                ),
+              ),
+              TextButton(
+                onPressed: job.cancelled
+                    ? null
+                    : () => ref.read(jobProvider.notifier).requestCancel(),
+                child: const Text('Cancel'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -172,10 +348,8 @@ class _BrowserBody extends ConsumerWidget {
         crossAxisSpacing: 8,
       ),
       itemCount: browser.items.length,
-      itemBuilder: (context, index) {
-        final item = browser.items[index];
-        return _ArchiveTile(source: source, item: item);
-      },
+      itemBuilder: (context, index) =>
+          _ArchiveTile(source: source, item: browser.items[index]),
     );
   }
 }
@@ -189,57 +363,142 @@ class _ArchiveTile extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final thumbnails = ref.read(thumbnailServiceProvider);
+    final selected = ref.watch(selectionProvider).contains(item.path);
+    final selecting = ref.watch(selectionProvider).isNotEmpty;
+    final scheme = Theme.of(context).colorScheme;
+
     return Card(
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            builder: (_) => PreviewScreen(vfs: source.vfs, item: item),
-          ),
+      color: selected ? scheme.primaryContainer : null,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: selected ? scheme.primary : Colors.transparent,
+          width: 2,
         ),
+      ),
+      child: InkWell(
+        onTap: () {
+          if (selecting) {
+            ref.read(selectionProvider.notifier).toggle(item.path);
+          } else {
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => PreviewScreen(vfs: source.vfs, item: item),
+              ),
+            );
+          }
+        },
+        onLongPress: () => ref.read(selectionProvider.notifier).toggle(item.path),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Expanded(
-              child: FutureBuilder<Uint8List?>(
-                future: thumbnails.archiveThumbnail(source.vfs, item),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState != ConnectionState.done) {
-                    return const Center(
-                      child: SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    );
-                  }
-                  final bytes = snapshot.data;
-                  if (bytes == null) {
-                    return const Center(child: Icon(Icons.broken_image_outlined));
-                  }
-                  return Image.memory(
-                    bytes,
-                    fit: BoxFit.contain,
-                    gaplessPlayback: true,
-                  );
-                },
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  FutureBuilder<Uint8List?>(
+                    future: thumbnails.archiveThumbnail(source.vfs, item),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState != ConnectionState.done) {
+                        return const Center(
+                          child: SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        );
+                      }
+                      final bytes = snapshot.data;
+                      if (bytes == null) {
+                        return const Center(
+                          child: Icon(Icons.broken_image_outlined),
+                        );
+                      }
+                      return Image.memory(
+                        bytes,
+                        fit: BoxFit.contain,
+                        gaplessPlayback: true,
+                      );
+                    },
+                  ),
+                  Positioned(
+                    top: 4,
+                    right: 4,
+                    child: AnimatedOpacity(
+                      opacity: selected ? 1 : 0,
+                      duration: const Duration(milliseconds: 120),
+                      child: Icon(Icons.check_circle, color: scheme.primary),
+                    ),
+                  ),
+                ],
               ),
             ),
             Padding(
-              padding: const EdgeInsets.all(6),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              padding: const EdgeInsets.fromLTRB(6, 6, 0, 6),
+              child: Row(
                 children: [
-                  Text(
-                    item.name,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall,
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          item.name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        Text(
+                          '${item.isCbr ? 'CBR' : 'CBZ'} · ${_size(item.size)}',
+                          style: Theme.of(context).textTheme.labelSmall,
+                        ),
+                      ],
+                    ),
                   ),
-                  Text(
-                    '${item.isCbr ? 'CBR' : 'CBZ'} · ${_size(item.size)}',
-                    style: Theme.of(context).textTheme.labelSmall,
-                  ),
+                  if (!selecting)
+                    PopupMenuButton<String>(
+                      tooltip: 'Actions',
+                      padding: EdgeInsets.zero,
+                      iconSize: 18,
+                      onSelected: (value) async {
+                        switch (value) {
+                          case 'validate':
+                            await _BrowserActions.validate(
+                              context,
+                              ref,
+                              source,
+                              item,
+                            );
+                          case 'comicinfo':
+                            await _BrowserActions.editComicInfo(
+                              context,
+                              ref,
+                              source,
+                              item,
+                            );
+                          case 'remove':
+                            await _BrowserActions.removeComicInfo(
+                              context,
+                              ref,
+                              source,
+                              item,
+                            );
+                        }
+                      },
+                      itemBuilder: (context) => const [
+                        PopupMenuItem(
+                          value: 'validate',
+                          child: Text('Validate'),
+                        ),
+                        PopupMenuItem(
+                          value: 'comicinfo',
+                          child: Text('Edit ComicInfo…'),
+                        ),
+                        PopupMenuItem(
+                          value: 'remove',
+                          child: Text('Remove ComicInfo'),
+                        ),
+                      ],
+                    ),
                 ],
               ),
             ),
@@ -253,5 +512,91 @@ class _ArchiveTile extends ConsumerWidget {
     if (bytes < 1024) return '$bytes B';
     if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(0)} KB';
     return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+}
+
+/// Shared single-item actions used by the tile overflow menu.
+class _BrowserActions {
+  const _BrowserActions._();
+
+  static Future<void> validate(
+    BuildContext context,
+    WidgetRef ref,
+    ArchiveSource source,
+    ArchiveItem item,
+  ) async {
+    final job = ref.read(jobProvider.notifier);
+    job.start('Validate', message: 'Validating ${item.name}');
+    final outcomes =
+        await ValidateService(ref.read(cbzEngineProvider)).validateMany(
+      source.vfs,
+      [item],
+      onProgress: (done, total, message) =>
+          job.progress(total == 0 ? 0 : done * 100 ~/ total, message),
+      isCancelled: () => job.cancelRequested,
+    );
+    job.finish();
+    if (context.mounted) await showValidateResultsDialog(context, outcomes);
+  }
+
+  static Future<void> editComicInfo(
+    BuildContext context,
+    WidgetRef ref,
+    ArchiveSource source,
+    ArchiveItem item,
+  ) async {
+    final service = ComicInfoService(ref.read(cbzEngineProvider));
+    final job = ref.read(jobProvider.notifier);
+    job.start('ComicInfo', message: 'Reading ${item.name}');
+    final read = await service.read(source.vfs, item);
+    job.finish();
+    if (!context.mounted) return;
+    if (read.error != null) {
+      _snack(context, 'Cannot read ${item.name}: ${read.error}');
+      return;
+    }
+    final edited = await showComicInfoEditor(
+      context,
+      archiveName: item.name,
+      initial: read.info,
+    );
+    if (edited == null || !context.mounted) return;
+    job.start('ComicInfo', message: 'Saving ${item.name}');
+    try {
+      await service.write(source.vfs, item, edited);
+      if (context.mounted) {
+        _snack(context, 'ComicInfo saved for ${item.name}');
+      }
+    } catch (e) {
+      if (context.mounted) _snack(context, 'Save failed: $e');
+    } finally {
+      job.finish();
+    }
+  }
+
+  static Future<void> removeComicInfo(
+    BuildContext context,
+    WidgetRef ref,
+    ArchiveSource source,
+    ArchiveItem item,
+  ) async {
+    final job = ref.read(jobProvider.notifier);
+    job.start('Remove ComicInfo', message: item.name);
+    try {
+      final removed = await ComicInfoService(ref.read(cbzEngineProvider))
+          .remove(source.vfs, item);
+      if (context.mounted) {
+        _snack(
+          context,
+          removed
+              ? 'ComicInfo removed from ${item.name}'
+              : '${item.name} has no ComicInfo.xml',
+        );
+      }
+    } catch (e) {
+      if (context.mounted) _snack(context, 'Remove failed: $e');
+    } finally {
+      job.finish();
+    }
   }
 }

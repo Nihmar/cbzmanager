@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
 
+import 'comicinfo.dart';
 import 'engine.dart';
 import 'format.dart';
 import 'models.dart';
@@ -152,6 +153,21 @@ class DartCbzEngine implements CbzEngine {
     final entries = collectZipEntries(data.bytes);
     final index = findComicInfoIndex(entries);
     return ScanResult(found: index >= 0, index: index);
+  }
+
+  @override
+  Future<ComicInfo?> readComicInfo(ArchiveData data) async {
+    try {
+      return comicInfoFromEntries(collectZipEntries(data.bytes));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<ArchiveData> writeComicInfo(ArchiveData data, ComicInfo info) async {
+    final entries = withComicInfo(collectZipEntries(data.bytes), info);
+    return ArchiveData(data.name, writeZipEntries(entries));
   }
 
   @override

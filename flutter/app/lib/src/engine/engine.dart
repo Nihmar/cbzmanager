@@ -1,3 +1,4 @@
+import 'comicinfo.dart';
 import 'models.dart';
 
 /// The byte-oriented engine facade. Implementations never touch paths or the
@@ -24,6 +25,12 @@ abstract class CbzEngine {
 
   /// Reports whether a ComicInfo.xml entry is present.
   Future<ScanResult> scanComicInfo(ArchiveData data);
+
+  /// Parses ComicInfo.xml, or null when absent/unreadable.
+  Future<ComicInfo?> readComicInfo(ArchiveData data);
+
+  /// Returns a copy of the archive with [info] written as ComicInfo.xml.
+  Future<ArchiveData> writeComicInfo(ArchiveData data, ComicInfo info);
 
   /// Returns a copy of the archive without ComicInfo.xml.
   Future<ArchiveData> stripComicInfo(ArchiveData data);

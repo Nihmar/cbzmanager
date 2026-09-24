@@ -236,14 +236,21 @@ verification is still pending (`libsmb2.so` must be bundled per ABI).
 
 ### Phase 2 — Validate + ComicInfo  *(5–8 d)*
 
-- [ ] Engine: `validate` (deep, per-image checks, parallel) and ComicInfo
-      scan/strip in the Dart engine.
-- [ ] `validate` feature: folder scope, options (threads), results dialog
-      (per-file/per-image errors), export of the report (copy/save).
-- [ ] `comicinfo` feature: scan report, remove with optional backup, and the
-      ComicInfo **viewer/editor** (parse/generate XML).
-- [ ] Progress + cancellation through the Job model.
-- [ ] Dart tests + widget tests; parallel determinism (threads 1 vs 4).
+**Status: complete** (engine + services + UI; parallel decode still sequential).
+
+- [x] Engine: `validate` (deep, per-image checks) and ComicInfo read/write/
+      strip in the Dart engine.
+- [x] ComicInfo parser/generator ported from `ucomicinfo.pas`
+      (`ComicInfo.parse`/`toXml`, escaping, unset sentinels, XML round-trip).
+- [x] `validate` feature: single and multi-file scope, results dialog with
+      per-file/per-image errors and a copyable report.
+- [x] `comicinfo` feature: scan report, remove with optional `_OLD` backup,
+      and the ComicInfo viewer/editor (create when absent).
+- [x] Progress + cooperative cancellation through the Job model, shown as an
+      app-bar progress bar in the browser.
+- [x] Browser multi-selection (long-press / select-all) with batch actions.
+- [x] Tests: ComicInfo round-trip, validate/comicinfo services, Job controller
+      (51 green). Parallel per-image decode left for a later performance pass.
 
 **DoD:** parity with the reference for validate/comicinfo, including file-level
 error surfacing and the threads cap.

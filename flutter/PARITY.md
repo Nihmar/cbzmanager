@@ -11,7 +11,7 @@ Status legend: **Todo** · **WIP** · **Done** · **N/A**.
 |---|---|---|---|
 | `src/uzipcore.pas` | `TZipEntries`, `FormatPageName`, `StripComicInfo`, `FindComicInfoIndex` | `engine/` ZIP entry model + naming | Todo |
 | `src/uzipeditor.pas` | ZIP listing/extraction/write, `CollectZipEntries`, `WriteZipFromEntries`, `ConvertCBZToWebP`, CBR walking | `engine/zip_ops`, `engine/convert_webp` | Todo |
-| `src/uwebp.pas` | WebP decoder via libwebp (dynamic) | `image`/Rust `webp` (Option B) or libwebp FFI (A) | Todo |
+| `src/uwebp.pas` | WebP decoder via libwebp (dynamic) | `image` package (pure Dart); optional libwebp FFI | Todo |
 | `src/uarchive.pas` | CBR reader via libarchive (dynamic) | `engine/cbr_reader` + libarchive dynamic load | Todo |
 | `src/uimgutil.pas` | decode/scale/convert, `CenterAnchorScrollPos`, `EncodeIntfImage`/`EncodeExtFor` | `engine/image_util`, `ui/zoom_controller` | Todo |
 | `src/uimageedit.pas` | `ResampleIntfImage`, `AdjustColors`, `SplitIntfImage` | `engine/image_edit` | Todo |
@@ -92,4 +92,3 @@ Cross-cutting rules that must be verified before release.
 
 - `AGENTS.md` — behaviour, divergences, architecture of the reference.
 - `porting/cbz_manager/` — Python reference implementation (local).
-- `origin/porting/tauri` — Rust core and its `PLAN.md` / `TARGET.md` / `GAPS.md`.

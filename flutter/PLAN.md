@@ -16,7 +16,7 @@ The plan is **phased**, each phase ending in a running, testable increment:
 
 | Phase | Deliverable | Gate |
 |---|---|---|
-| 0 | Scaffolding, CI, **Rust-core-vs-pure-Dart spike**, VFS interface | Go/no-go on FRB |
+| 0 | Scaffolding, CI, **pure-Dart/FFI spike**, VFS interface | Go/no-go on pure Dart |
 | 1 | Archive browser (local + **SMB**) with thumbnails and preview | Go/no-go on Android/SMB |
 | 2 | `validate` + `comicinfo` | — |
 | 3 | `convert-webp` | — |
@@ -26,10 +26,11 @@ The plan is **phased**, each phase ending in a running, testable increment:
 | 7 | Image search ("add image from internet") | — |
 | 8 | Settings, Job Monitor, i18n, packaging, CLI | Release |
 
-**Recommended core:** the existing tested Rust crate `rust-core` (from the Tauri
-port) consumed through `flutter_rust_bridge` v2 (ADR-001). A pure-Dart fallback
-(`package:archive` + `package:image` + a libarchive FFI shim for CBR) is kept
-viable and decided by the Phase-0 spike.
+**Recommended core:** a **pure-Dart engine** (`package:archive` +
+`package:image`) with a small `dart:ffi` shim to **libarchive** for CBR/RAR
+(ADR-001). A **new** Rust engine via `flutter_rust_bridge` v2 is the fallback if
+the Phase-0 benchmark shows the Dart image pipeline is too slow or loses
+quality — it is written for this port, not reused from anywhere.
 
 **SMB decision (requirement 2):** Android **stays in scope**. `dart_smb2`
 (SMB2/3 on libsmb2) provides prebuilt Android/Linux/Windows binaries and the
@@ -96,7 +97,7 @@ From the Lazarus application:
 | Android platform channel + `smbj` (Java) | 2/3 | Android | Kotlin only | fallback; most code |
 | Android SAF + an SMB `DocumentsProvider` | depends | Android | none | not self-contained (needs a third-party provider) |
 | OS-mounted share | native | Linux/Windows | none | already handled by `LocalVfs` |
-| Rust `smb`/`pavao` crate | 2/3 | all | Rust | viable if Rust core chosen, but less mature |
+| Rust `smb`/`pavao` crate | 2/3 | all | Rust | only relevant if Option B (new Rust engine) is chosen |
 
 ### 2.2 Why this is not "too complex"
 
@@ -144,7 +145,7 @@ See [`TARGET.md`](TARGET.md) for the full ADR. In brief:
 
 - **UI** (Flutter, Material 3, Riverpod, go_router, adaptive shell).
 - **Controllers** per feature, one **Job** abstraction, streamed progress.
-- **Engine** via FRB (recommended) or pure Dart; byte-oriented facade.
+- **Engine** pure Dart (recommended) or a new Rust engine via FRB; byte-oriented facade.
 - **VFS** local / SAF / SMB / memory, with a localize→publish workspace.
 
 ---
@@ -163,28 +164,30 @@ Tasks
 - [ ] `flutter create` in `flutter/app` (org `app.cbzmanager`, platforms:
       android, linux, windows). Set `minSdk 24`, `ndkVersion`, ABI filters.
 - [ ] Repo hygiene: `flutter/` tracked; add `analyze`/`format` scripts; extend
-      `.gitignore` for Dart/Flutter/Rust build output.
+      `.gitignore` for Dart/Flutter/native build output.
 - [ ] App skeleton: `AppShell` (empty two-pane + nav scaffold), theme, routing,
       `AppLogger`, error boundary.
 - [ ] Define `Engine` facade (`TARGET.md` §4) and `Vfs` interface (`§5`) with a
       `MemoryVfs` implementation for tests.
-- [ ] **Engine spike:** add FRB, expose one rust-core function (in-memory
-      validate), call it from Dart; build and run on Linux and an Android
-      emulator. Measure build time, APK size, cold-call latency.
-- [ ] Alternative spike (timeboxed, only if FRB stalls): `archive` + `image`
-      ZIP/convert round-trip for a CBZ to prove Option A.
+- [ ] **Pure-Dart engine spike:** `archive` unzip → `image` decode →
+      resize/WebP convert → `archive` zip round-trip on a real CBZ; compare size
+      and quality with the reference. Benchmark throughput and memory.
+- [ ] **libarchive FFI spike:** load/read a real RAR on Linux and on an Android
+      emulator (build/bundle `libarchive.so` per ABI).
+- [ ] If the spikes fail: timebox a **new** Rust engine spike via
+      `flutter_rust_bridge` (in-memory validate call from Dart).
 - [ ] CI skeleton: GitHub Actions matrix (ubuntu, windows, macos-for-ios-later)
-      running `flutter analyze`, `flutter test`, `cargo test`; Android debug APK
-      build job.
+      running `flutter analyze`, `flutter test` (and `cargo test` only if Option B);
+      Android debug APK build job.
 - [ ] Decide ADR-001 → update `TARGET.md` decision log.
 
 **Definition of done**
 - `flutter run -d linux` and `flutter run` on an Android emulator both launch the
   empty shell.
-- `flutter test` and the Rust tests pass in CI.
+- `flutter test` passes in CI (plus Rust tests if Option B is chosen).
 - Engine decision recorded; the facade is implemented by at least one backend.
 
-**Risks:** FRB/NDK toolchain friction → mitigate with the pure-Dart fallback.
+**Risks:** pure-Dart image perf/quality and libarchive ABI builds → mitigate with the new-Rust-engine fallback.
 
 ---
 
@@ -229,13 +232,13 @@ Tasks
 ### Phase 2 — Validate + ComicInfo  *(5–8 d)*
 
 - [ ] Engine: `validate` (deep, per-image checks, parallel) and ComicInfo
-      scan/strip; wire to rust-core (or pure Dart).
+      scan/strip in the Dart engine.
 - [ ] `validate` feature: folder scope, options (threads), results dialog
       (per-file/per-image errors), export of the report (copy/save).
 - [ ] `comicinfo` feature: scan report, remove with optional backup, and the
       ComicInfo **viewer/editor** (parse/generate XML).
 - [ ] Progress + cancellation through the Job model.
-- [ ] Rust/Dart tests + widget tests; parallel determinism (threads 1 vs 4).
+- [ ] Dart tests + widget tests; parallel determinism (threads 1 vs 4).
 
 **DoD:** parity with the reference for validate/comicinfo, including file-level
 error surfacing and the threads cap.
@@ -365,8 +368,9 @@ Total: **~58–96 ideal engineer-days** (≈ 12–18 calendar weeks solo).
 1. **Pure unit** (Dart): VFS implementations, workspace localize/publish/backup,
    sort order (`compareStr` semantics), result mapping, page model, settings
    migration, image-search parsers.
-2. **Rust core** (Rust): reuse and extend `rust-core/tests`; determinism per
-   thread count; fixtures generated at test time (no binaries committed).
+2. **Rust engine** (only if Option B): mirror the reference scenarios;
+   determinism per thread count; fixtures generated at test time (no binaries
+   committed).
 3. **Widget/golden** (Flutter): browser grid, preview, editor, dialogs, Job
    Monitor; a few golden images for the empty/loaded states.
 4. **Integration** (Dart + native): full operation round-trips on temp dirs.
@@ -395,12 +399,12 @@ ComicInfo, scrambled names, duplicates). No fixture binaries in git.
 
 - **GitHub Actions**:
   - `analyze` + `dart format --output=none --set-exit-if-changed` + `flutter test` (ubuntu).
-  - `cargo test` + `cargo clippy` for the core (ubuntu).
+  - `cargo test` + `cargo clippy` for the engine (ubuntu; only if Option B).
   - Build matrix: Linux, Windows, Android debug APK (and signed release on tags).
   - Samba container job for SMB integration tests.
-- Cache: pub, cargo, Gradle, NDK.
+- Cache: pub, Gradle, NDK (plus cargo if Option B).
 - On tags: build and attach artifacts (AppImage/deb, installer/zip, APK/AAB).
-- License check for dependencies (`flutter_oss_licenses` or `cargo-deny`).
+- License check for dependencies (`flutter_oss_licenses`; `cargo-deny` if Option B).
 
 ---
 
@@ -421,23 +425,23 @@ follows the reference (`VERSION`/PKGBUILD auto-injection precedent).
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| FRB/NDK integration friction | medium | high | Phase-0 timeboxed spike; pure-Dart fallback; keep facade stable |
+| Pure-Dart image pipeline too slow / quality differs | medium | high | Phase-0 benchmark; `image` tuning; optional libwebp FFI; adopt Option B (new Rust engine) |
+| libarchive cannot be built/bundled for an Android ABI | medium | high | prebuilt NDK build in CI; document degradation; Option B |
 | `dart_smb2` immaturity (0.1.x, small project) | medium | high | VFS abstraction; fallback smb_connect/smbj; vendor & pin libsmb2 |
 | Build-time download of native libs | medium | medium | mirror/vendor binaries in our CI or releases; SHA-256 checks |
-| Rust core lives on an unmerged branch | high | medium | vendor into `flutter/rust/`; plan shared `core/` extraction |
+| FRB/NDK friction if Option B is chosen | low | medium | keep the `CbzEngine` facade stable; timeboxed spike |
 | Android storage policies (`MANAGE_EXTERNAL_STORAGE`) | medium | medium | SAF-first; opt-in full access; SMB needs no permission |
 | Image parity/perf differences vs libwebp/FPC | medium | medium | differential fixtures; WebP q75 compare; add libwebp via FFI if needed |
 | Large archives × N workers exhaust Android memory | medium | high | enforce caps; bytes-only pipeline; stream writes; OOM handling |
 | libarchive absent on a user's Linux | low | low | graceful degradation exactly like the reference |
 | Windows path/UTF-16 issues in FFI | low | medium | dedicated Windows smoke tests in CI |
-| Tauri/Flutter core divergence | medium | medium | single shared `rust-core` as the source of truth |
 
 ---
 
 ## 10. Open questions (need a decision before/at the phase noted)
 
-1. **Q1 (Phase 0):** shared top-level `core/` for Tauri+Flutter, or per-port
-   vendoring? *Recommendation: vendor now, extract later.*
+1. **Q1 (Phase 0):** is pure Dart sufficient, or do we accept a new Rust engine
+   for performance/quality? *Recommendation: pure Dart unless the benchmark fails.*
 2. **Q2 (Phase 1):** Android distribution (Play vs F-Droid/sideload)? Affects
    `MANAGE_EXTERNAL_STORAGE`.
 3. **Q3 (Phase 8):** ship a headless CLI in Flutter, or keep the Lazarus binary
@@ -454,13 +458,12 @@ follows the reference (`VERSION`/PKGBUILD auto-injection precedent).
 2. [ ] Execute the Phase-0 engine spike and record ADR-001.
 3. [ ] `flutter create` the app skeleton.
 4. [ ] Stand up the Samba test container and the SMB PoC harness.
-5. [ ] Vendor `rust-core` under `flutter/rust/` (if Option B confirmed).
+5. [ ] Build the libarchive FFI shim under `flutter/native/` and prove CBR on Android.
 
 ## 12. References
 
 - Reference behaviour and divergences: repository `AGENTS.md`.
 - Python reference: `porting/cbz_manager/` (local, git-ignored).
-- Tauri port and its Rust core: branch `origin/porting/tauri`
-  (`rust-core/`, `PLAN.md`, `TARGET.md`, `GAPS.md`).
-- Key dependencies: `flutter_rust_bridge` v2.13, `dart_smb2` v0.1.3,
-  `archive` v4.3, `image` v4.10, `flutter_riverpod` v3.4, `go_router` v18.
+- Key dependencies: `dart_smb2` v0.1.3, `archive` v4.3, `image` v4.10,
+  `flutter_riverpod` v3.4, `go_router` v18, plus `flutter_rust_bridge` v2.13 only
+  if Option B is adopted.

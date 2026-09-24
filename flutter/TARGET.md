@@ -20,10 +20,9 @@ headless CLI. Its core is a set of **in-RAM** pipelines:
 - Parallel worker pools with fixed caps (8 for WebP/validate, 4 for
   CBR/merge/batch-edit).
 
-A second, already-written port exists: the **Tauri** port
-(`origin/porting/tauri`) with a tested Rust crate, `rust-core`, implementing
-ZIP ops, image edit, validate, merge, comicinfo, CBR reading, batch edit and the
-page model. That crate is the most valuable existing asset for this port.
+There is **no shared core to reuse**: this port builds its own engine. The
+Lazarus sources (and the Python reference under `porting/cbz_manager/`) define
+the behaviour the engine must reproduce.
 
 Forces driving the design:
 
@@ -53,9 +52,9 @@ Forces driving the design:
 └───────────────▲──────────────────────────────┬───────────────────────┘
                 │ result/progress streams       │ engine calls
 ┌───────────────┴──────────────────────────────▼───────────────────────┐
-│ Engine layer (native pipeline)                                       │
-│  A) Rust `cbz-core` via flutter_rust_bridge   ← recommended          │
-│  B) pure-Dart core (`archive` + `image` + libarchive FFI shim)        │
+│ Engine layer (in-RAM pipeline)                                       │
+│  A) pure-Dart core (`archive` + `image` + libarchive FFI) ← recommended│
+│  B) new Rust engine via flutter_rust_bridge (fallback)                │
 │  Both expose the same async facade: validate/convert/merge/cbr/...    │
 └───────────────▲──────────────────────────────┬───────────────────────┘
                 │ bytes                          │ bytes
@@ -72,59 +71,62 @@ the port faithful to the in-RAM rule.
 
 ---
 
-## 3. ADR-001 — Core engine: Rust `rust-core` vs pure Dart
+## 3. ADR-001 — Core engine: pure Dart vs new Rust engine
 
 ### Decision
 
-**Recommended: Option B — Rust core exposed through `flutter_rust_bridge` (FRB v2).**
-Everything in the engine diagram above, all UI/orchestration/VFS in Dart.
+**Recommended: Option A — pure-Dart engine** (`package:archive` +
+`package:image`) with a small `dart:ffi` shim to **libarchive** for CBR/RAR only.
+All UI, orchestration, VFS and engine logic live in Dart; libarchive is the single
+native dependency.
 
-**Fallback / hybrid (Option A):** pure-Dart core for ZIP/image operations
-(`package:archive` + `package:image`) with a small `dart:ffi` shim to libarchive
-for CBR only. Adopt this only if the Phase-0 FRB/NDK spike fails its timebox.
+**Fallback (Option B):** a **new** Rust engine crate exposed through
+`flutter_rust_bridge` v2, written for this port from scratch. Adopted only if the
+Phase-0 benchmark shows the Dart image pipeline is too slow or loses WebP/JPEG
+quality parity, or if libarchive cannot be built for an Android ABI. This is not
+a reuse of any other port.
 
 ### Rationale
 
-| Criterion | Option A — pure Dart | Option B — Rust core (FRB) |
+| Criterion | Option A — pure Dart (recommended) | Option B — new Rust engine |
 |---|---|---|
-| ZIP read/write | `archive` — good | `zip` crate — proven (Tauri) |
+| ZIP read/write | `archive` — good | `zip` crate — fast |
 | JPEG/PNG/BMP decode+encode | `image` — good, slower | `image` crate — fast |
-| WebP encode | `image` `WebPEncoder` — pure Dart, slow | libwebp — fast, q75 parity |
-| **RAR/CBR** | **no pure-Dart decoder** → still needs libarchive FFI | libarchive via `libloading` — already done |
-| Parallelism | isolates (data copies) | `rayon` — already done |
-| Parity with reference | re-implement everything | `rust-core` is already tested |
-| Reuse across Tauri + Flutter | none | same crate, one source of truth |
-| Build complexity | `flutter build` + C shim for libarchive per ABI | + Rust toolchain, `cargo-ndk`, FRB codegen |
+| WebP encode | `image` `WebPEncoder` — pure Dart, slower | libwebp — fast |
+| **RAR/CBR** | **no pure-Dart decoder** → small libarchive FFI shim | libarchive via `libloading` |
+| Parallelism | isolates / async (data copies) | `rayon` |
+| Parity with reference | reproduce semantics in Dart | reproduce semantics in Rust |
+| Build complexity | `flutter build` + libarchive per target | + Rust toolchain, `cargo-ndk`, FRB codegen |
 | Binary size | smaller | larger (Rust runtime + codecs) |
-| Risk | CBR/WebP quality and speed | FRB/NDK setup, cross-branch vendoring |
+| Risk | image perf/quality; libarchive ABI builds | FRB/NDK setup; new crate to write and test |
 
-Because CBR forces native code onto Android either way, Option B *concentrates*
-the existing native work instead of adding a second native stack. The Tauri
-crate already encodes the exact reference semantics (merge CPV arithmetic,
-convert "only if smaller", rollback rules, parallel determinism), which removes
-the largest source of porting bugs.
+CBR forces *some* native code onto Android either way (there is no pure-Dart RAR
+decoder), but under Option A that native surface is a single C library
+(libarchive) behind a thin FFI shim, not a second language runtime. For a project
+whose stated goal is to try Flutter, keeping the engine in Dart maximises
+iteration speed and keeps one language across the stack. Option B remains the
+escape hatch for performance or quality, and the `CbzEngine` facade (§4) makes
+the swap local.
 
 ### Consequences
 
-- The Rust crate becomes a **shared engine** consumed by both Tauri and Flutter.
-  For this branch it is **vendored** under `flutter/rust/` (copied from
-  `origin/porting/tauri`) so the Flutter build is self-contained. Extracting it
-  to a top-level `core/` is a follow-up (see `PLAN.md` Phase 8) and must not
-  block this port.
-- FRB codegen output is committed (or regenerated in CI) so builds are
-  reproducible without the codegen tool locally.
-- If Option A is chosen after the spike, this ADR is superseded; keep the VFS
-  and controller layers unchanged — only the `Engine` facade implementation
-  changes.
+- libarchive is the only native dependency. On desktop it is loaded dynamically
+  with graceful degradation (same strategy as `uarchive.pas`); on Android it is
+  cross-compiled per ABI and bundled.
+- If Option B is adopted after the spike, this ADR is superseded; keep the VFS
+  and controller layers unchanged — only the `CbzEngine` facade implementation
+  changes, and FRB codegen output is committed or regenerated in CI.
 
 ### Phase-0 spike (timebox: 2 days)
 
 1. `flutter create` desktop + Android app in `flutter/app/`.
-2. Add `rust_builder`/FRB, expose **one** existing rust-core function
-   (`validate` over an in-memory `Vec<u8>`) and call it from Dart.
-3. Build & run on **Linux** and on an **Android emulator** (arm64 or x86_64).
-4. Measure: build time, APK size delta, cold-call latency.
-5. Go/no-go on Option B; otherwise switch to Option A.
+2. Prove the pure-Dart pipeline end-to-end on a small CBZ: `archive` unzip →
+   `image` decode → resize/WebP convert → `archive` zip; compare size and quality
+   against the reference.
+3. Prove the libarchive FFI shim reads a real RAR on **Linux** and on an **Android
+   emulator** (arm64 or x86_64): build/bundle `libarchive.so`.
+4. Benchmark decode + encode throughput and memory on a large page set.
+5. Go/no-go on Option A; if it fails, adopt Option B (new Rust engine).
 
 ---
 
@@ -146,7 +148,7 @@ abstract class CbzEngine {
 }
 ```
 
-- `ArchiveData` = `{ Uint8List bytes, String name }` (engine-side, FRB-translated).
+- `ArchiveData` = `{ Uint8List bytes, String name }` (engine-side model).
 - Long jobs return a `JobHandle` (id) plus a `Stream<JobProgress>` so the UI can
   show the Job Monitor; cancellation is `handle.cancel()`.
 - Results carry `success`, counters, per-item errors and the produced bytes, never
@@ -229,12 +231,12 @@ share is handled by `LocalVfs` with zero extra code.
 
 ## 7. ADR-005 — Concurrency & progress
 
+- **Option A (recommended):** a Dart worker pool (`package:pool` or a small
+  isolate manager) runs CPU-bound pipelines in isolates; `Uint8List` results are
+  passed with `TransferableTypedData` where possible. Progress is reported
+  through a `Stream<JobProgress>`.
 - **Option B:** all engine calls are `async`; FRB runs them on a Rust worker
-  thread/`rayon` pool. Progress is pushed through an FRB `StreamSink` mapped to
-  a Dart `Stream<JobProgress>`.
-- **Option A:** a Dart worker pool (`package:pool` or a small isolate manager)
-  runs CPU-bound pipelines in isolates; `Uint8List` results are passed with
-  `TransferableTypedData` where possible.
+  thread/`rayon` pool, pushing progress through an FRB `StreamSink`.
 - One **Job** = one user-visible task (validate a folder, convert a file, merge a
   series, edit a page). `JobController` owns: id, label, `ValueNotifier<double>
   percent`, log sink, cancel token, state (`queued/running/done/failed/cancelled`).
@@ -249,8 +251,8 @@ share is handled by `LocalVfs` with zero extra code.
 ## 8. ADR-006 — State management, navigation, UI
 
 - **Riverpod v3** (`flutter_riverpod`): providers per feature; controllers are
-  `AsyncNotifier`s exposing job state. Chosen over `provider`/BLoC for testability
-  and because the Tauri frontend already used a store model.
+  `AsyncNotifier`s exposing job state. Chosen over `provider`/BLoC for
+  testability and compile-time-safe dependency injection.
 - **Navigation:** `go_router`. Mobile uses a nav bar / bottom sheet for jobs and
   dialogs; desktop keeps the two-pane layout plus a native menu bar and a
   floating Job Monitor (via `window_manager`).
@@ -276,7 +278,7 @@ flutter/
       main.dart
       src/
         app/            # shell, router, theme
-        engine/         # Engine facade + FRB bindings (generated) + models
+        engine/         # Engine facade + pure-Dart pipelines + models
         vfs/            # Vfs interface + local/saf/smb/memory + workspace
         jobs/           # JobController, JobRegistry, progress models
         features/
@@ -293,8 +295,9 @@ flutter/
         l10n/           # it/en ARB
     android/  linux/  windows/
     test/  integration_test/  assets/
-  rust/                 # vendored rust-core + FRB crate (Option B) / FFI shim (A)
-  scripts/              # codegen, libarchive build, packaging helpers
+  native/               # libarchive FFI shim + per-ABI build scripts (Option A)
+  rust/                 # new FRB engine crate (only if Option B is adopted)
+  scripts/              # codegen, packaging helpers
   fixtures/             # generated test archives (no binaries committed)
 ```
 
@@ -308,11 +311,11 @@ tree is untouched.
 | Library | Used for | Desktop | Android | Notes |
 |---|---|---|---|---|
 | libarchive | CBR/RAR read | system `.so`/`.dll` via dynamic load; graceful miss | cross-compiled per ABI, bundled | same dynamic-load + degradation strategy as `uarchive.pas` |
-| libwebp | WebP encode (Option A only) | system / `image` fallback | bundled | not needed with Option B (Rust `webp` crate) |
+| libwebp | optional WebP encode accelerator (pure-Dart `image` encoder otherwise) | system `.so`/`.dll` | optional | wired only if the `image` encoder misses quality/speed targets |
 | libsmb2 | SMB2/3 | via `dart_smb2` prebuilt | via `dart_smb2` prebuilt | vendor/sha-pin in CI |
 
-Support libraries (Option A): libjpeg-turbo / libpng are **not** required — the
-`image` package is pure Dart; only libarchive (CBR) and libsmb2 are native.
+libjpeg-turbo / libpng are **not** required — the `image` package is pure Dart.
+Only libarchive (CBR) and libsmb2 (SMB) are native.
 
 ---
 
@@ -383,10 +386,10 @@ Support libraries (Option A): libjpeg-turbo / libpng are **not** required — th
 
 ---
 
-## 15. Testing strategy (summary — detail in `PLAN.md` §9)
+## 15. Testing strategy (summary — detail in `PLAN.md` §6)
 
 - Dart unit tests (VFS, workspace, controllers, sort order, result mapping).
-- Rust core tests: reuse `rust-core/tests` (already comprehensive).
+- Rust engine tests (only if Option B): mirror the reference scenarios.
 - Golden/widget tests for the browser, preview, editor and dialogs.
 - **SMB integration** against a Samba container (`dperson/samba` or
   `dockurr/samba`) exercising list/read/write/rename/delete and a full
@@ -401,7 +404,7 @@ Support libraries (Option A): libjpeg-turbo / libpng are **not** required — th
 
 | # | Decision | Status |
 |---|---|---|
-| 001 | Rust core via FRB; pure-Dart fallback | proposed, Phase-0 gate |
+| 001 | Pure-Dart engine + libarchive FFI for CBR; new Rust engine as fallback | proposed, Phase-0 gate |
 | 002 | Byte-oriented abstract `CbzEngine` facade | proposed |
 | 003 | `Vfs` + `Workspace` (localize/publish) | proposed |
 | 004 | SMB via `dart_smb2`/libsmb2; SAF/MANAGE for local | proposed, Phase-1 gate |
@@ -411,7 +414,8 @@ Support libraries (Option A): libjpeg-turbo / libpng are **not** required — th
 
 ## 17. Open questions
 
-1. Is a shared top-level `core/` (Rust) wanted, or keep per-port vendoring?
+1. If Option B is needed, should the Rust engine live in `flutter/rust/` or a
+   top-level `core/`?
 2. Play Store distribution for Android, or sideload/F-Droid only? (affects
    `MANAGE_EXTERNAL_STORAGE` and dependency licensing review.)
 3. Is a full headless CLI part of the Flutter deliverable, or keep the Lazarus

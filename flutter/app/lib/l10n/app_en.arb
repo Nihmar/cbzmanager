@@ -1,0 +1,22 @@
+{
+  "@@locale": "en",
+  "appTitle": "CBZ Manager",
+  "welcomeTitle": "Open a comics folder",
+  "welcomeSubtitle": "Choose a local folder or connect to an SMB share.",
+  "localFolder": "Local folder",
+  "smbShare": "SMB share",
+  "noArchives": "No CBZ/CBR files in this folder",
+  "refresh": "Refresh",
+  "select": "Select",
+  "selectAll": "Select all",
+  "validate": "Validate",
+  "convertWebp": "Convert to WebP",
+  "removeComicInfo": "Remove ComicInfo",
+  "mergeChapters": "Merge chapters",
+  "convertCbr": "Convert CBR to CBZ",
+  "batchEdit": "Batch edit pages",
+  "cancel": "Cancel",
+  "save": "Save",
+  "close": "Close",
+  "settings": "Settings"
+}

@@ -389,19 +389,34 @@ case; batch edit matches the reference pipeline.
 
 ### Phase 8 — Settings, Job Monitor, i18n, packaging, CLI, release  *(8–14 d)*
 
-- [ ] Settings store (versioned) + settings UI; thread-count persistence per
-      operation; theme; language.
-- [ ] Job Monitor: desktop floating window (`window_manager`) / mobile bottom
-      sheet; progress, task label, elapsed time, scrolling log; cancel.
-- [ ] i18n (`it`, `en`) via ARB; accessibility pass; keyboard shortcuts on desktop.
-- [ ] Packaging:
-      - Android: signed AAB + universal APK; ABI splits; F-Droid metadata if desired.
-      - Linux: AppImage + `.deb` (+ `.rpm` optional), desktop entry, icon.
-      - Windows: installer (Inno/WiX) + portable zip.
-- [ ] (Optional) headless CLI entrypoint (`flutter/` Dart CLI or reuse the
-      Lazarus binary) with the reference exit codes 0/1/2.
-- [ ] Docs: README, screenshots, parity statement, known limitations.
-- [ ] Release checklist and a first tagged build.
+**Status: settings, job monitor and i18n scaffolding done; packaging scripted;
+CLI and signed store artifacts deferred.**
+
+- [x] Settings store (`shared_preferences`) + settings dialog: theme mode,
+      language, per-operation default threads, backup-by-default. Persisted and
+      applied (theme/locale live, thread/backup defaults as dialog initial values).
+- [x] Job Monitor: rolling log + elapsed time in the [JobController], a
+      non-modal bottom-sheet monitor opened from the progress bar, with cancel.
+- [x] i18n: `flutter_localizations` + gen-l10n, `app_en.arb` / `app_it.arb`,
+      localized app title, welcome screen and empty state; the remaining strings
+      are a mechanical follow-up.
+- [x] Packaging: `scripts/build_release.sh` builds the host release (Linux
+      bundle + optional APK/AAB, Windows, macOS) after analyze + tests.
+- [x] Docs: `flutter/app/README.md` (layout, run/test, SMB tests, release) and
+      the parity checklist in `PARITY.md`.
+- [ ] Signed store artifacts (Play AAB, AppImage/deb, Inno installer) and CI
+      release jobs — scripted locally but not wired to CI/signing yet.
+- [ ] Headless CLI in Flutter (Q3) — deferred; the Lazarus binary remains the
+      reference CLI.
+- [ ] Full ARB coverage, accessibility pass and desktop keyboard shortcuts.
+
+**Parity statement:** the port implements the full functional scope (browser +
+preview, validate, convert-webp, merge + sequence builder, cbr-to-cbz, ComicInfo
+view/edit/remove, page model + editor, batch edit, image search) on a pure-Dart
+engine with libarchive (CBR) and libsmb2 (SMB) as the only native dependencies.
+Known gaps: Windows packaging/signing not produced here; Android libarchive
+bundling; some reference image-search providers; draggable split lines; full
+localization. See `PARITY.md` for the per-unit status.
 
 **DoD:** installable artifacts on all three platforms built by CI, with a parity
 statement against the reference.

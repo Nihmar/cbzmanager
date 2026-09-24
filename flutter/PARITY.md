@@ -1,7 +1,10 @@
 # Flutter port — Parity map and checklist
 
 Maps each Lazarus/FPC unit to its Flutter target and tracks parity.
-Status legend: **Todo** · **WIP** · **Done** · **N/A**.
+Status legend: **Done** · **Partial** · **Deferred** · **N/A**.
+
+_Done_ = implemented at feature level; _Partial_ = core behaviour present with a
+documented simplification; _Deferred_ = not ported (see `PLAN.md`).
 
 ---
 
@@ -9,61 +12,61 @@ Status legend: **Todo** · **WIP** · **Done** · **N/A**.
 
 | Lazarus unit | Responsibility | Flutter target | Status |
 |---|---|---|---|
-| `src/uzipcore.pas` | `TZipEntries`, `FormatPageName`, `StripComicInfo`, `FindComicInfoIndex` | `engine/` ZIP entry model + naming | Todo |
-| `src/uzipeditor.pas` | ZIP listing/extraction/write, `CollectZipEntries`, `WriteZipFromEntries`, `ConvertCBZToWebP`, CBR walking | `engine/zip_ops`, `engine/convert_webp` | Todo |
-| `src/uwebp.pas` | WebP decoder via libwebp (dynamic) | `image` package (pure Dart); optional libwebp FFI | Todo |
-| `src/uarchive.pas` | CBR reader via libarchive (dynamic) | `engine/cbr_reader` + libarchive dynamic load | Todo |
-| `src/uimgutil.pas` | decode/scale/convert, `CenterAnchorScrollPos`, `EncodeIntfImage`/`EncodeExtFor` | `engine/image_util`, `ui/zoom_controller` | Todo |
-| `src/uimageedit.pas` | `ResampleIntfImage`, `AdjustColors`, `SplitIntfImage` | `engine/image_edit` | Todo |
-| `src/upageeditmodel.pas` | `TPageState`, `TChange`, `PageInsertAt`, `TSaveChangesThread` | `features/page_editor/model` | Todo |
-| `src/ucomicinfo.pas` | parse/generate ComicInfo.xml | `engine/comicinfo` | Todo |
-| `src/ubatchedit.pas` | batch pipeline + worker pool | `features/batch_edit/engine` | Todo |
-| `src/uimgsrc.pas` | image search/download (MangaDex/Openverse/Wikimedia/URL) | `features/image_search/client` | Todo |
-| `src/ulog.pas` | thread-safe logger | `app/app_logger.dart` | Todo |
+| `src/uzipcore.pas` | `TZipEntries`, `FormatPageName`, `StripComicInfo`, `FindComicInfoIndex` | `engine/` ZIP entry model + naming | Done |
+| `src/uzipeditor.pas` | ZIP listing/extraction/write, `CollectZipEntries`, `WriteZipFromEntries`, `ConvertCBZToWebP`, CBR walking | `engine/zip_ops`, `engine/convert_webp` | Done |
+| `src/uwebp.pas` | WebP decoder via libwebp (dynamic) | `image` package (pure Dart); optional libwebp FFI | Done |
+| `src/uarchive.pas` | CBR reader via libarchive (dynamic) | `engine/cbr_reader` + libarchive dynamic load | Done |
+| `src/uimgutil.pas` | decode/scale/convert, `CenterAnchorScrollPos`, `EncodeIntfImage`/`EncodeExtFor` | `engine/image_util`, `ui/zoom_controller` | Done |
+| `src/uimageedit.pas` | `ResampleIntfImage`, `AdjustColors`, `SplitIntfImage` | `engine/image_edit` | Done |
+| `src/upageeditmodel.pas` | `TPageState`, `TChange`, `PageInsertAt`, `TSaveChangesThread` | `features/page_editor/model` | Done |
+| `src/ucomicinfo.pas` | parse/generate ComicInfo.xml | `engine/comicinfo` | Done |
+| `src/ubatchedit.pas` | batch pipeline + worker pool | `features/batch_edit/engine` | Done |
+| `src/uimgsrc.pas` | image search/download (MangaDex/Openverse/Wikimedia/URL) | `features/image_search/client` | Partial |
+| `src/ulog.pas` | thread-safe logger | `app/app_logger.dart` | Done |
 
 ## 2. Services
 
 | Lazarus unit | Responsibility | Flutter target | Status |
 |---|---|---|---|
-| `src/uservicebase.pas` | shared types, `TLockedProgress`, `OnlineCpuCount`, caps, `BackupFile`, `ReplaceCBZ`, file collection | `jobs/`, `vfs/workspace`, `engine/threads` | Todo |
-| `src/uthreadservice.pas` | background thread wrappers (merge/delete-pages/...) | `jobs/job_controller` | Todo |
-| `src/uservicevalidate.pas` | `TValidateService`, deep validation, per-file pool | `features/validate/engine` | Todo |
-| `src/userviceconvert.pas` | batch WebP conversion | `features/convert_webp/engine` | Todo |
-| `src/uservicemerge.pas` | chapter→volume merge, CPV, batching | `features/merge/engine` | Todo |
-| `src/uservicecbr.pas` | batch CBR→CBZ | `features/cbr/engine` | Todo |
-| `src/uservicecomicinfo.pas` | scan/remove ComicInfo | `features/comicinfo/engine` | Todo |
-| `src/uloaderthread.pas` | directory + single-archive thumbnail pools | `features/browser/loader` | Todo |
-| `src/upreviewloader.pas` | preview loaders (sequence + single image) | `features/browser/preview_loader` | Todo |
-| `src/uselection.pas` | selection-set helpers | `ui/selection.dart` | Todo |
+| `src/uservicebase.pas` | shared types, `TLockedProgress`, `OnlineCpuCount`, caps, `BackupFile`, `ReplaceCBZ`, file collection | `jobs/`, `vfs/workspace`, `engine/threads` | Done |
+| `src/uthreadservice.pas` | background thread wrappers (merge/delete-pages/...) | `jobs/job_controller` | Done |
+| `src/uservicevalidate.pas` | `TValidateService`, deep validation, per-file pool | `features/validate/engine` | Done |
+| `src/userviceconvert.pas` | batch WebP conversion | `features/convert_webp/engine` | Done |
+| `src/uservicemerge.pas` | chapter→volume merge, CPV, batching | `features/merge/engine` | Done |
+| `src/uservicecbr.pas` | batch CBR→CBZ | `features/cbr/engine` | Done |
+| `src/uservicecomicinfo.pas` | scan/remove ComicInfo | `features/comicinfo/engine` | Done |
+| `src/uloaderthread.pas` | directory + single-archive thumbnail pools | `features/browser/loader` | Done |
+| `src/upreviewloader.pas` | preview loaders (sequence + single image) | `features/browser/preview_loader` | Done |
+| `src/uselection.pas` | selection-set helpers | `ui/selection.dart` | Done |
 
 ## 3. UI / dialogs
 
 | Lazarus unit | Flutter target | Status |
 |---|---|---|
-| `src/main.pas` / `main.lfm` | `app/app_shell.dart` (two-pane + adaptive) | Todo |
-| `src/udlgbase.pas` | `ui/components/app_dialog.dart` | Todo |
-| `src/udlgrows.pas` | `features/page_editor/delete_rows_dialog.dart` | Todo |
-| `src/udlgvalidate.pas` / `udlgvalidateopts.pas` | `features/validate/` screens | Todo |
-| `src/udlgcomicinfo.pas` / `udlgcomicinfoeditor.pas` | `features/comicinfo/` screens | Todo |
-| `src/udlgwebp.pas` | `features/convert_webp/dialog.dart` | Todo |
-| `src/udlgcbr.pas` | `features/cbr/dialog.dart` | Todo |
-| `src/udlgmerge.pas` | `features/merge/dialog.dart` | Todo |
-| `src/udlgseqbuilder.pas` | `features/merge/sequence_builder.dart` | Todo |
-| `src/udlgpageview.pas` | `features/browser/page_view.dart` | Todo |
-| `src/udlgpageeditor.pas` | `features/page_editor/editor.dart` | Todo |
-| `src/udlgaddimage.pas` | `features/image_search/dialog.dart` | Todo |
-| `src/udlgbatchedit.pas` | `features/batch_edit/dialog.dart` | Todo |
-| `src/udlgconvertresults.pas` | `features/*/results_dialog.dart` | Todo |
-| `src/ufrmjobmonitor.pas` | `jobs/job_monitor.dart` (window/bottom sheet) | Todo |
-| `src/usettings.pas` | `features/settings/store.dart` | Todo |
+| `src/main.pas` / `main.lfm` | `app/app_shell.dart` (two-pane + adaptive) | Done |
+| `src/udlgbase.pas` | `ui/components/app_dialog.dart` | Done |
+| `src/udlgrows.pas` | `features/page_editor/delete_rows_dialog.dart` | Partial (delete is in the page editor) |
+| `src/udlgvalidate.pas` / `udlgvalidateopts.pas` | `features/validate/` screens | Done |
+| `src/udlgcomicinfo.pas` / `udlgcomicinfoeditor.pas` | `features/comicinfo/` screens | Done |
+| `src/udlgwebp.pas` | `features/convert_webp/dialog.dart` | Done |
+| `src/udlgcbr.pas` | `features/cbr/dialog.dart` | Done |
+| `src/udlgmerge.pas` | `features/merge/dialog.dart` | Done |
+| `src/udlgseqbuilder.pas` | `features/merge/sequence_builder.dart` | Partial (chapter list, not a zoomable grid) |
+| `src/udlgpageview.pas` | `features/browser/page_view.dart` | Partial (preview has zoom; no floating window) |
+| `src/udlgpageeditor.pas` | `features/page_editor/editor.dart` | Partial (equal-size split, no draggable lines) |
+| `src/udlgaddimage.pas` | `features/image_search/dialog.dart` | Partial (4 of the reference providers) |
+| `src/udlgbatchedit.pas` | `features/batch_edit/dialog.dart` | Done |
+| `src/udlgconvertresults.pas` | `features/*/results_dialog.dart` | Done |
+| `src/ufrmjobmonitor.pas` | `jobs/job_monitor.dart` (window/bottom sheet) | Done |
+| `src/usettings.pas` | `features/settings/store.dart` | Done |
 
 ## 4. Entrypoints
 
 | Lazarus | Flutter target | Status |
 |---|---|---|
-| `cbzmanager.lpr` (GUI) | `app/lib/main.dart` | Todo |
-| `src/uclimode.pas` (headless CLI) | optional `flutter/cli/` (see PLAN §10 Q3) | Todo |
-| `man/cbzmanager.1` | `flutter/docs/cli.md` (if CLI shipped) | Todo |
+| `cbzmanager.lpr` (GUI) | `app/lib/main.dart` | Done |
+| `src/uclimode.pas` (headless CLI) | optional `flutter/cli/` (see PLAN §10 Q3) | Deferred |
+| `man/cbzmanager.1` | `flutter/docs/cli.md` (if CLI shipped) | Deferred |
 
 ## 5. Behavioural parity checklist
 

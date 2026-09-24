@@ -1,0 +1,22 @@
+{
+  "@@locale": "it",
+  "appTitle": "CBZ Manager",
+  "welcomeTitle": "Apri una cartella di fumetti",
+  "welcomeSubtitle": "Scegli una cartella locale o connettiti a una condivisione SMB.",
+  "localFolder": "Cartella locale",
+  "smbShare": "Condivisione SMB",
+  "noArchives": "Nessun file CBZ/CBR in questa cartella",
+  "refresh": "Aggiorna",
+  "select": "Seleziona",
+  "selectAll": "Seleziona tutto",
+  "validate": "Valida",
+  "convertWebp": "Converti in WebP",
+  "removeComicInfo": "Rimuovi ComicInfo",
+  "mergeChapters": "Unisci capitoli",
+  "convertCbr": "Converti CBR in CBZ",
+  "batchEdit": "Modifica batch pagine",
+  "cancel": "Annulla",
+  "save": "Salva",
+  "close": "Chiudi",
+  "settings": "Impostazioni"
+}

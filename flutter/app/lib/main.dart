@@ -1,23 +1,39 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import 'l10n/generated/app_localizations.dart';
 import 'src/features/browser/browser_screen.dart';
+import 'src/features/settings/settings.dart';
 
-void main() {
-  runApp(const ProviderScope(child: CbzManagerApp()));
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final prefs = await SharedPreferences.getInstance();
+  runApp(
+    ProviderScope(
+      overrides: [sharedPrefsProvider.overrideWithValue(prefs)],
+      child: const CbzManagerApp(),
+    ),
+  );
 }
 
-class CbzManagerApp extends StatelessWidget {
+class CbzManagerApp extends ConsumerWidget {
   const CbzManagerApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings = ref.watch(settingsProvider);
     return MaterialApp(
-      title: 'CBZ Manager',
+      onGenerateTitle: (context) => AppLocalizations.of(context).appTitle,
       debugShowCheckedModeBanner: false,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      locale: settings.languageCode.isEmpty
+          ? null
+          : Locale(settings.languageCode),
       theme: _theme(Brightness.light),
       darkTheme: _theme(Brightness.dark),
-      themeMode: ThemeMode.system,
+      themeMode: settings.themeMode,
       home: const BrowserScreen(),
     );
   }

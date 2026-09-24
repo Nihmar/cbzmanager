@@ -8,6 +8,8 @@ class JobState {
     this.message = '',
     this.running = true,
     this.cancelled = false,
+    this.startedAt,
+    this.log = const <String>[],
   });
 
   final String label;
@@ -15,12 +17,20 @@ class JobState {
   final String message;
   final bool running;
   final bool cancelled;
+  final DateTime? startedAt;
+  final List<String> log;
+
+  Duration get elapsed => startedAt == null
+      ? Duration.zero
+      : DateTime.now().difference(startedAt!);
 
   JobState copyWith({
     int? percent,
     String? message,
     bool? running,
     bool? cancelled,
+    DateTime? startedAt,
+    List<String>? log,
   }) =>
       JobState(
         label: label,
@@ -28,11 +38,13 @@ class JobState {
         message: message ?? this.message,
         running: running ?? this.running,
         cancelled: cancelled ?? this.cancelled,
+        startedAt: startedAt ?? this.startedAt,
+        log: log ?? this.log,
       );
 }
 
-/// Tracks a single background operation: label, progress, message and a
-/// cooperative cancellation flag polled by the running service.
+/// Tracks a single background operation: label, progress, message, a rolling
+/// log and a cooperative cancellation flag polled by the running service.
 class JobController extends Notifier<JobState?> {
   bool _cancelRequested = false;
 
@@ -43,20 +55,35 @@ class JobController extends Notifier<JobState?> {
 
   void start(String label, {String message = 'Starting...'}) {
     _cancelRequested = false;
-    state = JobState(label: label, message: message);
+    state = JobState(
+      label: label,
+      message: message,
+      startedAt: DateTime.now(),
+      log: <String>['$label: $message'],
+    );
   }
 
   void progress(int percent, String message) {
     final current = state;
     if (current == null) return;
-    state = current.copyWith(percent: percent.clamp(0, 100), message: message);
+    final log = <String>[...current.log, message];
+    if (log.length > 200) log.removeRange(0, log.length - 200);
+    state = current.copyWith(
+      percent: percent.clamp(0, 100),
+      message: message,
+      log: log,
+    );
   }
 
   void requestCancel() {
     _cancelRequested = true;
     final current = state;
     if (current != null) {
-      state = current.copyWith(cancelled: true, message: 'Cancelling...');
+      state = current.copyWith(
+        cancelled: true,
+        message: 'Cancelling...',
+        log: <String>[...current.log, 'Cancellation requested'],
+      );
     }
   }
 

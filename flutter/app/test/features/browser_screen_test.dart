@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:cbzmanager/l10n/generated/app_localizations.dart';
 import 'package:cbzmanager/src/features/browser/archive_item.dart';
 import 'package:cbzmanager/src/features/browser/browser_controller.dart';
 import 'package:cbzmanager/src/features/browser/browser_screen.dart';
@@ -47,7 +48,11 @@ void main() {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: const MaterialApp(home: BrowserScreen()),
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const BrowserScreen(),
+        ),
       ),
     );
     await tester.pumpAndSettle();

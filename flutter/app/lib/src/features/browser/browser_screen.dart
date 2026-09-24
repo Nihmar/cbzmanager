@@ -4,12 +4,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
+import 'package:cbzmanager/l10n/generated/app_localizations.dart';
+
 import '../../engine/engine_provider.dart';
 import '../../engine/zip_ops.dart';
 import '../../jobs/job_controller.dart';
+import '../../jobs/job_monitor.dart';
 import '../../native/cbr_reader.dart';
 import '../../vfs/local_vfs.dart';
 import '../../vfs/smb_vfs.dart';
+import '../settings/settings_dialog.dart';
 import '../batch_edit/batch_edit_dialog.dart';
 import '../batch_edit/batch_edit_service.dart';
 import '../cbr/cbr_dialog.dart';
@@ -40,6 +44,7 @@ class BrowserScreen extends ConsumerWidget {
     final browser = ref.watch(browserProvider);
     final selection = ref.watch(selectionProvider);
     final job = ref.watch(jobProvider);
+    final l10n = AppLocalizations.of(context);
     final selecting = selection.isNotEmpty;
     final selectedItems =
         browser.items.where((i) => selection.contains(i.path)).toList();
@@ -54,7 +59,7 @@ class BrowserScreen extends ConsumerWidget {
               )
             : null,
         title: Text(
-          selecting ? '${selection.length} selected' : (source?.label ?? 'CBZ Manager'),
+          selecting ? '${selection.length} selected' : (source?.label ?? l10n.appTitle),
         ),
         actions: selecting
             ? [
@@ -158,6 +163,11 @@ class BrowserScreen extends ConsumerWidget {
                       child: Text('Connect to SMB share'),
                     ),
                   ],
+                ),
+                IconButton(
+                  tooltip: l10n.settings,
+                  icon: const Icon(Icons.settings_outlined),
+                  onPressed: () => showSettingsDialog(context),
                 ),
               ],
         bottom: job == null
@@ -476,6 +486,10 @@ class _JobBar extends ConsumerWidget {
                 ),
               ),
               TextButton(
+                onPressed: () => showJobMonitor(context),
+                child: const Text('Details'),
+              ),
+              TextButton(
                 onPressed: job.cancelled
                     ? null
                     : () => ref.read(jobProvider.notifier).requestCancel(),
@@ -497,6 +511,7 @@ class _Welcome extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 460),
@@ -506,12 +521,12 @@ class _Welcome extends StatelessWidget {
             const Icon(Icons.auto_stories, size: 64),
             const SizedBox(height: 16),
             Text(
-              'Open a comics folder',
+              l10n.welcomeTitle,
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 8),
-            const Text(
-              'Choose a local folder or connect to an SMB share.',
+            Text(
+              l10n.welcomeSubtitle,
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
@@ -522,12 +537,12 @@ class _Welcome extends StatelessWidget {
                   FilledButton.icon(
                     onPressed: onLocal,
                     icon: const Icon(Icons.folder_open),
-                    label: const Text('Local folder'),
+                    label: Text(l10n.localFolder),
                   ),
                 OutlinedButton.icon(
                   onPressed: onSmb,
                   icon: const Icon(Icons.lan),
-                  label: const Text('SMB share'),
+                  label: Text(l10n.smbShare),
                 ),
               ],
             ),
@@ -565,7 +580,7 @@ class _BrowserBody extends ConsumerWidget {
       );
     }
     if (browser.items.isEmpty) {
-      return const Center(child: Text('No CBZ/CBR files in this folder'));
+      return Center(child: Text(AppLocalizations.of(context).noArchives));
     }
 
     return GridView.builder(

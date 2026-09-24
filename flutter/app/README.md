@@ -1,17 +1,59 @@
-# cbzmanager
+# CBZ Manager — Flutter app
 
-A new Flutter project.
+Flutter front-end for CBZ Manager (Android, Linux, Windows). See the port plan
+in [`../PLAN.md`](../PLAN.md), the architecture in [`../TARGET.md`](../TARGET.md)
+and the parity checklist in [`../PARITY.md`](../PARITY.md).
 
-## Getting Started
+## Layout
 
-This project is a starting point for a Flutter application.
+```
+lib/
+  main.dart                     app shell, theming, i18n wiring
+  l10n/                         ARB sources + generated AppLocalizations
+  src/
+    engine/                     pure-Dart core (zip, image edit, merge, comicinfo,
+                                image search, page model) + engine facade
+    vfs/                        byte-oriented VFS (local, memory, SMB) + workspace
+    jobs/                       job controller + monitor
+    features/
+      browser/                  archive grid, thumbnails, preview
+      validate/ convert/ merge/ cbr/ comicinfo/
+      page_editor/ batch_edit/ image_search/
+      settings/                 persistent settings
+```
 
-A few resources to get you started if this is your first Flutter project:
+## Run / test
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+```bash
+flutter pub get
+flutter run -d linux        # or: flutter run  (Android device/emulator)
+flutter test                # 118 unit/widget tests
+flutter analyze
+```
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+SMB integration tests are opt-in and need a Samba server:
+
+```bash
+docker run -d --name cbz-smb -p 445:445 -v /tmp/smb:/share \
+  dperson/samba -u "test;testpass" -s "books;/share;yes;no;no;test;test;test"
+CBZ_SMB_TEST=1 LD_LIBRARY_PATH=build/linux/x64/debug/bundle/lib \
+  flutter test test/smb/
+```
+
+## Release
+
+```bash
+../scripts/build_release.sh
+```
+
+Builds `build/linux/x64/release/bundle` (and, on hosts with an Android SDK, an
+APK/AAB). Windows/macOS hosts build their native target.
+
+## Notes
+
+- All archive operations are in RAM; only the final output and optional
+  `_OLD.cbz` backup touch storage (local or SMB).
+- CBR (RAR) reading needs libarchive, loaded dynamically; the UI degrades
+  gracefully when it is missing. On Android the library must be bundled per ABI
+  (still pending).
+- The engine is pure Dart; only libarchive (CBR) and libsmb2 (SMB) are native.

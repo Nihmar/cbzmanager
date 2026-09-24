@@ -259,11 +259,22 @@ error surfacing and the threads cap.
 
 ### Phase 3 — Convert to WebP  *(5–8 d)*
 
-- [ ] Engine `convertWebp`: q75, only-if-smaller, filter ComicInfo, renumber
-      `page_NNNN.*`, parallel decode+encode, deterministic output.
-- [ ] Feature UI: folder scope, delete-or-backup, threads spin, results summary.
-- [ ] Workspace integration: backup/delete/publish over VFS (local + SMB).
-- [ ] Tests: encode round-trips, only-if-smaller, determinism, backup rules.
+**Status: complete** (parallelism is file-level; per-image decode stays sequential).
+
+- [x] Engine `convertWebp`: q75, only-if-smaller, ComicInfo filter, renumber
+      `page_NNNN.*` (sync core `convertWebpSync` is isolate-safe).
+- [x] `ConvertService`: converts files concurrently on isolates (0 = auto,
+      capped at 8) with progress + cancellation; deterministic per file.
+- [x] Feature UI: options dialog (backup vs delete, parallel files) and a
+      results summary (pages converted/kept, bytes saved, failures); batch and
+      single-file entry points.
+- [x] Workspace integration: backup `_OLD.cbz` or overwrite in place, over the
+      same Vfs used for local and SMB.
+- [x] Tests: encode/rename, backup vs delete, thread-count determinism and
+      per-file error isolation.
+- [x] Fixed a real isolate bug: `Isolate.run` closures created inside
+      `Pool.withResource` captured the pool and threw at runtime (now top-level
+      isolate wrappers), with a regression test for the thumbnail service.
 
 **DoD:** a folder batch conversion produces archives byte-identical to the
 reference for identical inputs (excluding timestamps).

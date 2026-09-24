@@ -74,7 +74,16 @@ class DartCbzEngine implements CbzEngine {
     ConvertOptions options, {
     int threads = 0,
     ProgressCallback? onProgress,
-  }) async {
+  }) async =>
+      convertWebpSync(data, options, threads: threads, onProgress: onProgress);
+
+  /// Synchronous conversion core, safe to run inside a background isolate.
+  ConvertResult convertWebpSync(
+    ArchiveData data,
+    ConvertOptions options, {
+    int threads = 0,
+    ProgressCallback? onProgress,
+  }) {
     final List<ZipEntryData> source;
     try {
       source = collectZipEntries(data.bytes);

@@ -1,4 +1,3 @@
-import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -42,9 +41,7 @@ class ThumbnailService {
           return null;
         }
         return _decodePool.withResource(
-          () => Isolate.run(
-            () => decodeFirstPageThumbnail(bytes, item.name, maxWidth, maxHeight),
-          ),
+          () => decodeFirstThumbInIsolate(bytes, item.name, maxWidth, maxHeight),
         );
       }),
     );
@@ -54,7 +51,7 @@ class ThumbnailService {
   Future<int> pageCount(Uint8List bytes, String name) async {
     try {
       return await _decodePool.withResource(
-        () => Isolate.run(() => countImagePages(bytes, name)),
+        () => countPagesInIsolate(bytes, name),
       );
     } catch (_) {
       return 0;
@@ -73,9 +70,7 @@ class ThumbnailService {
     return _cached(
       '$key:$index',
       () => _decodePool.withResource(
-        () => Isolate.run(
-          () => decodePageThumbnail(bytes, name, index, maxWidth, maxHeight),
-        ),
+        () => decodePageThumbInIsolate(bytes, name, index, maxWidth, maxHeight),
       ),
     );
   }

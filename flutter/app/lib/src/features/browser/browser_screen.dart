@@ -10,6 +10,8 @@ import '../../vfs/local_vfs.dart';
 import '../../vfs/smb_vfs.dart';
 import '../comicinfo/comicinfo_editor_dialog.dart';
 import '../comicinfo/comicinfo_service.dart';
+import '../convert/convert_dialog.dart';
+import '../convert/convert_service.dart';
 import '../sources/smb_dialog.dart';
 import '../sources/source_controller.dart';
 import '../validate/validate_results_dialog.dart';
@@ -53,6 +55,13 @@ class BrowserScreen extends ConsumerWidget {
                   onPressed: job?.running == true || source == null
                       ? null
                       : () => _validate(context, ref, source, selectedItems),
+                ),
+                IconButton(
+                  tooltip: 'Convert to WebP',
+                  icon: const Icon(Icons.transform),
+                  onPressed: job?.running == true || source == null
+                      ? null
+                      : () => _convert(context, ref, source, selectedItems),
                 ),
                 IconButton(
                   tooltip: 'Remove ComicInfo',
@@ -179,6 +188,38 @@ class BrowserScreen extends ConsumerWidget {
     }
     job.finish();
     if (context.mounted) await showValidateResultsDialog(context, outcomes);
+  }
+
+  Future<void> _convert(
+    BuildContext context,
+    WidgetRef ref,
+    ArchiveSource source,
+    List<ArchiveItem> items,
+  ) async {
+    final request = await showConvertOptionsDialog(
+      context,
+      fileCount: items.length,
+    );
+    if (request == null || !context.mounted) return;
+
+    final job = ref.read(jobProvider.notifier);
+    job.start('Convert to WebP', message: 'Converting ${items.length} file(s)...');
+    try {
+      final outcomes = await const ConvertService().convertMany(
+        source.vfs,
+        items,
+        backup: request.backup,
+        threads: request.threads,
+        onProgress: (done, total, message) =>
+            job.progress(total == 0 ? 0 : done * 100 ~/ total, message),
+        isCancelled: () => job.cancelRequested,
+      );
+      job.finish();
+      if (context.mounted) await showConvertResultsDialog(context, outcomes);
+    } catch (e) {
+      job.finish();
+      if (context.mounted) _snack(context, 'Conversion failed: $e');
+    }
   }
 
   Future<void> _removeComicInfo(
@@ -468,6 +509,13 @@ class _ArchiveTile extends ConsumerWidget {
                               source,
                               item,
                             );
+                          case 'convert':
+                            await _BrowserActions.convert(
+                              context,
+                              ref,
+                              source,
+                              item,
+                            );
                           case 'comicinfo':
                             await _BrowserActions.editComicInfo(
                               context,
@@ -488,6 +536,10 @@ class _ArchiveTile extends ConsumerWidget {
                         PopupMenuItem(
                           value: 'validate',
                           child: Text('Validate'),
+                        ),
+                        PopupMenuItem(
+                          value: 'convert',
+                          child: Text('Convert to WebP'),
                         ),
                         PopupMenuItem(
                           value: 'comicinfo',
@@ -537,6 +589,31 @@ class _BrowserActions {
     );
     job.finish();
     if (context.mounted) await showValidateResultsDialog(context, outcomes);
+  }
+
+  static Future<void> convert(
+    BuildContext context,
+    WidgetRef ref,
+    ArchiveSource source,
+    ArchiveItem item,
+  ) async {
+    final request = await showConvertOptionsDialog(context, fileCount: 1);
+    if (request == null || !context.mounted) return;
+    final job = ref.read(jobProvider.notifier);
+    job.start('Convert to WebP', message: item.name);
+    try {
+      final outcomes = await const ConvertService().convertMany(
+        source.vfs,
+        [item],
+        backup: request.backup,
+        threads: request.threads,
+      );
+      job.finish();
+      if (context.mounted) await showConvertResultsDialog(context, outcomes);
+    } catch (e) {
+      job.finish();
+      if (context.mounted) _snack(context, 'Conversion failed: $e');
+    }
   }
 
   static Future<void> editComicInfo(

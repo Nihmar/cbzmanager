@@ -1,3 +1,4 @@
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
@@ -6,6 +7,32 @@ import '../../engine/format.dart';
 import '../../engine/zip_ops.dart';
 import '../../native/cbr_reader.dart';
 import '../../util/str_compare.dart';
+
+/// Isolate wrappers. They live at the top level (not inside the service) so the
+/// closure sent to the isolate captures only sendable arguments — a closure
+/// created inside a `Pool.withResource` callback would capture the pool and its
+/// internal `Completer`, which cannot cross an isolate boundary.
+Future<Uint8List?> decodeFirstThumbInIsolate(
+  Uint8List bytes,
+  String name,
+  int maxWidth,
+  int maxHeight,
+) =>
+    Isolate.run(() => decodeFirstPageThumbnail(bytes, name, maxWidth, maxHeight));
+
+Future<Uint8List?> decodePageThumbInIsolate(
+  Uint8List bytes,
+  String name,
+  int index,
+  int maxWidth,
+  int maxHeight,
+) =>
+    Isolate.run(
+      () => decodePageThumbnail(bytes, name, index, maxWidth, maxHeight),
+    );
+
+Future<int> countPagesInIsolate(Uint8List bytes, String name) =>
+    Isolate.run(() => countImagePages(bytes, name));
 
 /// Top-level functions safe to run in a background isolate (via `Isolate.run`).
 

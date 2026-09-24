@@ -409,14 +409,16 @@ CLI and signed store artifacts deferred.**
 - [x] Docs: `flutter/app/README.md` (layout, run/test, SMB tests, release) and
       the parity checklist in `PARITY.md`.
 - [x] CI: `.github/workflows/flutter.yml` (analyze + test; Linux release
-      bundle; Android debug APK).
+      bundle; Windows release; Android debug APK).
+- [x] Desktop keyboard shortcuts in the browser (Ctrl+O open folder,
+      Ctrl+Shift+O SMB, F5 refresh, Ctrl+A select all, Esc clear).
 - [ ] Signed store artifacts (Play AAB, AppImage/deb, Inno installer) and
-      signed CI releases.
+      signed releases.
 - [ ] Headless CLI in Flutter (Q3) — **done** as `bin/cbzmanager.dart`
       (`validate`, `convert-webp`, `merge`, `cbr-to-cbz`; exit codes 0/1/2; runs
       under plain `dart run`, no Flutter). The reference's `comicinfo`
       subcommand and the man page are not ported.
-- [ ] Full ARB coverage, accessibility pass and desktop keyboard shortcuts.
+- [ ] Full ARB coverage and an accessibility pass.
 
 **Parity statement:** the port implements the full functional scope (browser +
 preview, validate, convert-webp, merge + sequence builder, cbr-to-cbz, ComicInfo

@@ -94,3 +94,26 @@ jobs:
         with:
           name: cbzmanager-android-debug
           path: flutter/app/build/app/outputs/flutter-apk/app-debug.apk
+
+  build-windows:
+    name: Build (Windows)
+    runs-on: windows-latest
+    needs: analyze-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Dependencies
+        run: flutter pub get
+
+      - name: Build release
+        run: flutter build windows --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cbzmanager-windows
+          path: flutter/app/build/windows/x64/runner/Release

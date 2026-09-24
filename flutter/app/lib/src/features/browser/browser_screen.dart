@@ -1,6 +1,7 @@
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
@@ -49,8 +50,31 @@ class BrowserScreen extends ConsumerWidget {
     final selectedItems =
         browser.items.where((i) => selection.contains(i.path)).toList();
 
-    return Scaffold(
-      appBar: AppBar(
+    return CallbackShortcuts(
+      bindings: <ShortcutActivator, VoidCallback>{
+        const SingleActivator(LogicalKeyboardKey.keyO, control: true): () =>
+            _openLocal(context, ref),
+        const SingleActivator(
+          LogicalKeyboardKey.keyO,
+          control: true,
+          shift: true,
+        ): () => _openSmb(context, ref),
+        const SingleActivator(LogicalKeyboardKey.f5): () {
+          final current = ref.read(sourceProvider);
+          if (current != null) {
+            ref.read(browserProvider.notifier).load(current.vfs, current.root);
+          }
+        },
+        const SingleActivator(LogicalKeyboardKey.keyA, control: true): () => ref
+            .read(selectionProvider.notifier)
+            .select(ref.read(browserProvider).items.map((i) => i.path)),
+        const SingleActivator(LogicalKeyboardKey.escape): () =>
+            ref.read(selectionProvider.notifier).clear(),
+      },
+      child: Focus(
+        autofocus: true,
+        child: Scaffold(
+          appBar: AppBar(
         leading: selecting
             ? IconButton(
                 tooltip: 'Cancel selection',
@@ -183,6 +207,8 @@ class BrowserScreen extends ConsumerWidget {
               onSmb: () => _openSmb(context, ref),
             )
           : _BrowserBody(source: source, browser: browser),
+        ),
+      ),
     );
   }
 

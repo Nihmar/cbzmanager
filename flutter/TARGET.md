@@ -215,6 +215,9 @@ random-access SMB VFS. It also works for SAF content URIs unchanged.
   Releases at build time with SHA-256 verification.
 - Supports list/stat/read (full, range, streamed)/write (full, chunked)/rename/
   delete/mkdir + a reconnect-capable worker pool — exactly the `Vfs` surface.
+- **Result:** `SmbVfs` plus a full `Workspace` + engine round-trip pass against a
+  live Samba container on Linux (`CBZ_SMB_TEST=1`); the Linux app builds with the
+  libsmb2 plugin. Android device verification and per-ABI bundling are pending.
 
 Fallbacks, in order:
 
@@ -413,7 +416,7 @@ Only libarchive (CBR) and libsmb2 (SMB) are native.
 | 001 | Pure-Dart engine + libarchive FFI for CBR; new Rust engine as fallback | **accepted** (Phase-0 spike passed) |
 | 002 | Byte-oriented abstract `CbzEngine` facade | proposed |
 | 003 | `Vfs` + `Workspace` (localize/publish) | proposed |
-| 004 | SMB via `dart_smb2`/libsmb2; SAF/MANAGE for local | proposed, Phase-1 gate |
+| 004 | SMB via `dart_smb2`/libsmb2; SAF/MANAGE for local | **accepted**, Linux PoC passed; Android device pending |
 | 005 | Job model + streaming progress; caps 8/4 | proposed |
 | 006 | Riverpod + go_router + adaptive shell | proposed |
 | 007 | `flutter/` tracked; Lazarus untouched | accepted |

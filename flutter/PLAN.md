@@ -200,12 +200,13 @@ Tasks
 preview. This phase proves requirement 2 end-to-end.
 
 Tasks
-- [ ] `LocalVfs` (desktop + Android app-scoped dirs), tree-URI/SAF access for
-      user-chosen Android folders, `MemoryVfs` for tests.
-- [ ] `SmbVfs` on `dart_smb2`: connect, list shares/dirs, stat, read/write,
-      rename/delete; connection profile model + secure storage.
-- [ ] `Workspace`: localisation cache, atomic publish (`.new`→rename), `_OLD.cbz`
-      backup, orphan-cache cleanup on start.
+- [x] `MemoryVfs` (tests) and `LocalVfs` (desktop/local paths); Android SAF
+      tree-URI access still to do.
+- [x] `SmbVfs` on `dart_smb2`: connect, list/dir, stat, read/write, rename,
+      delete, mkdir (connection profile model + secure storage still to do).
+- [x] `Workspace`: in-RAM localize/publish, atomic write, `_OLD.cbz` backup.
+- [x] **SMB PoC gate** against a Samba container: VFS round-trip and a full
+      engine `validate` + `convert-webp` + publish round-trip pass on Linux.
 - [ ] Thumbnail loader: worker pool (≤ 4), I/O on a background isolate/async,
       LRU cache at 320×400, incremental publication to the grid (port of
       `TLoadThread`/`TThumbThread` batch+sort semantics).
@@ -214,9 +215,7 @@ Tasks
       picker (local + SMB), drag-and-drop on desktop.
 - [ ] Page preview: single-archive loader, page carousel/grid, zoom/pan
       (`InteractiveViewer`), read-only badge for CBR.
-- [ ] **SMB PoC gate** against a Samba container: list → download → convert →
-      upload → verify (uses the Phase-0 engine once available; a no-op engine is
-      acceptable for the connectivity half).
+- [ ] Verify SMB on an Android device/emulator (bundle libsmb2 per ABI).
 - [ ] Widget tests for the browser + preview; unit tests for `MemoryVfs`,
       workspace publish/backup, and sort order.
 
@@ -229,6 +228,9 @@ Tasks
   no leaked workers or stale items.
 
 **Gate:** if SMB PoC fails → fallback chain → possibly drop Android.
+**Gate status (Linux): passed** — `SmbVfs` + `Workspace` + engine round-trip are
+verified against a live Samba container (`CBZ_SMB_TEST=1`). Android device
+verification is still pending (`libsmb2.so` must be bundled per ABI).
 
 ---
 

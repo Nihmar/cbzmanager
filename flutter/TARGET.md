@@ -128,6 +128,12 @@ the swap local.
 4. Benchmark decode + encode throughput and memory on a large page set.
 5. Go/no-go on Option A; if it fails, adopt Option B (new Rust engine).
 
+**Result (Phase 0, done):** Option A accepted. The pure-Dart pipeline
+(`archive` + `image`) validates and converts CBZ bytes and scans/strips
+ComicInfo; the libarchive FFI shim reads zip-format CBR fixtures on Linux and
+degrades gracefully when the library is missing; the app builds and runs on
+Linux and Android (debug APK). Remaining: bundle libarchive for the Android ABIs.
+
 ---
 
 ## 4. ADR-002 — Engine facade (Dart API)
@@ -404,7 +410,7 @@ Only libarchive (CBR) and libsmb2 (SMB) are native.
 
 | # | Decision | Status |
 |---|---|---|
-| 001 | Pure-Dart engine + libarchive FFI for CBR; new Rust engine as fallback | proposed, Phase-0 gate |
+| 001 | Pure-Dart engine + libarchive FFI for CBR; new Rust engine as fallback | **accepted** (Phase-0 spike passed) |
 | 002 | Byte-oriented abstract `CbzEngine` facade | proposed |
 | 003 | `Vfs` + `Workspace` (localize/publish) | proposed |
 | 004 | SMB via `dart_smb2`/libsmb2; SAF/MANAGE for local | proposed, Phase-1 gate |

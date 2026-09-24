@@ -49,6 +49,8 @@ fpcdebug.txt
 
 # Cross-compilation stamps / target directories
 lib/
+# ...but the Flutter port keeps its Dart source in lib/ too — re-include it.
+!flutter/app/lib/
 units/
 bin/
 obj/

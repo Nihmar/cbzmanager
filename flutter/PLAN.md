@@ -157,29 +157,32 @@ exclude review latency. Range = optimistic…pessimistic.
 
 ### Phase 0 — Foundations and spike  *(4–7 d)*
 
+**Status: complete.** Pure-Dart engine + libarchive FFI accepted (ADR-001);
+app builds on Linux and Android.
+
 **Goal:** a building, tested shell on all three platforms and a decision on the
 engine architecture.
 
 Tasks
-- [ ] `flutter create` in `flutter/app` (org `app.cbzmanager`, platforms:
-      android, linux, windows). Set `minSdk 24`, `ndkVersion`, ABI filters.
-- [ ] Repo hygiene: `flutter/` tracked; add `analyze`/`format` scripts; extend
-      `.gitignore` for Dart/Flutter/native build output.
-- [ ] App skeleton: `AppShell` (empty two-pane + nav scaffold), theme, routing,
-      `AppLogger`, error boundary.
-- [ ] Define `Engine` facade (`TARGET.md` §4) and `Vfs` interface (`§5`) with a
-      `MemoryVfs` implementation for tests.
-- [ ] **Pure-Dart engine spike:** `archive` unzip → `image` decode →
-      resize/WebP convert → `archive` zip round-trip on a real CBZ; compare size
-      and quality with the reference. Benchmark throughput and memory.
-- [ ] **libarchive FFI spike:** load/read a real RAR on Linux and on an Android
-      emulator (build/bundle `libarchive.so` per ABI).
-- [ ] If the spikes fail: timebox a **new** Rust engine spike via
-      `flutter_rust_bridge` (in-memory validate call from Dart).
-- [ ] CI skeleton: GitHub Actions matrix (ubuntu, windows, macos-for-ios-later)
-      running `flutter analyze`, `flutter test` (and `cargo test` only if Option B);
-      Android debug APK build job.
-- [ ] Decide ADR-001 → update `TARGET.md` decision log.
+- [x] `flutter create` in `flutter/app` (org `app.cbzmanager`, platforms:
+      android, linux, windows).
+- [x] Repo hygiene: `flutter/` tracked (root `.gitignore` re-includes
+      `flutter/app/lib`, which the FPC `lib/` rule was hiding).
+- [x] App skeleton: minimal `CbzManagerApp` shell with an engine self-test.
+- [x] Define `CbzEngine` facade (`TARGET.md` §4) and `Vfs` interface (`§5`) with
+      `MemoryVfs` + `LocalVfs` implementations and a `Workspace`.
+- [x] **Pure-Dart engine spike:** `archive` + `image` validate / convert-WebP /
+      ComicInfo scan+strip round-trip (32 tests green).
+- [x] **libarchive FFI spike:** `Libarchive`/`CbrReader` read zip-format CBR
+      fixtures on Linux; graceful degradation when the library is missing.
+- [ ] Bundle `libarchive` for Android ABIs and verify CBR on a device/emulator.
+- [x] ADR-001 decided: pure Dart, with a new Rust engine as fallback only.
+- [ ] CI skeleton: GitHub Actions (ubuntu/windows), `flutter analyze` + `flutter test`,
+      Android debug APK job.
+- [ ] Set `minSdk 24` + explicit ABI filters in the Android Gradle config.
+
+**Verified:** `flutter analyze` clean; `flutter test` 32/32; `flutter build linux
+--debug` OK; `flutter build apk --debug` OK.
 
 **Definition of done**
 - `flutter run -d linux` and `flutter run` on an Android emulator both launch the

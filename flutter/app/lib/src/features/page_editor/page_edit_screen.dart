@@ -274,59 +274,69 @@ class _PageEditScreenState extends State<PageEditScreen> {
       return const Center(child: Text('No pages'));
     }
 
-    return GridView.builder(
+    return ReorderableListView.builder(
       padding: const EdgeInsets.all(8),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 160,
-        childAspectRatio: 0.66,
-        mainAxisSpacing: 8,
-        crossAxisSpacing: 8,
-      ),
       itemCount: visible.length,
+      onReorderItem: (oldIndex, newIndex) {
+        setState(() {
+          model.move(oldIndex, newIndex);
+          _selected.clear();
+          _thumbs.clear();
+        });
+      },
       itemBuilder: (context, gridIndex) {
         final modelIndex = visible[gridIndex];
         final page = model.pages[modelIndex];
         final bytes = page.data ?? _byName[page.origName];
         final selected = _selected.contains(modelIndex);
         final key =
-            '$modelIndex:${page.data != null ? identityHashCode(page.data) : page.origName}';
+            '${identityHashCode(page)}:${page.data != null ? identityHashCode(page.data) : page.origName}';
         final future = bytes == null
             ? Future<Uint8List?>.value()
             : _thumbs.putIfAbsent(
                 key,
-                () => decodeBytesThumbnailInIsolate(bytes, 180, 240),
+                () => decodeBytesThumbnailInIsolate(bytes, 120, 160),
               );
 
         return Card(
+          key: ValueKey(page),
           color: selected ? Theme.of(context).colorScheme.primaryContainer : null,
-          child: InkWell(
+          child: ListTile(
+            selected: selected,
             onTap: () => setState(() {
               if (!_selected.remove(modelIndex)) _selected.add(modelIndex);
             }),
-            onDoubleTap: () => _openEditor(modelIndex),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+            leading: SizedBox(
+              width: 44,
+              height: 60,
+              child: FutureBuilder<Uint8List?>(
+                future: future,
+                builder: (context, snapshot) {
+                  final thumb = snapshot.data;
+                  if (thumb == null) {
+                    return const Center(child: Icon(Icons.image_outlined));
+                  }
+                  return Image.memory(thumb, fit: BoxFit.contain);
+                },
+              ),
+            ),
+            title: Text(
+              page.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: Text('Page ${gridIndex + 1}'),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Expanded(
-                  child: FutureBuilder<Uint8List?>(
-                    future: future,
-                    builder: (context, snapshot) {
-                      final thumb = snapshot.data;
-                      if (thumb == null) {
-                        return const Center(child: Icon(Icons.image_outlined));
-                      }
-                      return Image.memory(thumb, fit: BoxFit.contain);
-                    },
-                  ),
+                IconButton(
+                  tooltip: 'Edit page',
+                  icon: const Icon(Icons.edit_outlined),
+                  onPressed: () => _openEditor(modelIndex),
                 ),
-                Padding(
-                  padding: const EdgeInsets.all(4),
-                  child: Text(
-                    page.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelSmall,
-                  ),
+                ReorderableDragStartListener(
+                  index: gridIndex,
+                  child: const Icon(Icons.drag_handle),
                 ),
               ],
             ),

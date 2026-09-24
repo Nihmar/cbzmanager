@@ -355,8 +355,9 @@ like the reference.
       read-only).
 - [x] Tests: resample/colour/split, model semantics, save/load with metadata
       preservation, batch resize/grayscale/split and neutral no-op (111 green).
-- [ ] Draggable split cut lines, drag-and-drop reordering and a zoomable page
-      grid — deferred (equal-split + arrow moves cover the workflow).
+- [x] Drag-and-drop page reordering (`ReorderableListView` + drag handle).
+- [ ] Draggable split cut lines and a zoomable page grid — deferred
+      (equal-split + drag/arrow reordering cover the workflow).
 
 **DoD:** the single-file editor supersedes the reference's delete/renumber use
 case; batch edit matches the reference pipeline.
@@ -405,8 +406,10 @@ CLI and signed store artifacts deferred.**
       bundle + optional APK/AAB, Windows, macOS) after analyze + tests.
 - [x] Docs: `flutter/app/README.md` (layout, run/test, SMB tests, release) and
       the parity checklist in `PARITY.md`.
-- [ ] Signed store artifacts (Play AAB, AppImage/deb, Inno installer) and CI
-      release jobs — scripted locally but not wired to CI/signing yet.
+- [x] CI: `.github/workflows/flutter.yml` (analyze + test; Linux release
+      bundle; Android debug APK).
+- [ ] Signed store artifacts (Play AAB, AppImage/deb, Inno installer) and
+      signed CI releases.
 - [ ] Headless CLI in Flutter (Q3) — **done** as `bin/cbzmanager.dart`
       (`validate`, `convert-webp`, `merge`, `cbr-to-cbz`; exit codes 0/1/2; runs
       under plain `dart run`, no Flutter). The reference's `comicinfo`

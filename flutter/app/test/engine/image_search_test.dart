@@ -73,4 +73,102 @@ void main() {
     expect(r.title, contains('[en]'));
     expect(r.ext, '.jpg');
   });
+
+  museumParsers();
+}
+
+void museumParsers() {
+  test('parseOpenLibraryResults builds cover URLs', () {
+    const json = '''
+    {"docs":[{"title":"Dune","first_publish_year":1965,
+      "author_name":["Herbert"],"cover_i":123,"key":"/works/OL1W"}]}''';
+    final (results, error) = parseOpenLibraryResults(json);
+    expect(error, isNull);
+    final r = results.single;
+    expect(r.title, contains('Dune'));
+    expect(r.title, contains('1965'));
+    expect(r.title, contains('Herbert'));
+    expect(r.fullUrl, contains('/123-L.jpg'));
+    expect(r.thumbUrl, contains('/123-M.jpg'));
+    expect(r.pageUrl, 'https://openlibrary.org/works/OL1W');
+    expect(r.ext, '.jpg');
+  });
+
+  test('parseArtInstituteResults uses IIIF URLs and public-domain flag', () {
+    const json = '''
+    {"data":[{"id":42,"title":"Starry Night","artist_title":"van Gogh",
+      "date_display":"1889","image_id":"abc","is_public_domain":true}]}''';
+    final (results, error) = parseArtInstituteResults(json);
+    expect(error, isNull);
+    final r = results.single;
+    expect(r.title, contains('Starry Night'));
+    expect(r.title, contains('van Gogh'));
+    expect(r.fullUrl, contains('/iiif/2/abc/full/843,/0/default.jpg'));
+    expect(r.license, 'Public domain');
+  });
+
+  test('parseClevelandResults prefers print over web', () {
+    const json = '''
+    {"data":[{"title":"Cleveland","creation_date":"1900",
+      "creators":[{"description":"Someone"}],"url":"page",
+      "share_license_status":"CC0",
+      "images":{"web":{"url":"https://x/web.jpg"},
+                "print":{"url":"https://x/print.jpg"}}}]}''';
+    final (results, error) = parseClevelandResults(json);
+    expect(error, isNull);
+    final r = results.single;
+    expect(r.fullUrl, 'https://x/print.jpg');
+    expect(r.thumbUrl, 'https://x/web.jpg');
+    expect(r.title, contains('Someone'));
+  });
+
+  test('parseWellcomeResults rewrites the thumbnail IIIF URL', () {
+    const json = '''
+    {"results":[{"id":"w1","title":"Wellcome","thumbnail":{
+      "url":"https://iiif.wellcomecollection.org/thumbs/w1.jp2/full/!200,200/0/default.jpg",
+      "license":{"label":"CC BY"}}}]}''';
+    final (results, error) = parseWellcomeResults(json);
+    expect(error, isNull);
+    final r = results.single;
+    expect(r.fullUrl, contains('/image/'));
+    expect(r.fullUrl, contains('/full/1200,/'));
+    expect(r.license, 'CC BY');
+    expect(r.pageUrl, 'https://wellcomecollection.org/works/w1');
+  });
+
+  test('parseNasaResults upgrades ~thumb to ~orig', () {
+    const json = '''
+    {"collection":{"items":[{"links":[{"href":"https://x/a~thumb.jpg"}],
+      "data":[{"title":"NASA","nasa_id":"n1"}]}]}}''';
+    final (results, error) = parseNasaResults(json);
+    expect(error, isNull);
+    final r = results.single;
+    expect(r.fullUrl, 'https://x/a~orig.jpg');
+    expect(r.pageUrl, 'https://images.nasa.gov/details/n1');
+  });
+
+  test('parseMetIds treats null objectIDs as an empty result', () {
+    final (ids, error) = parseMetIds('{"objectIDs":null}');
+    expect(error, isNull);
+    expect(ids, isEmpty);
+    final (ids2, _) = parseMetIds('{"objectIDs":[1,2]}');
+    expect(ids2, [1, 2]);
+  });
+
+  test('parseMetObject reads the primary image', () {
+    const json = '''
+    {"title":"Met","artistDisplayName":"A","objectDate":"1900",
+     "primaryImage":"https://x/met.jpg","primaryImageSmall":"https://x/small.jpg",
+     "objectURL":"https://x/page","isPublicDomain":false}''';
+    final (result, error) = parseMetObject(json);
+    expect(error, isNull);
+    expect(result!.fullUrl, 'https://x/met.jpg');
+    expect(result.thumbUrl, 'https://x/small.jpg');
+    expect(result.license, 'In copyright — museum terms apply');
+  });
+
+  test('parseMetObject returns null when undigitised', () {
+    final (result, _) = parseMetObject('{"primaryImage":""}');
+    expect(result, isNull);
+  });
 }

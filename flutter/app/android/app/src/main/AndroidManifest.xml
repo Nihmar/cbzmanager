@@ -1,4 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Required by the SMB (dart_smb2) transports; the Flutter tool only
+         declares it in the debug/profile manifests, so without it release
+         builds fail with "Failed to open smb2 socket. Errno:Operation not
+         permitted (1)". -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <application
         android:label="cbzmanager"
         android:name="${applicationName}"

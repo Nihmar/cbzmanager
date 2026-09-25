@@ -176,6 +176,7 @@ Future<int> _validate(Vfs vfs, String dir, _Options options) async {
   final outcomes = await ValidateService(const DartCbzEngine()).validateMany(
     vfs,
     items,
+    threads: options.threads,
     onProgress: (done, total, message) => stdout.writeln('[$done/$total] $message'),
   );
   var invalid = 0;

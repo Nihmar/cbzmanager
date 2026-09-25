@@ -49,6 +49,9 @@ class BrowserScreen extends ConsumerWidget {
     final selecting = selection.isNotEmpty;
     final selectedItems =
         browser.items.where((i) => selection.contains(i.path)).toList();
+    final up = source == null
+        ? null
+        : browserParentPath(source.root, browser.path);
 
     return CallbackShortcuts(
       bindings: <ShortcutActivator, VoidCallback>{
@@ -62,7 +65,8 @@ class BrowserScreen extends ConsumerWidget {
         const SingleActivator(LogicalKeyboardKey.f5): () {
           final current = ref.read(sourceProvider);
           if (current != null) {
-            ref.read(browserProvider.notifier).load(current.vfs, current.root);
+            final dir = ref.read(browserProvider).path;
+            ref.read(browserProvider.notifier).load(current.vfs, dir);
           }
         },
         const SingleActivator(LogicalKeyboardKey.keyA, control: true): () => ref
@@ -81,7 +85,13 @@ class BrowserScreen extends ConsumerWidget {
                 icon: const Icon(Icons.close),
                 onPressed: () => ref.read(selectionProvider.notifier).clear(),
               )
-            : null,
+            : up == null
+                ? null
+                : IconButton(
+                    tooltip: 'Up',
+                    icon: const Icon(Icons.arrow_back),
+                    onPressed: () => _navigate(ref, source!, up),
+                  ),
         title: Text(
           selecting ? '${selection.length} selected' : (source?.label ?? l10n.appTitle),
         ),
@@ -132,7 +142,7 @@ class BrowserScreen extends ConsumerWidget {
                         ? null
                         : () => ref
                             .read(browserProvider.notifier)
-                            .load(source.vfs, source.root),
+                            .load(source.vfs, browser.path),
                   ),
                 if (source != null && browser.items.isNotEmpty)
                   IconButton(
@@ -206,7 +216,15 @@ class BrowserScreen extends ConsumerWidget {
               onLocal: () => _openLocal(context, ref),
               onSmb: () => _openSmb(context, ref),
             )
-          : _BrowserBody(source: source, browser: browser),
+          : PopScope(
+              // System back climbs out of a subfolder before leaving the app.
+              canPop: up == null,
+              onPopInvokedWithResult: (didPop, _) {
+                if (didPop || up == null) return;
+                _navigate(ref, source, up);
+              },
+              child: _BrowserBody(source: source, browser: browser),
+            ),
         ),
       ),
     );
@@ -285,11 +303,12 @@ class BrowserScreen extends ConsumerWidget {
     if (options == null || !context.mounted) return;
 
     final job = ref.read(jobProvider.notifier);
+    final dir = _cwd(ref);
     job.start('Merge', message: 'Planning...');
     try {
       final outcome = await const MergeService().merge(
         source.vfs,
-        source.root,
+        dir,
         options,
         onProgress: (percent, message) => job.progress(percent, message),
         isCancelled: () => job.cancelRequested,
@@ -298,9 +317,7 @@ class BrowserScreen extends ConsumerWidget {
       if (!context.mounted) return;
       if (outcome.success) {
         _snack(context, 'Created ${outcome.volumesCreated} volume(s)');
-        await ref
-            .read(browserProvider.notifier)
-            .load(source.vfs, source.root);
+        await ref.read(browserProvider.notifier).load(source.vfs, dir);
       } else {
         _snack(context, outcome.error ?? 'Merge produced no volumes');
       }
@@ -349,7 +366,9 @@ class BrowserScreen extends ConsumerWidget {
       if (!context.mounted) return;
       final ok = outcomes.where((o) => o.success).length;
       _snack(context, 'Edited $ok of ${outcomes.length} file(s)');
-      await ref.read(browserProvider.notifier).load(source.vfs, source.root);
+      await ref
+          .read(browserProvider.notifier)
+          .load(source.vfs, _cwd(ref));
     } catch (e) {
       job.finish();
       if (context.mounted) _snack(context, 'Batch edit failed: $e');
@@ -424,11 +443,12 @@ class BrowserScreen extends ConsumerWidget {
     if (request == null || !context.mounted) return;
 
     final job = ref.read(jobProvider.notifier);
+    final dir = _cwd(ref);
     job.start('CBR → CBZ', message: 'Converting ${names.length} file(s)...');
     try {
       final outcomes = await const CbrConvertService().convertMany(
         source.vfs,
-        source.root,
+        dir,
         names,
         skipExisting: request.skipExisting,
         deleteSource: request.deleteSource,
@@ -439,7 +459,7 @@ class BrowserScreen extends ConsumerWidget {
       job.finish();
       if (!context.mounted) return;
       await showCbrResultsDialog(context, outcomes);
-      await ref.read(browserProvider.notifier).load(source.vfs, source.root);
+      await ref.read(browserProvider.notifier).load(source.vfs, dir);
     } catch (e) {
       job.finish();
       if (context.mounted) _snack(context, 'CBR conversion failed: $e');
@@ -587,7 +607,7 @@ class _BrowserBody extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    if (browser.loading && browser.items.isEmpty) {
+    if (browser.loading && browser.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
     if (browser.error != null) {
@@ -605,21 +625,131 @@ class _BrowserBody extends ConsumerWidget {
         ),
       );
     }
-    if (browser.items.isEmpty) {
-      return Center(child: Text(AppLocalizations.of(context).noArchives));
+
+    return Column(
+      children: [
+        _Breadcrumbs(source: source, path: browser.path),
+        Expanded(
+          child: browser.isEmpty
+              ? Center(child: Text(AppLocalizations.of(context).noArchives))
+              : GridView.builder(
+                  padding: const EdgeInsets.all(8),
+                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: 180,
+                    childAspectRatio: 0.62,
+                    mainAxisSpacing: 8,
+                    crossAxisSpacing: 8,
+                  ),
+                  itemCount: browser.folders.length + browser.items.length,
+                  itemBuilder: (context, index) {
+                    // Folders come first, then the archives of this folder.
+                    if (index < browser.folders.length) {
+                      return _FolderTile(
+                        source: source,
+                        folder: browser.folders[index],
+                      );
+                    }
+                    return _ArchiveTile(
+                      source: source,
+                      item: browser.items[index - browser.folders.length],
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Enters [dir] (the browsing root or a subfolder of it) and clears any
+/// selection, so that a half-made selection never spans two folders.
+void _navigate(WidgetRef ref, ArchiveSource source, String dir) {
+  ref.read(selectionProvider.notifier).clear();
+  ref.read(browserProvider.notifier).load(source.vfs, dir);
+}
+
+/// Directory the single/batch operations of the browser act on.
+String _cwd(WidgetRef ref) => ref.read(browserProvider).path;
+
+/// Trail from the browsing root to the current folder; hidden at the root,
+/// where the app bar already names the source.
+class _Breadcrumbs extends ConsumerWidget {
+  const _Breadcrumbs({required this.source, required this.path});
+
+  final ArchiveSource source;
+  final String path;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final base = source.root;
+    final relative = base.isEmpty ? path : p.relative(path, from: base);
+    if (relative.isEmpty || relative == '.') return const SizedBox.shrink();
+
+    final crumbs = <({String label, String path})>[
+      (label: source.label, path: base),
+    ];
+    var current = base;
+    for (final segment in p.split(relative)) {
+      current = p.join(current, segment);
+      crumbs.add((label: segment, path: current));
     }
 
-    return GridView.builder(
-      padding: const EdgeInsets.all(8),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 180,
-        childAspectRatio: 0.62,
-        mainAxisSpacing: 8,
-        crossAxisSpacing: 8,
+    return SizedBox(
+      height: 40,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        itemCount: crumbs.length,
+        separatorBuilder: (_, _) => const Icon(Icons.chevron_right, size: 16),
+        itemBuilder: (context, index) {
+          final crumb = crumbs[index];
+          final last = index == crumbs.length - 1;
+          return TextButton(
+            onPressed: last ? null : () => _navigate(ref, source, crumb.path),
+            child: Text(
+              crumb.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          );
+        },
       ),
-      itemCount: browser.items.length,
-      itemBuilder: (context, index) =>
-          _ArchiveTile(source: source, item: browser.items[index]),
+    );
+  }
+}
+
+/// A subdirectory of the current folder.
+class _FolderTile extends ConsumerWidget {
+  const _FolderTile({required this.source, required this.folder});
+
+  final ArchiveSource source;
+  final BrowserFolder folder;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => _navigate(ref, source, folder.path),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.folder, size: 48, color: scheme.primary),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              child: Text(
+                folder.name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -764,7 +894,7 @@ class _ArchiveTile extends ConsumerWidget {
                             if (context.mounted) {
                               await ref
                                   .read(browserProvider.notifier)
-                                  .load(source.vfs, source.root);
+                                  .load(source.vfs, _cwd(ref));
                             }
                           case 'comicinfo':
                             await _BrowserActions.editComicInfo(
@@ -889,7 +1019,7 @@ class _BrowserActions {
     try {
       final outcomes = await const CbrConvertService().convertMany(
         source.vfs,
-        source.root,
+        _cwd(ref),
         [item.name],
         skipExisting: request.skipExisting,
         deleteSource: request.deleteSource,

@@ -12,7 +12,9 @@ class ArchiveSource {
 
   final Vfs vfs;
 
-  /// Root directory (share-relative for SMB, absolute for local).
+  /// Browsing root this source was opened at (share-relative for SMB,
+  /// absolute for local). Navigation inside [vfs] never climbs above it; the
+  /// directory currently listed is `BrowserState.path`.
   final String root;
   final String label;
 }

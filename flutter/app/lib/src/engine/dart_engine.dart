@@ -21,12 +21,30 @@ import 'zip_ops.dart';
 class DartCbzEngine implements CbzEngine {
   const DartCbzEngine();
 
+  /// Registry id used by [engineFromId] to rebuild this engine inside a
+  /// background isolate.
+  static const String engineId = 'dart';
+
+  @override
+  String get id => engineId;
+
   @override
   Future<ValidateResult> validate(
     ArchiveData data, {
     int threads = 0,
     ProgressCallback? onProgress,
-  }) async {
+  }) async =>
+      validateSync(data, onProgress: onProgress);
+
+  /// Synchronous validation core, safe to run inside a background isolate.
+  ///
+  /// Per-page progress is not reportable across the `Isolate.run` boundary, so
+  /// callers receive file-level progress only.
+  @override
+  ValidateResult validateSync(
+    ArchiveData data, {
+    ProgressCallback? onProgress,
+  }) {
     final List<ZipEntryData> entries;
     try {
       entries = collectZipEntries(data.bytes);
@@ -158,14 +176,22 @@ class DartCbzEngine implements CbzEngine {
   }
 
   @override
-  Future<ScanResult> scanComicInfo(ArchiveData data) async {
+  Future<ScanResult> scanComicInfo(ArchiveData data) async =>
+      scanComicInfoSync(data);
+
+  @override
+  ScanResult scanComicInfoSync(ArchiveData data) {
     final entries = collectZipEntries(data.bytes);
     final index = findComicInfoIndex(entries);
     return ScanResult(found: index >= 0, index: index);
   }
 
   @override
-  Future<ComicInfo?> readComicInfo(ArchiveData data) async {
+  Future<ComicInfo?> readComicInfo(ArchiveData data) async =>
+      readComicInfoSync(data);
+
+  @override
+  ComicInfo? readComicInfoSync(ArchiveData data) {
     try {
       return comicInfoFromEntries(collectZipEntries(data.bytes));
     } catch (_) {
@@ -174,13 +200,21 @@ class DartCbzEngine implements CbzEngine {
   }
 
   @override
-  Future<ArchiveData> writeComicInfo(ArchiveData data, ComicInfo info) async {
+  Future<ArchiveData> writeComicInfo(ArchiveData data, ComicInfo info) async =>
+      writeComicInfoSync(data, info);
+
+  @override
+  ArchiveData writeComicInfoSync(ArchiveData data, ComicInfo info) {
     final entries = withComicInfo(collectZipEntries(data.bytes), info);
     return ArchiveData(data.name, writeZipEntries(entries));
   }
 
   @override
-  Future<ArchiveData> stripComicInfo(ArchiveData data) async {
+  Future<ArchiveData> stripComicInfo(ArchiveData data) async =>
+      stripComicInfoSync(data);
+
+  @override
+  ArchiveData stripComicInfoSync(ArchiveData data) {
     final entries = stripComicInfoEntries(collectZipEntries(data.bytes));
     return ArchiveData(data.name, writeZipEntries(entries));
   }

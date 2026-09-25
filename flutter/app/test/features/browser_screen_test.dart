@@ -62,4 +62,60 @@ void main() {
     expect(find.text('readme.txt'), findsNothing);
     expect(find.byType(Image), findsNWidgets(2));
   });
+
+  testWidgets('tapping a folder browses into it and up returns', (
+    tester,
+  ) async {
+    final vfs = MemoryVfs();
+    await vfs.writeAll('/lib/root.cbz', [1, 2, 3]);
+    await vfs.mkdir('/lib/Manga');
+    await vfs.writeAll('/lib/Manga/vol1.cbz', [4, 5, 6]);
+
+    final container = ProviderContainer(
+      overrides: [
+        thumbnailServiceProvider.overrideWithValue(_FakeThumbnails()),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(sourceProvider.notifier).set(
+          ArchiveSource(vfs: vfs, root: '/lib', label: 'lib'),
+        );
+    await container.read(browserProvider.notifier).load(vfs, '/lib');
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const BrowserScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('root.cbz'), findsOneWidget);
+    expect(find.text('Manga'), findsOneWidget);
+    expect(find.text('vol1.cbz'), findsNothing);
+    // At the browsing root there is nothing to climb up to.
+    expect(find.byTooltip('Up'), findsNothing);
+
+    await tester.tap(find.text('Manga'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('vol1.cbz'), findsOneWidget);
+    expect(find.text('root.cbz'), findsNothing);
+    expect(container.read(browserProvider).path, '/lib/Manga');
+    // The breadcrumb names the current folder and the up button appears.
+    expect(find.text('Manga'), findsOneWidget);
+    expect(find.byTooltip('Up'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Up'));
+    await tester.pumpAndSettle();
+
+    expect(container.read(browserProvider).path, '/lib');
+    expect(find.text('root.cbz'), findsOneWidget);
+    expect(find.text('vol1.cbz'), findsNothing);
+    expect(find.byTooltip('Up'), findsNothing);
+  });
 }

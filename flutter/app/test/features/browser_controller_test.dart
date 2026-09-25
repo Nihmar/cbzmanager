@@ -24,6 +24,81 @@ void main() {
       ['book1.cbz', 'book10.cbz', 'book2.cbz', 'scan.CBR'],
     );
     expect(state.items.last.isCbr, isTrue);
+    // Directories are never archives: they are listed separately.
+    expect(state.folders.map((e) => e.name).toList(), ['sub']);
+  });
+
+  test('lists subdirectories separately, byte-wise sorted', () async {
+    final vfs = MemoryVfs();
+    await vfs.writeAll('/lib/book1.cbz', [1]);
+    await vfs.mkdir('/lib/zeta');
+    await vfs.mkdir('/lib/alpha');
+    await vfs.mkdir('/lib/Beta');
+
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    await container.read(browserProvider.notifier).load(vfs, '/lib');
+
+    final state = container.read(browserProvider);
+    expect(
+      state.folders.map((e) => e.name).toList(),
+      ['Beta', 'alpha', 'zeta'],
+    );
+    expect(
+      state.folders.map((e) => e.path).toList(),
+      ['/lib/Beta', '/lib/alpha', '/lib/zeta'],
+    );
+    expect(state.items.map((e) => e.name).toList(), ['book1.cbz']);
+    expect(state.isEmpty, isFalse);
+  });
+
+  test('an empty folder reports empty state', () async {
+    final vfs = MemoryVfs();
+    await vfs.writeAll('/lib/keep.cbz', [1]);
+    await vfs.mkdir('/lib/empty');
+
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    await container.read(browserProvider.notifier).load(vfs, '/lib');
+    expect(container.read(browserProvider).isEmpty, isFalse);
+
+    await container.read(browserProvider.notifier).load(vfs, '/lib/empty');
+    final state = container.read(browserProvider);
+    expect(state.error, isNull);
+    expect(state.isEmpty, isTrue);
+  });
+
+  test('moving to another folder drops the previous tiles', () async {
+    final vfs = MemoryVfs();
+    await vfs.writeAll('/lib/top.cbz', [1]);
+    await vfs.mkdir('/lib/sub');
+    await vfs.writeAll('/lib/sub/deep.cbz', [2]);
+
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    await container.read(browserProvider.notifier).load(vfs, '/lib');
+    expect(container.read(browserProvider).items, isNotEmpty);
+
+    await container.read(browserProvider.notifier).load(vfs, '/lib/sub');
+    final state = container.read(browserProvider);
+    expect(state.path, '/lib/sub');
+    expect(state.folders, isEmpty);
+    expect(state.items.map((e) => e.name).toList(), ['deep.cbz']);
+  });
+
+  group('browserParentPath', () {
+    test('walks up inside the browsing root', () {
+      expect(browserParentPath('', ''), isNull);
+      expect(browserParentPath('/lib', '/lib'), isNull);
+      expect(browserParentPath('/lib', '/lib/a/b'), '/lib/a');
+      expect(browserParentPath('/lib', '/lib/a'), '/lib');
+    });
+
+    test('never climbs above the root', () {
+      // SMB root is the share root, spelled as the empty path.
+      expect(browserParentPath('', 'Manga/OnePiece'), 'Manga');
+      expect(browserParentPath('', 'Manga'), '');
+    });
   });
 
   test('surfaces a listing error', () async {

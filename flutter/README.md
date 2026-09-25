@@ -14,8 +14,35 @@ Tracking issue: [Nihmar/cbzmanager#7](https://github.com/Nihmar/cbzmanager/issue
 
 ## Status
 
-**Planning.** No application code exists yet. This folder currently contains only
-the plan. Implementation starts with Phase 0 (see `PLAN.md`).
+**Implemented** — Phases 0–8 of [`PLAN.md`](PLAN.md) are complete: the pure-Dart
+engine + VFS (local, memory, SMB), the archive browser with thumbnails, deep
+validation, ComicInfo editing, WebP conversion, chapter→volume merge, CBR
+reading/conversion, the page editor, image search, settings, the job monitor and
+the headless CLI. Linux, Windows and Android builds; `flutter test` covers the
+engine, the services and the widgets.
+
+Remaining work (app-store packaging, per-ABI bundling, backend swaps) is tracked
+in [`PLAN.md`](PLAN.md) and [`TARGET.md`](TARGET.md).
+
+## Branding
+
+Both applications share the same artwork. The Lazarus sources stay
+authoritative; the Flutter side is generated from them:
+
+| Source (repository root) | Used for |
+|--------------------------|----------|
+| `pkg/cbzmanager.svg` | Android launcher icons, Linux `.desktop` icon |
+| `cbzmanager.ico` | Windows `runner/resources/app_icon.ico` |
+
+Regenerate after a logo change:
+
+```bash
+flutter/scripts/make_icons.sh   # needs rsvg-convert
+```
+
+The GTK runner looks the icon up by the `cbzmanager` theme name, which is the
+name the Lazarus `Makefile`/`PKGBUILD` installs, so Linux picks up the same
+artwork without extra plumbing.
 
 ## Target platforms
 

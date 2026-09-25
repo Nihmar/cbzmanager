@@ -54,6 +54,11 @@ static void my_application_activate(GApplication* application) {
 
   gtk_window_set_default_size(window, 1280, 720);
 
+  // Pick up the shared application icon (hicolor/scalable/apps/cbzmanager.svg,
+  // installed from pkg/cbzmanager.svg by the packaging step) so the window is
+  // branded like the Lazarus app. See flutter/scripts/make_icons.sh.
+  gtk_window_set_default_icon_name("cbzmanager");
+
   g_autoptr(FlDartProject) project = fl_dart_project_new();
   fl_dart_project_set_dart_entrypoint_arguments(
       project, self->dart_entrypoint_arguments);

@@ -67,6 +67,45 @@ void main() {
       expect(entries.map((e) => e.name), ['page_0001.webp', 'page_0002.webp']);
     });
 
+    test('keeps ComicInfo.xml (in place) when removeComicInfo is false',
+        () async {
+      // The flag used to be ignored: the output was built from the image
+      // entries alone, so ComicInfo.xml was always dropped.
+      final zip = makeZip({
+        'first.png': makeSolidPng(16, 16),
+        'ComicInfo.xml': '<x/>'.codeUnits,
+        'second.png': makeSolidPng(16, 16),
+      });
+      final result = await engine.convertWebp(
+        ArchiveData('book.cbz', zip),
+        const ConvertOptions(
+          onlyIfSmaller: false,
+          removeComicInfo: false,
+        ),
+      );
+      expect(result.success, isTrue);
+      final entries = collectZipEntries(result.output!);
+      expect(
+        entries.map((e) => e.name),
+        ['page_0001.webp', 'ComicInfo.xml', 'page_0002.webp'],
+      );
+    });
+
+    test('drops ComicInfo.xml (the default), leaving images renumbered',
+        () async {
+      final zip = makeZip({
+        'first.png': makeSolidPng(16, 16),
+        'ComicInfo.xml': '<x/>'.codeUnits,
+        'second.png': makeSolidPng(16, 16),
+      });
+      final result = await engine.convertWebp(
+        ArchiveData('book.cbz', zip),
+        const ConvertOptions(onlyIfSmaller: false),
+      );
+      final entries = collectZipEntries(result.output!);
+      expect(entries.map((e) => e.name), ['page_0001.webp', 'page_0002.webp']);
+    });
+
     test('keeps an undecodable page as-is and counts it kept', () async {
       // A page that cannot be decoded is left untouched (the reference keeps
       // the original bytes rather than dropping the page).

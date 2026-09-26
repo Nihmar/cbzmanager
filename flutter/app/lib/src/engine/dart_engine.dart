@@ -113,12 +113,6 @@ class DartCbzEngine implements CbzEngine {
       );
     }
 
-    if (options.removeComicInfo) {
-      source.removeWhere(
-        (e) => e.name.toLowerCase() == comicInfoName.toLowerCase(),
-      );
-    }
-
     final images = source.where((e) => isImageExt(_ext(e.name))).toList();
     if (images.isEmpty) {
       return ConvertResult(
@@ -128,14 +122,25 @@ class DartCbzEngine implements CbzEngine {
       );
     }
 
+    // Walk the source in archive order so a preserved ComicInfo.xml keeps its
+    // position.  Only images become pages (and only they consume a page
+    // number); the reference drops other non-image entries too.
     final output = <ZipEntryData>[];
     var converted = 0;
     var kept = 0;
+    var pageNum = 0;
     onProgress?.call(0, 'Converting ${images.length} page(s)');
-    for (var i = 0; i < images.length; i++) {
-      final entry = images[i];
+    for (final entry in source) {
       var bytes = entry.bytes;
       var ext = _ext(entry.name);
+      if (!isImageExt(ext)) {
+        if (!options.removeComicInfo &&
+            entry.name.toLowerCase() == comicInfoName.toLowerCase()) {
+          output.add(entry);
+        }
+        continue;
+      }
+      pageNum++;
 
       final decoded = _decode(entry.bytes);
       if (decoded != null) {
@@ -156,13 +161,13 @@ class DartCbzEngine implements CbzEngine {
       }
 
       final name = options.renumber
-          ? formatPageName(i + 1, ext)
+          ? formatPageName(pageNum, ext)
           : entry.name;
       output.add(ZipEntryData(name, bytes));
 
       onProgress?.call(
-        ((i + 1) * 100) ~/ images.length,
-        'Converted ${i + 1}/${images.length}',
+        (pageNum * 100) ~/ images.length,
+        'Converted $pageNum/${images.length}',
       );
     }
 

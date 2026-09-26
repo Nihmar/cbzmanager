@@ -34,6 +34,7 @@ const
   ARCHIVE_EOF = 1;   { Found end of archive (archive_read_next_header) }
   ARCHIVE_OK  = 0;
   ARCHIVE_RETRY = -10;  { transient failure: retry the read (per libarchive) }
+  ARCHIVE_WARN = -20;   { header read with a warning: the entry is still valid }
 
   { Entry file-type masks (archive_entry_filetype). }
   AE_IFMT  = $F000;
@@ -198,8 +199,18 @@ begin
     Pointer(_ArchiveErrorString) :=
       GetProcedureAddress(hLib, 'archive_error_string');
 
-    if not (Assigned(_ArchiveReadNew) and Assigned(_ArchiveReadNextHeader) and
-            Assigned(_ArchiveReadData) and Assigned(_ArchiveReadFree)) then
+    if not (Assigned(_ArchiveReadNew) and
+            Assigned(_ArchiveReadSupportFormatAll) and
+            Assigned(_ArchiveReadSupportFilterAll) and
+            Assigned(_ArchiveReadOpenFilename) and
+            Assigned(_ArchiveReadNextHeader) and
+            Assigned(_ArchiveReadData) and
+            Assigned(_ArchiveReadDataSkip) and
+            Assigned(_ArchiveReadFree) and
+            Assigned(_ArchiveEntryPathname) and
+            Assigned(_ArchiveEntryFiletype) and
+            Assigned(_ArchiveEntrySize) and
+            Assigned(_ArchiveErrorString)) then
     begin
       Log('Archive: %s loaded but missing the core read functions', [LibName]);
       UnloadLibrary(hLib);
@@ -247,7 +258,7 @@ var
   P: PAnsiChar;
 begin
   Result := '';
-  if AR = nil then Exit;
+  if (AR = nil) or not Assigned(_ArchiveErrorString) then Exit;
   P := _ArchiveErrorString(AR);
   if P <> nil then Result := P;
 end;
@@ -325,16 +336,27 @@ begin
   if R = ARCHIVE_EOF then Exit;   { clean end of archive }
   if R < 0 then
   begin
-    FError := LibErrorString(FHandle);
-    Exit;
+    { ARCHIVE_WARN means the entry header is valid but libarchive flagged a
+      problem: keep reading it instead of treating the whole archive as
+      corrupt. }
+    if R <> ARCHIVE_WARN then
+    begin
+      FError := LibErrorString(FHandle);
+      Exit;
+    end;
   end;
 
-  P := _ArchiveEntryPathnameUtf8(Entry);
+  P := nil;
+  if Assigned(_ArchiveEntryPathnameUtf8) then
+    P := _ArchiveEntryPathnameUtf8(Entry);
   if P = nil then P := _ArchiveEntryPathname(Entry);
   if P <> nil then AInfo.Name := P;
   AInfo.Size := _ArchiveEntrySize(Entry);
   AInfo.IsDirectory := (_ArchiveEntryFiletype(Entry) and AE_IFMT) = AE_IFDIR;
-  AInfo.IsEncrypted := _ArchiveEntryIsEncrypted(Entry) <> 0;
+  { archive_entry_is_encrypted appeared in libarchive 3.3.3: optional, with
+    a safe default (the pointer is checked before it is called). }
+  if Assigned(_ArchiveEntryIsEncrypted) then
+    AInfo.IsEncrypted := _ArchiveEntryIsEncrypted(Entry) <> 0;
   Result := True;
 end;
 

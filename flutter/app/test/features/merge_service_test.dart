@@ -8,6 +8,37 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../support/fixtures.dart';
 
+/// [MemoryVfs] with injectable write failures.  [shadowExists] simulates a
+/// volume created by another process between listing and write; [delete]
+/// removes it too so the rollback is observable.
+class _FailingWriteVfs extends MemoryVfs {
+  final Set<String> shadowExists = <String>{};
+  bool fail = false;
+  bool partialWrite = false;
+  String? failPath;
+
+  @override
+  Future<bool> exists(String path) async =>
+      shadowExists.contains(path) || await super.exists(path);
+
+  @override
+  Future<void> delete(String path) async {
+    shadowExists.remove(path);
+    return super.delete(path);
+  }
+
+  @override
+  Future<void> writeAll(String path, List<int> bytes) async {
+    if (fail && path == failPath) {
+      if (partialWrite) {
+        await super.writeAll(path, bytes.take(bytes.length ~/ 2).toList());
+      }
+      throw StateError('disk full');
+    }
+    return super.writeAll(path, bytes);
+  }
+}
+
 Future<void> putChapter(MemoryVfs vfs, String name, int pages) async {
   await vfs.writeAll(
     '/$name',
@@ -33,8 +64,7 @@ void expectSameArchive(Uint8List a, Uint8List b) {
 }
 
 void main() {
-  test('merges full volumes and backs up sources', () async {
-    final vfs = MemoryVfs();
+  test('merges full volumes and backs up sources', () async {    final vfs = MemoryVfs();
     await putChapters(vfs, 6);
 
     final outcome = await const MergeService().merge(
@@ -54,6 +84,49 @@ void main() {
     }
     expect(await vfs.exists('/Test - 01_OLD.cbz'), isTrue);
     expect(await vfs.exists('/Test - 01.cbz'), isFalse);
+  });
+
+  test('rollback keeps a pre-existing target it could not overwrite',
+      () async {
+    // Models a volume appearing between the listing/plan and the write (the
+    // CLI plan is built from a snapshot).  The old code marked the batch as
+    // written before writeAll, so a failed write made rollback delete a file
+    // this run had not created.
+    final vfs = _FailingWriteVfs();
+    await putChapters(vfs, 2);
+    vfs.shadowExists.add('/Test V001.cbz');
+    vfs.fail = true;
+    vfs.failPath = '/Test V001.cbz';
+
+    final outcome = await const MergeService().merge(
+      vfs,
+      '/',
+      const MergeOptions(seriesName: 'Test', chaptersPerVolume: 2),
+    );
+
+    expect(outcome.success, isFalse);
+    expect(await vfs.exists('/Test V001.cbz'), isTrue,
+        reason: 'not created by this run: leave it alone');
+    expect(await vfs.exists('/Test - 01.cbz'), isTrue,
+        reason: 'failed run keeps its sources');
+  });
+
+  test('rollback removes a partial volume this run created', () async {
+    final vfs = _FailingWriteVfs();
+    await putChapters(vfs, 2);
+    vfs.fail = true;
+    vfs.failPath = '/Test V001.cbz';
+    vfs.partialWrite = true; // write a truncated file, then throw
+
+    final outcome = await const MergeService().merge(
+      vfs,
+      '/',
+      const MergeOptions(seriesName: 'Test', chaptersPerVolume: 2),
+    );
+
+    expect(outcome.success, isFalse);
+    expect(await vfs.exists('/Test V001.cbz'), isFalse,
+        reason: 'the truncated file created by this run is rolled back');
   });
 
   test('delete mode removes sources with no backup', () async {

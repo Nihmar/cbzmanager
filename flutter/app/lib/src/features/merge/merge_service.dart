@@ -64,7 +64,6 @@ class MergeService {
     final wrote = List<bool>.filled(total, false);
     final errors = List<String?>.filled(total, null);
     var done = 0;
-
     final requested = options.threads <= 0 ? onlineCpuCount() : options.threads;
     final limit = requested.clamp(1, maxThreads);
     final effective = limit < total ? limit : total;
@@ -77,6 +76,14 @@ class MergeService {
             if (isCancelled?.call() ?? false) return;
             final batch = plan.batches[i];
             try {
+              final target = p.join(dir, batch.fileName);
+              // A volume name that already existed may be a file this run must
+              // not destroy: only a target this run created is marked for
+              // rollback-deletion before the write.  A failed write over a
+              // pre-existing file leaves it alone (the reference's LocalVfs
+              // write is atomic; a direct SMB write cannot be restored
+              // anyway).
+              final existedBefore = await vfs.exists(target);
               final archives = <Uint8List>[];
               final numbers = <int>[];
               for (final file in batch.files) {
@@ -91,9 +98,14 @@ class MergeService {
                 options.generateComicInfo,
               );
               if (bytes != null) {
-                // Mark before writing so a partial write is rolled back too.
+                // Mark before writing only when this run created the target,
+                // so a partial write is rolled back too; a pre-existing
+                // volume is marked after success (never delete it on
+                // failure).  An empty batch (bytes == null) writes nothing
+                // and stays unmarked.
+                if (!existedBefore) wrote[i] = true;
+                await vfs.writeAll(target, bytes);
                 wrote[i] = true;
-                await vfs.writeAll(p.join(dir, batch.fileName), bytes);
               }
             } catch (e) {
               errors[i] = '$e';
@@ -134,6 +146,11 @@ class MergeService {
       for (var i = 0; i < total; i++)
         if (wrote[i]) plan.batches[i].fileName,
     ];
+    if (created.isEmpty && (isCancelled?.call() ?? false)) {
+      // Cancelled before any volume was written: "not enough chapters" would
+      // be a lie.
+      return const MergeOutcome(success: false, error: 'Merge cancelled');
+    }
     return MergeOutcome(
       success: created.isNotEmpty,
       volumesCreated: created.length,

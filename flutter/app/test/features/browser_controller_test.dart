@@ -1,5 +1,6 @@
 import 'package:cbzmanager/src/features/browser/browser_controller.dart';
 import 'package:cbzmanager/src/vfs/memory_vfs.dart';
+import 'package:cbzmanager/src/vfs/vfs.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -86,6 +87,28 @@ void main() {
     expect(state.items.map((e) => e.name).toList(), ['deep.cbz']);
   });
 
+  // Regression: a slow listing (SMB) that finishes after a newer one used to
+  // overwrite the grid with the previous directory's entries.
+  test('a slow earlier load cannot overwrite a newer one', () async {
+    final vfs = _SlowListVfs('/slow');
+    await vfs.mkdir('/slow');
+    await vfs.mkdir('/fast');
+    await vfs.writeAll('/slow/old.cbz', [1]);
+    await vfs.writeAll('/fast/new.cbz', [2]);
+
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final notifier = container.read(browserProvider.notifier);
+
+    final slow = notifier.load(vfs, '/slow');
+    await notifier.load(vfs, '/fast');
+    await slow; // the delayed listing completes last
+
+    final state = container.read(browserProvider);
+    expect(state.path, '/fast');
+    expect(state.items.map((e) => e.name).toList(), ['new.cbz']);
+  });
+
   group('browserParentPath', () {
     test('walks up inside the browsing root', () {
       expect(browserParentPath('', ''), isNull);
@@ -112,4 +135,19 @@ void main() {
     expect(state.error, isNotNull);
     expect(state.items, isEmpty);
   });
+}
+
+/// [MemoryVfs] whose [slowDir] listing is delayed past a following load.
+class _SlowListVfs extends MemoryVfs {
+  _SlowListVfs(this.slowDir);
+
+  final String slowDir;
+
+  @override
+  Future<List<VfsEntry>> list(String dir) async {
+    if (dir == slowDir) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    return super.list(dir);
+  }
 }

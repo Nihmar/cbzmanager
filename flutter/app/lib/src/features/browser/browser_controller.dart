@@ -48,10 +48,16 @@ String? browserParentPath(String base, String path) {
 /// Lists the CBZ/CBR files and the subdirectories of a directory, byte-wise
 /// sorted, and tracks the loading/error state for the browser screen.
 class BrowserController extends Notifier<BrowserState> {
+  /// Monotonic request id: only the newest load may publish state.  Without
+  /// it, a slow listing (SMB, large share) that finishes after a newer one
+  /// overwrote the grid with stale entries from the previous directory.
+  int _loadEpoch = 0;
+
   @override
   BrowserState build() => const BrowserState();
 
   Future<void> load(Vfs vfs, String dir) async {
+    final epoch = ++_loadEpoch;
     // Refreshing the same directory keeps the current tiles on screen; moving
     // to another directory starts with a clean grid.
     final sameDir = dir == state.path;
@@ -63,6 +69,7 @@ class BrowserController extends Notifier<BrowserState> {
     );
     try {
       final entries = await vfs.list(dir);
+      if (epoch != _loadEpoch) return; // superseded by a newer load
       final items = <ArchiveItem>[];
       final folders = <BrowserFolder>[];
       for (final entry in entries) {
@@ -86,6 +93,7 @@ class BrowserController extends Notifier<BrowserState> {
       folders.sort((a, b) => compareStr(a.name, b.name));
       state = BrowserState(items: items, folders: folders, path: dir);
     } catch (e) {
+      if (epoch != _loadEpoch) return;
       state = BrowserState(error: e.toString(), path: dir);
     }
   }

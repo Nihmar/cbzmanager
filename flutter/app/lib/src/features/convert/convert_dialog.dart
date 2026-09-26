@@ -3,53 +3,69 @@ import 'package:flutter/material.dart';
 import 'package:cbzmanager/l10n/generated/app_localizations.dart';
 
 import '../../util/service_messages.dart';
+import '../settings/settings.dart';
 import 'convert_service.dart';
 
 /// Options chosen in the convert dialog.
 class ConvertRequest {
-  const ConvertRequest({required this.backup, required this.threads});
+  const ConvertRequest({
+    required this.backup,
+    required this.threads,
+    required this.quality,
+    required this.onlyIfSmaller,
+    required this.skipExistingWebp,
+    required this.removeComicInfo,
+    required this.renumber,
+  });
 
   final bool backup;
   final int threads;
+  final int quality;
+  final bool onlyIfSmaller;
+  final bool skipExistingWebp;
+  final bool removeComicInfo;
+  final bool renumber;
 }
 
-/// Asks how to convert: keep an `_OLD` backup or delete the originals, and how
-/// many files to convert in parallel.  [defaultThreads]/[defaultBackup] come
-/// from the persisted settings.
+/// Asks how to convert: keep an `_OLD` backup or delete the originals, how
+/// many files to convert in parallel and the reference's conversion options
+/// (quality, only-if-smaller, skip existing WebP, ComicInfo, renumber).
+/// [defaults] comes from the persisted settings.
 Future<ConvertRequest?> showConvertOptionsDialog(
   BuildContext context, {
   required int fileCount,
-  int defaultThreads = 0,
-  bool defaultBackup = true,
+  required AppSettings defaults,
 }) {
   return showDialog<ConvertRequest>(
     context: context,
-    builder: (context) => _ConvertOptionsDialog(
-      fileCount: fileCount,
-      defaultThreads: defaultThreads,
-      defaultBackup: defaultBackup,
-    ),
+    builder: (context) =>
+        _ConvertOptionsDialog(fileCount: fileCount, defaults: defaults),
   );
 }
 
 class _ConvertOptionsDialog extends StatefulWidget {
   const _ConvertOptionsDialog({
     required this.fileCount,
-    this.defaultThreads = 0,
-    this.defaultBackup = true,
+    required this.defaults,
   });
 
   final int fileCount;
-  final int defaultThreads;
-  final bool defaultBackup;
+  final AppSettings defaults;
 
   @override
   State<_ConvertOptionsDialog> createState() => _ConvertOptionsDialogState();
 }
 
 class _ConvertOptionsDialogState extends State<_ConvertOptionsDialog> {
-  late bool _backup = widget.defaultBackup;
-  late final _threads = TextEditingController(text: '${widget.defaultThreads}');
+  late bool _backup = widget.defaults.backupByDefault;
+  late int _quality = widget.defaults.convertQuality;
+  late bool _onlyIfSmaller = widget.defaults.convertOnlyIfSmaller;
+  late bool _skipExistingWebp = widget.defaults.convertSkipExistingWebp;
+  late bool _removeComicInfo = widget.defaults.convertRemoveComicInfo;
+  late bool _renumber = widget.defaults.convertRenumber;
+  late final _threads = TextEditingController(
+    text: '${widget.defaults.convertThreads}',
+  );
 
   @override
   void dispose() {
@@ -65,49 +81,98 @@ class _ConvertOptionsDialogState extends State<_ConvertOptionsDialog> {
       title: Text(l10n.convertWebp),
       content: SizedBox(
         width: 460,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              l10n.convertSummary(widget.fileCount, ConvertService.quality),
-              style: theme.textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 16),
-            Text(l10n.originals, style: theme.textTheme.labelLarge),
-            const SizedBox(height: 8),
-            SegmentedButton<bool>(
-              segments: [
-                ButtonSegment(
-                  value: true,
-                  label: Text(l10n.backup),
-                  icon: const Icon(Icons.backup_outlined),
-                ),
-                ButtonSegment(
-                  value: false,
-                  label: Text(l10n.delete),
-                  icon: const Icon(Icons.delete_outline),
-                ),
-              ],
-              selected: {_backup},
-              onSelectionChanged: (selection) =>
-                  setState(() => _backup = selection.first),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              _backup ? l10n.originalsRenamed : l10n.originalsOverwritten,
-              style: theme.textTheme.bodySmall,
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _threads,
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(
-                labelText: l10n.parallelFiles,
-                helperText: l10n.autoThreadsCapped8,
+        height: 520,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                l10n.convertSummary(widget.fileCount, _quality),
+                style: theme.textTheme.bodyMedium,
               ),
-            ),
-          ],
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Text(l10n.convertQuality),
+                  Expanded(
+                    child: Slider(
+                      value: _quality.toDouble(),
+                      min: 1,
+                      max: 100,
+                      divisions: 99,
+                      label: '$_quality%',
+                      onChanged: (v) => setState(() => _quality = v.round()),
+                    ),
+                  ),
+                  Text('$_quality%'),
+                ],
+              ),
+              CheckboxListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: Text(l10n.convertOnlyIfSmaller),
+                value: _onlyIfSmaller,
+                onChanged: (v) => setState(() => _onlyIfSmaller = v ?? true),
+              ),
+              CheckboxListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: Text(l10n.convertSkipExistingWebp),
+                value: _skipExistingWebp,
+                onChanged: (v) => setState(() => _skipExistingWebp = v ?? true),
+              ),
+              CheckboxListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: Text(l10n.convertKeepComicInfo),
+                value: !_removeComicInfo,
+                onChanged: (v) =>
+                    setState(() => _removeComicInfo = !(v ?? false)),
+              ),
+              CheckboxListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: Text(l10n.renumberPages),
+                value: _renumber,
+                onChanged: (v) => setState(() => _renumber = v ?? true),
+              ),
+              const Divider(),
+              Text(l10n.originals, style: theme.textTheme.labelLarge),
+              const SizedBox(height: 8),
+              SegmentedButton<bool>(
+                segments: [
+                  ButtonSegment(
+                    value: true,
+                    label: Text(l10n.backup),
+                    icon: const Icon(Icons.backup_outlined),
+                  ),
+                  ButtonSegment(
+                    value: false,
+                    label: Text(l10n.delete),
+                    icon: const Icon(Icons.delete_outline),
+                  ),
+                ],
+                selected: {_backup},
+                onSelectionChanged: (selection) =>
+                    setState(() => _backup = selection.first),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _backup ? l10n.originalsRenamed : l10n.originalsOverwritten,
+                style: theme.textTheme.bodySmall,
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _threads,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  labelText: l10n.parallelFiles,
+                  helperText: l10n.autoThreadsCapped8,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
       actions: [
@@ -122,6 +187,11 @@ class _ConvertOptionsDialogState extends State<_ConvertOptionsDialog> {
               ConvertRequest(
                 backup: _backup,
                 threads: threads < 0 ? 0 : threads,
+                quality: _quality,
+                onlyIfSmaller: _onlyIfSmaller,
+                skipExistingWebp: _skipExistingWebp,
+                removeComicInfo: _removeComicInfo,
+                renumber: _renumber,
               ),
             );
           },
@@ -139,6 +209,7 @@ Future<void> showConvertResultsDialog(
   List<ConvertOutcome> outcomes,
 ) {
   final ok = outcomes.where((o) => o.success).length;
+  final skipped = outcomes.where((o) => o.skipped).length;
   final failed = outcomes.where((o) => o.error != null).length;
   final pages = outcomes.fold<int>(0, (sum, o) => sum + o.converted);
   final kept = outcomes.fold<int>(0, (sum, o) => sum + o.kept);
@@ -169,6 +240,8 @@ Future<void> showConvertResultsDialog(
                     avatar: const Icon(Icons.check_circle, size: 18),
                     label: Text(l10n.convertedCount(ok)),
                   ),
+                  if (skipped > 0)
+                    Chip(label: Text(l10n.skippedCount(skipped))),
                   if (kept > 0) Chip(label: Text(l10n.keptPages(kept))),
                   if (failed > 0)
                     Chip(

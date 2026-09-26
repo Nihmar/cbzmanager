@@ -3,6 +3,7 @@ import 'package:cbzmanager/src/features/batch_edit/batch_edit_dialog.dart';
 import 'package:cbzmanager/src/features/cbr/cbr_dialog.dart';
 import 'package:cbzmanager/src/features/convert/convert_dialog.dart';
 import 'package:cbzmanager/src/features/merge/merge_dialog.dart';
+import 'package:cbzmanager/src/features/settings/settings.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -42,8 +43,15 @@ void main() {
       (context) => showConvertOptionsDialog(
         context,
         fileCount: 3,
-        defaultThreads: 4,
-        defaultBackup: false,
+        defaults: const AppSettings(
+          convertThreads: 4,
+          backupByDefault: false,
+          convertQuality: 60,
+          convertOnlyIfSmaller: false,
+          convertSkipExistingWebp: false,
+          convertRemoveComicInfo: false,
+          convertRenumber: false,
+        ),
       ),
     );
     expect(find.widgetWithText(TextField, '4'), findsOneWidget);
@@ -51,6 +59,46 @@ void main() {
       find.byType(SegmentedButton<bool>),
     );
     expect(backup.selected, {false});
+    expect(tester.widget<Slider>(find.byType(Slider)).value, 60);
+    expect(
+      tester
+          .widget<CheckboxListTile>(
+            find.widgetWithText(
+              CheckboxListTile,
+              'Keep the original when WebP is not smaller',
+            ),
+          )
+          .value,
+      isFalse,
+    );
+    expect(
+      tester
+          .widget<CheckboxListTile>(
+            find.widgetWithText(
+              CheckboxListTile,
+              'Leave existing WebP pages untouched',
+            ),
+          )
+          .value,
+      isFalse,
+    );
+    expect(
+      tester
+          .widget<CheckboxListTile>(
+            find.widgetWithText(CheckboxListTile, 'Keep ComicInfo.xml'),
+          )
+          .value,
+      isTrue,
+      reason: 'removeComicInfo: false means the box is checked',
+    );
+    expect(
+      tester
+          .widget<CheckboxListTile>(
+            find.widgetWithText(CheckboxListTile, 'Renumber pages'),
+          )
+          .value,
+      isFalse,
+    );
   });
 
   testWidgets('cbr dialog starts from the settings defaults', (tester) async {

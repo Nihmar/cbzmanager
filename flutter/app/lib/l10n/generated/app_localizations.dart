@@ -586,8 +586,32 @@ abstract class AppLocalizations {
   /// No description provided for @convertSummary.
   ///
   /// In en, this message translates to:
-  /// **'{count} file(s): WebP q{quality}, only if smaller, ComicInfo filtered, pages renumbered.'**
+  /// **'{count} file(s) — WebP conversion at quality {quality}.'**
   String convertSummary(int count, int quality);
+
+  /// No description provided for @convertQuality.
+  ///
+  /// In en, this message translates to:
+  /// **'Quality'**
+  String get convertQuality;
+
+  /// No description provided for @convertOnlyIfSmaller.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep the original when WebP is not smaller'**
+  String get convertOnlyIfSmaller;
+
+  /// No description provided for @convertSkipExistingWebp.
+  ///
+  /// In en, this message translates to:
+  /// **'Leave existing WebP pages untouched'**
+  String get convertSkipExistingWebp;
+
+  /// No description provided for @convertKeepComicInfo.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep ComicInfo.xml'**
+  String get convertKeepComicInfo;
 
   /// No description provided for @originals.
   ///

@@ -17,6 +17,11 @@ class AppSettings {
     this.cbrThreads = 0,
     this.batchThreads = 0,
     this.backupByDefault = true,
+    this.convertQuality = 75,
+    this.convertOnlyIfSmaller = true,
+    this.convertSkipExistingWebp = true,
+    this.convertRemoveComicInfo = true,
+    this.convertRenumber = true,
   });
 
   final ThemeMode themeMode;
@@ -29,6 +34,13 @@ class AppSettings {
   final int batchThreads;
   final bool backupByDefault;
 
+  /// WebP conversion options, persisted like the reference dialog.
+  final int convertQuality;
+  final bool convertOnlyIfSmaller;
+  final bool convertSkipExistingWebp;
+  final bool convertRemoveComicInfo;
+  final bool convertRenumber;
+
   AppSettings copyWith({
     ThemeMode? themeMode,
     String? languageCode,
@@ -37,6 +49,11 @@ class AppSettings {
     int? cbrThreads,
     int? batchThreads,
     bool? backupByDefault,
+    int? convertQuality,
+    bool? convertOnlyIfSmaller,
+    bool? convertSkipExistingWebp,
+    bool? convertRemoveComicInfo,
+    bool? convertRenumber,
   }) => AppSettings(
     themeMode: themeMode ?? this.themeMode,
     languageCode: languageCode ?? this.languageCode,
@@ -45,6 +62,13 @@ class AppSettings {
     cbrThreads: cbrThreads ?? this.cbrThreads,
     batchThreads: batchThreads ?? this.batchThreads,
     backupByDefault: backupByDefault ?? this.backupByDefault,
+    convertQuality: convertQuality ?? this.convertQuality,
+    convertOnlyIfSmaller: convertOnlyIfSmaller ?? this.convertOnlyIfSmaller,
+    convertSkipExistingWebp:
+        convertSkipExistingWebp ?? this.convertSkipExistingWebp,
+    convertRemoveComicInfo:
+        convertRemoveComicInfo ?? this.convertRemoveComicInfo,
+    convertRenumber: convertRenumber ?? this.convertRenumber,
   );
 }
 
@@ -57,6 +81,11 @@ class SettingsController extends Notifier<AppSettings> {
   static const _cbrKey = 'cbrThreads';
   static const _batchKey = 'batchThreads';
   static const _backupKey = 'backupByDefault';
+  static const _convertQualityKey = 'convertQuality';
+  static const _convertOnlyIfSmallerKey = 'convertOnlyIfSmaller';
+  static const _convertSkipExistingWebpKey = 'convertSkipExistingWebp';
+  static const _convertRemoveComicInfoKey = 'convertRemoveComicInfo';
+  static const _convertRenumberKey = 'convertRenumber';
 
   SharedPreferences get _prefs => ref.read(sharedPrefsProvider);
 
@@ -71,6 +100,12 @@ class SettingsController extends Notifier<AppSettings> {
       cbrThreads: prefs.getInt(_cbrKey) ?? 0,
       batchThreads: prefs.getInt(_batchKey) ?? 0,
       backupByDefault: prefs.getBool(_backupKey) ?? true,
+      convertQuality: prefs.getInt(_convertQualityKey) ?? 75,
+      convertOnlyIfSmaller: prefs.getBool(_convertOnlyIfSmallerKey) ?? true,
+      convertSkipExistingWebp:
+          prefs.getBool(_convertSkipExistingWebpKey) ?? true,
+      convertRemoveComicInfo: prefs.getBool(_convertRemoveComicInfoKey) ?? true,
+      convertRenumber: prefs.getBool(_convertRenumberKey) ?? true,
     );
   }
 
@@ -84,6 +119,20 @@ class SettingsController extends Notifier<AppSettings> {
     await prefs.setInt(_cbrKey, settings.cbrThreads);
     await prefs.setInt(_batchKey, settings.batchThreads);
     await prefs.setBool(_backupKey, settings.backupByDefault);
+    await prefs.setInt(_convertQualityKey, settings.convertQuality);
+    await prefs.setBool(
+      _convertOnlyIfSmallerKey,
+      settings.convertOnlyIfSmaller,
+    );
+    await prefs.setBool(
+      _convertSkipExistingWebpKey,
+      settings.convertSkipExistingWebp,
+    );
+    await prefs.setBool(
+      _convertRemoveComicInfoKey,
+      settings.convertRemoveComicInfo,
+    );
+    await prefs.setBool(_convertRenumberKey, settings.convertRenumber);
   }
 
   static ThemeMode _themeFromName(String? name) {

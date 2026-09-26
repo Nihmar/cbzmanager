@@ -223,23 +223,51 @@ class BrowserOperations {
     List<ArchiveItem> items,
   ) async {
     final l10n = AppLocalizations.of(context);
+    final editable = <ArchiveItem>[
+      for (final item in items)
+        if (!item.isCbr) item,
+    ];
+    if (editable.isEmpty) {
+      snack(context, l10n.cbrReadOnlyConvertFirst);
+      return;
+    }
     final settings = ref.read(settingsProvider);
     final request = await showConvertOptionsDialog(
       context,
-      fileCount: items.length,
-      defaultThreads: settings.convertThreads,
-      defaultBackup: settings.backupByDefault,
+      fileCount: editable.length,
+      defaults: settings,
     );
     if (request == null || !context.mounted) return;
 
+    // Persist the choices like the reference dialog does.
+    await ref
+        .read(settingsProvider.notifier)
+        .update(
+          settings.copyWith(
+            convertThreads: request.threads,
+            backupByDefault: request.backup,
+            convertQuality: request.quality,
+            convertOnlyIfSmaller: request.onlyIfSmaller,
+            convertSkipExistingWebp: request.skipExistingWebp,
+            convertRemoveComicInfo: request.removeComicInfo,
+            convertRenumber: request.renumber,
+          ),
+        );
+    if (!context.mounted) return;
+
     final job = ref.read(jobProvider.notifier);
-    job.start(l10n.convertWebp, message: l10n.convertingFiles(items.length));
+    job.start(l10n.convertWebp, message: l10n.convertingFiles(editable.length));
     try {
       final outcomes = await const ConvertService().convertMany(
         source.vfs,
-        items,
+        editable,
         backup: request.backup,
         threads: request.threads,
+        quality: request.quality,
+        onlyIfSmaller: request.onlyIfSmaller,
+        skipExistingWebp: request.skipExistingWebp,
+        removeComicInfo: request.removeComicInfo,
+        renumber: request.renumber,
         onProgress: (done, total, message) =>
             job.progress(total == 0 ? 0 : done * 100 ~/ total, message),
         isCancelled: () => job.cancelRequested,

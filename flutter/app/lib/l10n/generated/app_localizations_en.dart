@@ -299,8 +299,21 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String convertSummary(int count, int quality) {
-    return '$count file(s): WebP q$quality, only if smaller, ComicInfo filtered, pages renumbered.';
+    return '$count file(s) — WebP conversion at quality $quality.';
   }
+
+  @override
+  String get convertQuality => 'Quality';
+
+  @override
+  String get convertOnlyIfSmaller =>
+      'Keep the original when WebP is not smaller';
+
+  @override
+  String get convertSkipExistingWebp => 'Leave existing WebP pages untouched';
+
+  @override
+  String get convertKeepComicInfo => 'Keep ComicInfo.xml';
 
   @override
   String get originals => 'Originals';

@@ -241,7 +241,7 @@
   },
   "readOnly": "read-only",
   "noPages": "No pages",
-  "convertSummary": "{count} file(s): WebP q{quality}, only if smaller, ComicInfo filtered, pages renumbered.",
+  "convertSummary": "{count} file(s) — WebP conversion at quality {quality}.",
   "@convertSummary": {
     "placeholders": {
       "count": {
@@ -252,6 +252,10 @@
       }
     }
   },
+  "convertQuality": "Quality",
+  "convertOnlyIfSmaller": "Keep the original when WebP is not smaller",
+  "convertSkipExistingWebp": "Leave existing WebP pages untouched",
+  "convertKeepComicInfo": "Keep ComicInfo.xml",
   "originals": "Originals",
   "originalsRenamed": "Originals are renamed to <name>_OLD.cbz.",
   "originalsOverwritten": "Originals are overwritten with no backup.",

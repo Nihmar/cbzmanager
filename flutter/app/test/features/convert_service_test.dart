@@ -106,4 +106,23 @@ void main() {
     expect(outcomes.first.error, isNotNull);
     expect(outcomes[1].success, isTrue);
   });
+
+  test('an archive with no images is a benign skip, not an error', () async {
+    // Regression: the engine returns no output for a ComicInfo-only archive;
+    // the service used to report that as a per-file failure (the CLI then
+    // exited 1 where the reference exits 0).
+    final vfs = MemoryVfs();
+    final original = makeZip({'ComicInfo.xml': '<ComicInfo/>'.codeUnits});
+    await vfs.writeAll('empty.cbz', original);
+
+    final outcomes = await const ConvertService().convertMany(vfs, [
+      item('empty.cbz'),
+    ], backup: true);
+
+    expect(outcomes.single.error, isNull);
+    expect(outcomes.single.skipped, isTrue);
+    expect(outcomes.single.success, isFalse);
+    expect(await vfs.exists('/empty_OLD.cbz'), isFalse);
+    expectSameArchive(await vfs.readAll('/empty.cbz'), original);
+  });
 }

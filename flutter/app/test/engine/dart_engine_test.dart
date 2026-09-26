@@ -4,6 +4,7 @@ import 'package:cbzmanager/src/engine/dart_engine.dart';
 import 'package:cbzmanager/src/engine/models.dart';
 import 'package:cbzmanager/src/engine/zip_ops.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 
 import '../support/fixtures.dart';
 
@@ -139,6 +140,56 @@ void main() {
       final entries = collectZipEntries(result.output!);
       expect(entries.single.name, 'page_0001.webp');
       expect(result.converted, 1);
+    });
+
+    test(
+      'skipExistingWebp leaves existing WebP pages byte-identical',
+      () async {
+        // Regression: the port re-encoded existing .webp pages, losing quality
+        // on every conversion run (the reference skips them by default).
+        final solid = img.Image(width: 32, height: 32);
+        img.fill(solid, color: img.ColorRgb8(9, 9, 9));
+        final original = Uint8List.fromList(
+          img.encodeWebP(solid, lossless: false, quality: 40),
+        );
+        final zip = makeZip({
+          'page_0001.png': makeNoisePng(64, 64),
+          'page_0002.webp': original,
+          'page_0003.png': makeNoisePng(64, 64, 2),
+        });
+
+        final result = await engine.convertWebp(
+          ArchiveData('book.cbz', zip),
+          const ConvertOptions(onlyIfSmaller: false),
+        );
+        expect(result.success, isTrue);
+        expect(result.converted, 2);
+        expect(result.kept, 1);
+
+        final entries = collectZipEntries(result.output!);
+        expect(entries.map((e) => e.name), [
+          'page_0001.webp',
+          'page_0002.webp',
+          'page_0003.webp',
+        ]);
+        expect(entries[1].bytes, original);
+      },
+    );
+
+    test('skipExistingWebp off re-encodes existing WebP pages', () async {
+      final solid = img.Image(width: 32, height: 32);
+      img.fill(solid, color: img.ColorRgb8(9, 9, 9));
+      final zip = makeZip({
+        'page_0001.webp': Uint8List.fromList(
+          img.encodeWebP(solid, lossless: false, quality: 40),
+        ),
+      });
+      final result = await engine.convertWebp(
+        ArchiveData('book.cbz', zip),
+        const ConvertOptions(onlyIfSmaller: false, skipExistingWebp: false),
+      );
+      expect(result.converted, 1);
+      expect(result.kept, 0);
     });
   });
 

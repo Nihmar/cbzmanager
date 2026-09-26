@@ -1,6 +1,5 @@
 import 'dart:typed_data';
 
-import 'package:cbzmanager/src/engine/models.dart';
 import 'package:cbzmanager/src/engine/zip_ops.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -54,12 +53,18 @@ void main() {
   });
 
   test('rejects garbage without crashing', () {
-    List<ZipEntryData>? entries;
-    try {
-      entries = collectZipEntries(Uint8List.fromList([1, 2, 3, 4]));
-    } catch (_) {
-      entries = null;
-    }
-    expect(entries == null || entries.isEmpty, isTrue);
+    expect(
+      () => collectZipEntries(Uint8List.fromList([1, 2, 3, 4])),
+      throwsA(isA<FormatException>()),
+    );
+  });
+
+  test('isZipData accepts a valid but empty ZIP and rejects garbage', () {
+    // package:archive decodes arbitrary bytes to an empty archive, so this
+    // guard is what tells "no entries" from "not a ZIP".
+    expect(isZipData(makeZip({})), isTrue);
+    expect(collectZipEntries(makeZip({})), isEmpty);
+    expect(isZipData(Uint8List.fromList([1, 2, 3, 4])), isFalse);
+    expect(isZipData(Uint8List(0)), isFalse);
   });
 }

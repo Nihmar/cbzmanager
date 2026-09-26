@@ -38,7 +38,10 @@ class ConvertService {
   const ConvertService();
 
   static const _workspace = Workspace();
-  static const int quality = 75;
+
+  /// Reference default (quality 75, only-if-smaller, skip existing WebP,
+  /// strip ComicInfo.xml, renumber pages).
+  static const int defaultQuality = 75;
   static const int maxThreads = 8;
 
   Future<List<ConvertOutcome>> convertMany(
@@ -46,6 +49,11 @@ class ConvertService {
     List<ArchiveItem> items, {
     required bool backup,
     int threads = 0,
+    int quality = defaultQuality,
+    bool onlyIfSmaller = true,
+    bool skipExistingWebp = true,
+    bool removeComicInfo = true,
+    bool renumber = true,
     void Function(int done, int total, String message)? onProgress,
     bool Function()? isCancelled,
   }) async {
@@ -71,11 +79,23 @@ class ConvertService {
             try {
               final bytes = await vfs.readAll(item.path);
               final name = item.name;
-              const q = quality;
-              final result = await convertInIsolate(bytes, name, quality: q);
+              final result = await convertInIsolate(
+                bytes,
+                name,
+                quality: quality,
+                onlyIfSmaller: onlyIfSmaller,
+                skipExistingWebp: skipExistingWebp,
+                removeComicInfo: removeComicInfo,
+                renumber: renumber,
+              );
               final output = result[0] as Uint8List?;
-              if (output == null) {
-                slots[i] = ConvertOutcome(item: item, error: 'No images found');
+              final fileError = result[3] as String?;
+              if (fileError != null) {
+                slots[i] = ConvertOutcome(item: item, error: fileError);
+              } else if (output == null) {
+                // No images: a benign no-op like the reference, not a
+                // failure (the CLI must exit 0 for it).
+                slots[i] = ConvertOutcome(item: item, skipped: true);
               } else {
                 await _workspace.publish(
                   vfs,

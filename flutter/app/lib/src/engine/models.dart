@@ -57,12 +57,18 @@ class ConvertOptions {
   const ConvertOptions({
     this.quality = 75,
     this.onlyIfSmaller = true,
+    this.skipExistingWebp = true,
     this.removeComicInfo = true,
     this.renumber = true,
   });
 
   final int quality;
   final bool onlyIfSmaller;
+
+  /// Leaves pages already encoded as WebP untouched (the reference default).
+  /// Without it every conversion run would re-encode them, losing quality on
+  /// each pass even when the result is smaller.
+  final bool skipExistingWebp;
   final bool removeComicInfo;
   final bool renumber;
 }

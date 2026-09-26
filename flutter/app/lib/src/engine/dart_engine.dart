@@ -21,6 +21,11 @@ import 'zip_ops.dart';
 class DartCbzEngine implements CbzEngine {
   const DartCbzEngine();
 
+  /// Error returned for an archive without any decodable image page.  It is a
+  /// benign no-op for the conversion pipeline, so callers (and the CLI) can
+  /// distinguish it from a real failure without string guessing.
+  static const String noImagesError = 'No images found in archive';
+
   /// Registry id used by [engineFromId] to rebuild this engine inside a
   /// background isolate.
   static const String engineId = 'dart';
@@ -117,7 +122,7 @@ class DartCbzEngine implements CbzEngine {
       return ConvertResult(
         name: data.name,
         success: false,
-        error: 'No images found in archive',
+        error: DartCbzEngine.noImagesError,
       );
     }
 
@@ -140,6 +145,22 @@ class DartCbzEngine implements CbzEngine {
         continue;
       }
       pageNum++;
+
+      // Existing WebP: keep the encoded bytes untouched when requested
+      // (reference default).  The page still consumes its number and is
+      // renamed like every other page.
+      if (options.skipExistingWebp && ext.toLowerCase() == '.webp') {
+        kept++;
+        final name = options.renumber
+            ? formatPageName(pageNum, ext)
+            : entry.name;
+        output.add(ZipEntryData(name, bytes));
+        onProgress?.call(
+          (pageNum * 100) ~/ images.length,
+          'Converted $pageNum/${images.length}',
+        );
+        continue;
+      }
 
       final decoded = _decode(entry.bytes);
       if (decoded != null) {

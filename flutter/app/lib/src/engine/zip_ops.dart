@@ -9,9 +9,41 @@ import 'models.dart';
 /// The single entry the reference filters on every operation.
 const String comicInfoName = 'ComicInfo.xml';
 
+/// Byte length of a ZIP end-of-central-directory record without comment.
+const int _eocdMinLength = 22;
+
+/// ZIP comment field length limit: the EOCD signature can sit up to 65535
+/// bytes before the end of the file.
+const int _maxZipComment = 65535;
+
+/// True when [bytes] carries the ZIP end-of-central-directory signature
+/// (`PK\x05\x06`) in the last 64 KiB.
+///
+/// `package:archive` silently returns an empty archive for arbitrary input
+/// instead of throwing, so without this check a corrupt file would be
+/// indistinguishable from a valid ZIP with no entries ("No images found").
+bool isZipData(Uint8List bytes) {
+  if (bytes.length < _eocdMinLength) return false;
+  final last = bytes.length - _eocdMinLength;
+  final first = last - _maxZipComment < 0 ? 0 : last - _maxZipComment;
+  for (var i = last; i >= first; i--) {
+    if (bytes[i] == 0x50 &&
+        bytes[i + 1] == 0x4b &&
+        bytes[i + 2] == 0x05 &&
+        bytes[i + 3] == 0x06) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /// Reads every file entry of a ZIP/CBZ into memory. Directories are skipped.
-/// Throws [ArchiveException] (or a format exception) on invalid input.
+/// Throws [FormatException] for data that is not a ZIP at all, or an archive
+/// exception for a structurally broken one.
 List<ZipEntryData> collectZipEntries(Uint8List zipBytes) {
+  if (!isZipData(zipBytes)) {
+    throw const FormatException('Not a ZIP archive');
+  }
   final archive = ZipDecoder().decodeBytes(zipBytes);
   final out = <ZipEntryData>[];
   for (final file in archive) {

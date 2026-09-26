@@ -4,6 +4,7 @@ import 'package:cbzmanager/src/engine/merge.dart';
 import 'package:cbzmanager/src/engine/zip_ops.dart';
 import 'package:cbzmanager/src/features/merge/merge_service.dart';
 import 'package:cbzmanager/src/vfs/memory_vfs.dart';
+import 'package:cbzmanager/src/vfs/vfs.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../support/fixtures.dart';
@@ -36,6 +37,16 @@ class _FailingWriteVfs extends MemoryVfs {
       throw StateError('disk full');
     }
     return super.writeAll(path, bytes);
+  }
+}
+
+/// [MemoryVfs] that refuses to rename over an existing file, like SMB2
+/// (libsmb2 rename fails on an existing target).
+class _NoOverwriteRenameVfs extends MemoryVfs {
+  @override
+  Future<void> rename(String from, String to) async {
+    if (await exists(to)) throw const VfsException('target exists');
+    return super.rename(from, to);
   }
 }
 
@@ -235,6 +246,29 @@ void main() {
     expect(await vfs.exists('/Other - 01.cbz'), isTrue);
     expect(await vfs.exists('/Test - 01_OLD_OLD.cbz'), isFalse);
     expect(await vfs.exists('/Test - 01_OLD.cbz'), isTrue);
+  });
+
+  test('replaces a stale _OLD backup on a no-overwrite backend', () async {
+    // SMB2 cannot rename over an existing file: the backup must be deleted
+    // first, or the chapter stays un-backed-up in silence.
+    final vfs = _NoOverwriteRenameVfs();
+    await putChapters(vfs, 2);
+    await putChapter(vfs, 'Test - 01_OLD.cbz', 5); // stale backup
+
+    final outcome = await const MergeService().merge(
+      vfs,
+      '/',
+      const MergeOptions(seriesName: 'Test', chaptersPerVolume: 2),
+    );
+
+    expect(outcome.success, isTrue);
+    expect(await vfs.exists('/Test - 01.cbz'), isFalse);
+    final backup = collectZipEntries(await vfs.readAll('/Test - 01_OLD.cbz'));
+    expect(
+      backup.length,
+      1,
+      reason: 'the stale backup was replaced by the merged chapter',
+    );
   });
 
   test('never overwrites an existing three-digit volume', () async {

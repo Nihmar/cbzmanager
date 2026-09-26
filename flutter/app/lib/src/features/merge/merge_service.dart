@@ -182,7 +182,12 @@ class MergeService {
         if (delete) {
           await vfs.delete(path);
         } else {
-          await vfs.rename(path, _workspace.backupPath(path));
+          final backup = _workspace.backupPath(path);
+          // Replace a previous backup explicitly: SMB2 has no rename-over-
+          // existing, so the reference's BackupFile semantics (delete then
+          // rename) are what works on every backend.
+          if (await vfs.exists(backup)) await vfs.delete(backup);
+          await vfs.rename(path, backup);
         }
       } catch (_) {
         // best-effort cleanup

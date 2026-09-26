@@ -30,7 +30,10 @@ class ThumbnailService {
     int maxWidth = 320,
     int maxHeight = 400,
   }) {
-    final key = 'archive:${vfs.scheme}:${item.path}';
+    // The requested size is part of the key: the same archive can be asked
+    // for thumbnails at different sizes and a size-less key served the first
+    // one for all of them.
+    final key = 'archive:${vfs.scheme}:${item.path}:$maxWidth:$maxHeight';
     return _cached(
       key,
       () => _readPool.withResource(() async {
@@ -69,7 +72,7 @@ class ThumbnailService {
     int maxHeight = 1600,
   }) {
     return _cached(
-      '$key:$index',
+      '$key:$index:$maxWidth:$maxHeight',
       () => _decodePool.withResource(
         () => decodePageThumbInIsolate(bytes, name, index, maxWidth, maxHeight),
       ),

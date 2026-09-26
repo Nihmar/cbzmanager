@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -102,9 +103,28 @@ class ThumbnailService {
   ) {
     final existing = _cache[key];
     if (existing != null) return existing;
-    if (_cache.length >= _maxCacheEntries) _cache.clear();
+    if (_cache.length >= _maxCacheEntries) {
+      // FIFO eviction: drop the oldest entry instead of the whole cache, so
+      // a long browsing session keeps the most recent thumbnails.
+      _cache.remove(_cache.keys.first);
+    }
     final future = compute();
     _cache[key] = future;
+    // A failed decode (null) or an error is not cached: a transient read
+    // error must not poison the key for the rest of the session.  The
+    // identity check keeps a newer entry for the same key intact.
+    unawaited(
+      future.then<void>(
+        (bytes) {
+          if (bytes == null && identical(_cache[key], future)) {
+            _cache.remove(key);
+          }
+        },
+        onError: (Object _, StackTrace _) {
+          if (identical(_cache[key], future)) _cache.remove(key);
+        },
+      ),
+    );
     return future;
   }
 

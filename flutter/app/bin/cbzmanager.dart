@@ -65,15 +65,22 @@ Future<void> main(List<String> args) async {
   }
 
   final vfs = const LocalVfs();
-  switch (command) {
-    case 'validate':
-      exit(await _validate(vfs, dir, options));
-    case 'convert-webp':
-      exit(await _convert(vfs, dir, options));
-    case 'merge':
-      exit(await _merge(vfs, dir, options));
-    case 'cbr-to-cbz':
-      exit(await _cbrToCbz(vfs, dir, options));
+  try {
+    switch (command) {
+      case 'validate':
+        exit(await _validate(vfs, dir, options));
+      case 'convert-webp':
+        exit(await _convert(vfs, dir, options));
+      case 'merge':
+        exit(await _merge(vfs, dir, options));
+      case 'cbr-to-cbz':
+        exit(await _cbrToCbz(vfs, dir, options));
+    }
+  } catch (e) {
+    // Keep the documented 0/1/2 exit-code contract: an uncaught async error
+    // would terminate the process with 255 and no message.
+    stderr.writeln('Error: $e');
+    exit(_exitError);
   }
 }
 
@@ -240,15 +247,16 @@ Future<int> _merge(Vfs vfs, String dir, _Options options) async {
     stdout.writeln('No chapter files found');
     return _exitOk;
   }
-  final series = <String>{
-    for (final item in all)
-      if (detectSeriesName([item.name]).isNotEmpty)
-        detectSeriesName([item.name]),
-  }.toList()..sort();
+  final series = <String>{};
+  for (final item in all) {
+    final name = detectSeriesName([item.name]);
+    if (name.isNotEmpty) series.add(name);
+  }
+  final sortedSeries = series.toList()..sort();
 
   var created = 0;
   var failed = 0;
-  for (final name in series) {
+  for (final name in sortedSeries) {
     stdout.writeln('Merging series: $name');
     final result = await const MergeService().merge(
       vfs,

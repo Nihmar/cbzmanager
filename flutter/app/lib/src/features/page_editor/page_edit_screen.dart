@@ -100,9 +100,8 @@ class _PageEditScreenState extends State<PageEditScreen> {
 
     final ext = encodeExtFor(extensionOf(page.name));
     final named = <({String name, Uint8List data})>[
-      (name: page.name, data: pieces.first),
-      for (var i = 1; i < pieces.length; i++)
-        (name: '${_stem(page.name)}_$i$ext', data: pieces[i]),
+      for (var i = 0; i < pieces.length; i++)
+        (name: editedPieceName(page.name, ext, i), data: pieces[i]),
     ];
     setState(() {
       model.replaceWithPieces(modelIndex, named);
@@ -366,10 +365,5 @@ class _PageEditScreenState extends State<PageEditScreen> {
         );
       },
     );
-  }
-
-  static String _stem(String name) {
-    final dot = name.lastIndexOf('.');
-    return dot < 0 ? name : name.substring(0, dot);
   }
 }

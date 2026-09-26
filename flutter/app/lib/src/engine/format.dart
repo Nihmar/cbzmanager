@@ -66,3 +66,14 @@ String encodeExtFor(String ext) {
       return '.png';
   }
 }
+
+/// Name of one piece produced by a page edit.  Piece 0 replaces the page, so
+/// it keeps the original stem with [targetExt] (the extension follows the
+/// encoded format, e.g. GIF/TIFF → PNG); extra split pieces get `_N` before
+/// the extension.
+String editedPieceName(String pageName, String targetExt, int pieceIndex) {
+  final dot = pageName.lastIndexOf('.');
+  final stem = dot < 0 ? pageName : pageName.substring(0, dot);
+  final e = targetExt.startsWith('.') ? targetExt : '.$targetExt';
+  return pieceIndex == 0 ? '$stem$e' : '${stem}_$pieceIndex$e';
+}

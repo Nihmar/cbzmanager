@@ -57,4 +57,18 @@ void main() {
       expect(encodeExtFor('.xyz'), '.png');
     });
   });
+
+  group('editedPieceName', () {
+    test('first piece keeps the stem and follows the encoded format', () {
+      expect(editedPieceName('page_0001.png', '.png', 0), 'page_0001.png');
+      // GIF/TIFF are encoded as PNG: the name must not keep lying about it.
+      expect(editedPieceName('page_0007.gif', '.png', 0), 'page_0007.png');
+      expect(editedPieceName('cover.tiff', '.png', 0), 'cover.png');
+    });
+
+    test('extra pieces get a numeric suffix', () {
+      expect(editedPieceName('page_0001.jpg', '.jpg', 1), 'page_0001_1.jpg');
+      expect(editedPieceName('page_0001.jpg', '.jpg', 2), 'page_0001_2.jpg');
+    });
+  });
 }

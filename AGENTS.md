@@ -126,7 +126,7 @@ make clean          # remove test build artifacts
 | Operation | Python module | Behaviour | Status |
 |-----------|---------------|-----------|--------|
 | **validate** | `validate.py` | Check CBZ is a valid ZIP and all images (incl. `.webp`) are readable; per-file decode pool (`--threads N`, GUI options dialog, default one worker per CPU core capped at 8) | ✅ Ported |
-| **convert-webp** | `convert.py` | Convert images to WebP (quality 75%) only if smaller; filter `ComicInfo.xml`; rename to `page_NNNN.*`; backup originals as `_OLD.cbz` or `--delete`; parallel decode+encode via a worker pool (`--threads N`, GUI spin-edit, default one worker per CPU core capped at 8) | ✅ Ported |
+| **convert-webp** | `convert.py` | Convert images to WebP (quality 75%) only if smaller, skipping existing `.webp` pages; filter `ComicInfo.xml`; drop non-image entries; rename pages to `page_NNNN.*`; backup originals as `_OLD.cbz` or `--delete`; parallel decode+encode via a worker pool (`--threads N`, GUI spin-edit, default one worker per CPU core capped at 8) | ✅ Ported |
 | **merge** | `merge.py` | Merge chapter CBZ (`Title - NNNN.cbz`) into volumes (`Title VNNN.cbz`); auto-calculate CPV `(lowest_chapter-1)/num_volumes` (float, Python-exact) or default **7**; supports `--force`, `--chapters`, `--chapters-per-volume`; volumes built in parallel via a worker pool (`--threads N`, GUI spin-edit, default one worker per CPU core capped at 4) | ✅ Ported |
 | **remove-comicinfo** | — | Scan or strip `ComicInfo.xml` from CBZ archives; optional backup | ✅ Ported (GUI) |
 | **cbr-to-cbz** | — | Convert CBR (RAR) archives to CBZ entirely in RAM via libarchive (dynamic loading, uwebp pattern); read-only .cbr previews; skip existing targets, optional delete source; files converted in parallel via a worker pool (`--threads N`, GUI spin-edit, default one worker per CPU core capped at 4) | ✅ GUI + CLI (no Python counterpart) |
@@ -138,7 +138,8 @@ make clean          # remove test build artifacts
 
 - **All ZIP operations happen entirely in RAM.** Use `TUnZipper` with `OnCreateStream`/`OnDoneStream` to capture entries into `TMemoryStream`. Use `CollectZipEntries` to read a CBZ into memory and `WriteZipFromEntries` to write a new CBZ. The only disk writes are the final output file and the optional `_OLD.cbz` backup. Never write temp files or extract to disk. **CBR operations obey the same rule** via libarchive (uarchive.pas): the .cbr source is opened read-only, entries decompress into `TMemoryStream` (`CollectCbrEntries`/`ForEachCbrImage`).
 - Filter out `ComicInfo.xml` zip entries
-- Rename all remaining images sequentially as `page_NNNN.*`
+- Drop non-image entries (never renumber them as `page_NNNN.ext`); rename the remaining images sequentially as `page_NNNN.*`
+- Keep existing `.webp` pages byte-identical during convert unless the caller explicitly re-encodes them; a kept `ComicInfo.xml` does not consume a page number
 - Backup originals as `_OLD.cbz` unless `--delete` (or equivalent GUI option) — for CBR the source is kept unless the explicit delete-source option is set
 - RAR archives have no central directory: the CBR walkers scan the archive twice (names first for alphabetical ranks, then data)
 - **Convert-webp decodes/encodes pages in parallel** (`ConvertCBZToWebP`): a pool of `TWebPConvertWorker` threads claims convertible entries under a lock and writes each result into a per-entry slot, then a sequential pass compacts and renumbers in archive order — so the output is byte-identical for any thread count (0 = CPU cores, capped at 8; each worker holds one full-resolution image in RAM). `DecodeImage`/`IntfImageToWebP` are stateless per call, so workers share nothing but the pool state.

@@ -27,7 +27,7 @@ lib/
 ```bash
 flutter pub get
 flutter run -d linux        # or: flutter run  (Android device/emulator)
-flutter test                # 118 unit/widget tests
+flutter test                # ≈190 unit/widget tests
 flutter analyze
 ```
 

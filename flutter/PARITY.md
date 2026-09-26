@@ -36,7 +36,7 @@ tree; the previous version of this file listed paths that never existed
 | `src/uservicebase.pas` | shared types, progress, caps, `BackupFile`, `ReplaceCBZ`, file collection | `lib/src/vfs/workspace.dart` (backup/publish), `lib/src/util/cpu.dart`, per-service caps | Partial (`ReplaceCBZ` is `LocalVfs.writeAll` tmp+rename; SMB writes directly) |
 | `src/uthreadservice.pas` | background thread wrappers | `lib/src/jobs/job_controller.dart` + isolate wrappers | Done (isolates, not threads) |
 | `src/uservicevalidate.pas` | deep validation, per-file pool | `lib/src/features/validate/validate_service.dart`, `validate_isolate.dart` | Done (per file; per-page decode parallel not wired) |
-| `src/userviceconvert.pas` | batch WebP conversion | `lib/src/features/convert/convert_service.dart`, `convert_isolate.dart` | Done |
+| `src/userviceconvert.pas` | batch WebP conversion | `lib/src/features/convert/convert_service.dart`, `convert_isolate.dart` | Done (quality/only-if-smaller/skip-existing-WebP/ComicInfo/renumber all wired and persisted) |
 | `src/uservicemerge.pas` | chapter→volume merge, CPV, batching | `lib/src/engine/merge.dart` (planning), `lib/src/features/merge/merge_service.dart`, `merge_isolate.dart` | Done |
 | `src/uservicecbr.pas` | batch CBR→CBZ | `lib/src/features/cbr/cbr_service.dart`, `cbr_isolate.dart` | Done |
 | `src/uservicecomicinfo.pas` | scan/remove ComicInfo | `lib/src/features/comicinfo/comicinfo_service.dart`, `comicinfo_isolate.dart` | Done |
@@ -81,10 +81,10 @@ Cross-cutting rules that must be verified before release.
 
 - [x] In-RAM only: no page extraction to disk for any operation.
 - [x] Byte-wise sort order for page names (`compareStr`, not locale).
-- [x] Non-image entries dropped by merge; convert keeps ComicInfo unless `removeComicInfo`.
-- [x] `format('%s V%.3d.cbz')` volume naming; numbering continues after existing volumes.
+- [x] Non-image entries dropped by merge and convert (never renamed `page_NNNN.ext`); convert keeps ComicInfo unless `removeComicInfo`.
+- [x] `format('%s V%.3d.cbz')` volume naming; numbering continues after existing volumes (any digit width).
 - [x] CPV auto = `(lowest_chapter - 1) / num_volumes` (real division), default 7.
-- [x] "Only if smaller" for WebP conversion; q75.
+- [x] "Only if smaller" for WebP conversion; q75; existing `.webp` pages skipped by default (kept byte-identical).
 - [x] `_OLD.cbz` backup vs delete semantics (CBR source kept unless delete-source).
 - [x] Renumber survivors as `page_NNNN.*`.
 - [x] Merge rollback deletes every volume written in the run (partial included) and never a pre-existing file.
@@ -93,6 +93,7 @@ Cross-cutting rules that must be verified before release.
 - [x] Caps: WebP/validate ≤ 8, CBR/merge/batch-edit ≤ 4; `0` = auto.
 - [x] CBR previews read-only; missing libarchive degrades gracefully.
 - [x] File-level errors never abort a batch (validate/convert/cbr/merge/batch-edit).
+- [x] A corrupt archive is rejected as "not a ZIP", not mistaken for an empty one (`isZipData` EOCD guard).
 - [x] ComicInfo filtered on the way through convert (flag honoured); merge filters it.
 - [x] Editor writes bytes that win over the archive entry; split renumbers all pages.
 - [x] GIF/TIFF output maps to PNG; JPEG q92, WebP q75, PNG/BMP lossless.
@@ -100,6 +101,5 @@ Cross-cutting rules that must be verified before release.
 ## 6. Reference documents
 
 - `flutter/README.md`, `flutter/PLAN.md`, `flutter/TARGET.md` — design notes.
-- `AGENTS.md` at the repo root — **untracked** (`.gitignore`): it exists only in
-  developer working copies, so it is not a reliable reference for a fresh clone.
-- The Python reference (`porting/cbz_manager/`) is untracked as well.
+- `AGENTS.md` at the repo root — tracked and authoritative; the Python
+  reference (`porting/cbz_manager/`) is still untracked and may be absent.

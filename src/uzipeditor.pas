@@ -200,7 +200,8 @@ uses
   uImgUtil,
   uWebP,
   uLog,
-  uarchive;
+  uarchive,
+  uservicepool;
 
 type
   { One conversion slot per source entry, filled by a pool worker and read
@@ -739,87 +740,64 @@ begin
   end;
 end;
 
-{ Shared state of a validation pool: the source entries, per-source-index
-  check slots and the claim counter.  Mutable fields are guarded by Lock;
+{ Shared state of a validation pool: the source entries, the work list and
+  the per-source-index check slots.  The claim counter lives in TIndexPool;
   each worker writes only Checks[Idx] with the Idx it claimed, so slot
   writes need no lock. }
 type
-  TValidatePoolState = class
-  Lock: TRTLCriticalSection;
-  Entries: TZipEntries;        { read-only source data }
-  Checks: TImageChecks;        { per-source-index results }
-  Work: array of integer;      { indices of image entries }
-  Next: integer;               { next index into Work (under Lock) }
-  constructor Create;
-  destructor Destroy; override;
-end;
+  TValidatePoolState = class(TIndexPool)
+  public
+    Entries: TZipEntries;        { read-only source data }
+    Checks: TImageChecks;        { per-source-index results }
+    Work: array of integer;      { indices of image entries }
+    function CreateWorker: TIndexPoolWorker; override;
+  end;
 
-{ Pool worker: claims the next image-entry index under the lock, decodes
-  it and writes the TImageCheck into its own slot.  DecodeImage is
-  stateless per call and never raises (failures become Valid=False
-  checks), so workers share nothing but the pool fields. }
-TValidateWorker = class(TThread)
+{ Pool worker: decodes the claimed work position and writes the TImageCheck
+  into its own slot.  DecodeImage is stateless per call and never raises
+  (failures become Valid=False checks), so workers share nothing but the
+  pool fields. }
+TValidateWorker = class(TIndexPoolWorker)
 private
   FPool: TValidatePoolState;
 protected
-  procedure Execute; override;
+  procedure ProcessIndex(Pos: integer); override;
 public
   constructor Create(APool: TValidatePoolState);
 end;
 
-constructor TValidatePoolState.Create;
+function TValidatePoolState.CreateWorker: TIndexPoolWorker;
 begin
-  inherited Create;
-  InitCriticalSection(Lock);
-end;
-
-destructor TValidatePoolState.Destroy;
-begin
-  DoneCriticalSection(Lock);
-  inherited Destroy;
+  Result := TValidateWorker.Create(Self);
 end;
 
 constructor TValidateWorker.Create(APool: TValidatePoolState);
 begin
-  { Created suspended: the caller Start()s every worker before joining. }
-  inherited Create(True);
+  inherited Create(APool);
   FPool := APool;
 end;
 
-{ TValidateWorker.Execute
+{ TValidateWorker.ProcessIndex
 
-  Claims the next image-entry index under the pool lock, decodes the entry
-  (DecodeImage never raises — a failed decode is a Valid=False check) and
-  writes the result into its own slot.  Progress is reported per finished
-  entry, serialized by the lock, monotonic via the completed counter. }
-procedure TValidateWorker.Execute;
+  Decodes one claimed work position (DecodeImage never raises — a failed
+  decode is a Valid=False check) and writes the result into its own slot. }
+procedure TValidateWorker.ProcessIndex(Pos: integer);
 var
   Idx: integer;
   Img: TLazIntfImage;
 begin
-  while True do
+  Idx := FPool.Work[Pos];
+  FPool.Checks[Idx].EntryName := FPool.Entries[Idx].Name;
+  Img := DecodeImage(FPool.Entries[Idx].Data,
+    ExtractFileExt(FPool.Entries[Idx].Name));
+  FPool.Checks[Idx].Valid := Img <> nil;
+  if Img <> nil then
   begin
-    EnterCriticalSection(FPool.Lock);
-    try
-      if FPool.Next >= Length(FPool.Work) then Exit;
-      Idx := FPool.Work[FPool.Next];
-      Inc(FPool.Next);
-    finally
-      LeaveCriticalSection(FPool.Lock);
-    end;
-
-    FPool.Checks[Idx].EntryName := FPool.Entries[Idx].Name;
-    Img := DecodeImage(FPool.Entries[Idx].Data,
-      ExtractFileExt(FPool.Entries[Idx].Name));
-    FPool.Checks[Idx].Valid := Img <> nil;
-    if Img <> nil then
-    begin
-      FPool.Checks[Idx].ErrorMsg := '';
-      Img.Free;
-    end
-    else
-      FPool.Checks[Idx].ErrorMsg := 'Image decode failed';
-  end;
+    FPool.Checks[Idx].ErrorMsg := '';
+    Img.Free;
+  end
+  else
+    FPool.Checks[Idx].ErrorMsg := 'Image decode failed';
 end;
 
 function ValidateCBZImages(const FileName: string;
@@ -830,8 +808,7 @@ var
   Img: TLazIntfImage;
   Pool: TValidatePoolState;
   Checks: TImageChecks;
-  Workers: array of TValidateWorker;
-  Started: boolean;
+  Work: array of integer;
 begin
   ImageResults := nil;
   Result := 0;
@@ -862,45 +839,37 @@ begin
     end;
 
     { Phase 1 — decode every image entry into its slot, in parallel. }
-    Pool := TValidatePoolState.Create;
-    Workers := nil;
-    Started := False;
+    Work := nil;
+    for i := 0 to High(AllEntries) do
+      if IsImageExt(ExtractFileExt(AllEntries[i].Name)) then
+      begin
+        SetLength(Work, Length(Work) + 1);
+        Work[High(Work)] := i;
+      end;
+
+    Pool := TValidatePoolState.Create(Length(Work));
     try
       Pool.Entries := AllEntries;
-      for i := 0 to High(AllEntries) do
-        if IsImageExt(ExtractFileExt(AllEntries[i].Name)) then
-        begin
-          SetLength(Pool.Work, Length(Pool.Work) + 1);
-          Pool.Work[High(Pool.Work)] := i;
-        end;
-
+      Pool.Work := Work;
       { Allocate the slots up front — phase 2 indexes them by source entry
         even when no entry is an image. }
       SetLength(Pool.Checks, Length(AllEntries));
-      if Length(Pool.Work) > 0 then
+      if Length(Work) > 0 then
       begin
         ThreadCount := AThreads;
         if ThreadCount <= 0 then
           ThreadCount := Min(OnlineCpuCount, MAX_WEBP_CONVERT_THREADS);
-        ThreadCount := Min(ThreadCount, Length(Pool.Work));
+        ThreadCount := Min(ThreadCount, Length(Work));
 
         if ThreadCount > 1 then
-        begin
-          SetLength(Workers, ThreadCount);
-          for i := 0 to ThreadCount - 1 do
-            Workers[i] := TValidateWorker.Create(Pool);
-          Started := True;
-          for i := 0 to ThreadCount - 1 do
-            Workers[i].Start;
-        end
+          Pool.Run(ThreadCount)
         else
         begin
-          { Single entry (or explicitly sequential): claim and decode
-            inline — same slot semantics as the pool path. }
-          while Pool.Next < Length(Pool.Work) do
+          { Single entry (or explicitly sequential): decode inline — same
+            slot semantics as the pool path. }
+          for i := 0 to High(Work) do
           begin
-            Idx := Pool.Work[Pool.Next];
-            Inc(Pool.Next);
+            Idx := Work[i];
             Pool.Checks[Idx].EntryName := AllEntries[Idx].Name;
             Img := DecodeImage(AllEntries[Idx].Data,
               ExtractFileExt(AllEntries[Idx].Name));
@@ -916,14 +885,6 @@ begin
         end;
       end;
     finally
-      { Join and free the workers here — also covers a mid-spawn failure,
-        where only the created (started) workers must be waited for. }
-      if Started then
-        for i := 0 to High(Workers) do
-          Workers[i].WaitFor;
-      for i := 0 to High(Workers) do
-        if Workers[i] <> nil then
-          Workers[i].Free;
       { Keep a refcounted reference to the check slots: phase 2 reads them
         after the pool object itself is freed. }
       Checks := Pool.Checks;

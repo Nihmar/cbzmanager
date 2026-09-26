@@ -24,6 +24,7 @@ type
     procedure TestGetImageAsIntfImage;
     procedure TestCollectZipEntries;
     procedure TestCollectCBRFiles;
+    procedure TestCollectFiles_SkipsDirectories;
     procedure TestCollectCbrEntries;
     procedure TestForEachCbrImage;
     procedure TestGetCbrFirstImageInfo;
@@ -217,6 +218,35 @@ begin
   end;
   AssertTrue('one.cbr found', HasOne);
   AssertTrue('two.CBR found (case-insensitive)', HasTwo);
+end;
+
+{ Regression: a directory whose name ends in .cbz/.cbr was returned by the
+  scan and handed to the archive readers as if it were a file. }
+procedure TZipEditorTest.TestCollectFiles_SkipsDirectories;
+var
+  Files: TStringArray;
+  FS: TFileStream;
+  Dir: string;
+begin
+  Dir := IncludeTrailingPathDelimiter(FTempDir + 'scandir');
+  CreateDir(Dir);
+  FS := TFileStream.Create(Dir + 'real.cbz', fmCreate);
+  FS.Free;
+  CreateDir(Dir + 'fakedir.cbz');
+  CreateDir(Dir + 'fakedir.cbr');
+  try
+    Files := CollectCBZFiles(Dir);
+    AssertEquals('only the real .cbz file', 1, Length(Files));
+    AssertEquals('real.cbz', Files[0]);
+
+    Files := CollectCBRFiles(Dir);
+    AssertEquals('directories are not cbr files', 0, Length(Files));
+  finally
+    RemoveDir(Dir + 'fakedir.cbz');
+    RemoveDir(Dir + 'fakedir.cbr');
+    DeleteFile(Dir + 'real.cbz');
+    RemoveDir(Dir);
+  end;
 end;
 
 procedure TZipEditorTest.TestCollectCbrEntries;

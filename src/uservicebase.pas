@@ -329,7 +329,10 @@ begin
   if FindFirst(Dir + AllFilesMask, faAnyFile, SearchRec) = 0 then
   begin
     repeat
-      if SameText(ExtractFileExt(SearchRec.Name), CBZ_EXT) then
+      { Skip directories: a folder named "foo.cbz" must not be handed to the
+        ZIP reader as an archive. }
+      if ((SearchRec.Attr and faDirectory) = 0) and
+         SameText(ExtractFileExt(SearchRec.Name), CBZ_EXT) then
       begin
         SetLength(Result, Length(Result) + 1);
         Result[High(Result)] := SearchRec.Name;               // bare filename only
@@ -351,7 +354,9 @@ begin
   if FindFirst(Dir + AllFilesMask, faAnyFile, SearchRec) = 0 then
   begin
     repeat
-      if SameText(ExtractFileExt(SearchRec.Name), CBR_EXT) then
+      { Skip directories, like CollectCBZFiles. }
+      if ((SearchRec.Attr and faDirectory) = 0) and
+         SameText(ExtractFileExt(SearchRec.Name), CBR_EXT) then
       begin
         SetLength(Result, Length(Result) + 1);
         Result[High(Result)] := SearchRec.Name;

@@ -20,7 +20,11 @@ void main() {
   test('move reorders and logs', () {
     final model = PageEditModel([page('a.png'), page('b.png'), page('c.png')]);
     model.move(2, 0);
-    expect(model.pages.map((p) => p.name).toList(), ['c.png', 'a.png', 'b.png']);
+    expect(model.pages.map((p) => p.name).toList(), [
+      'c.png',
+      'a.png',
+      'b.png',
+    ]);
     expect(model.changes.single.kind, PageChangeKind.moved);
   });
 
@@ -29,7 +33,10 @@ void main() {
     model.insertAt(1, [page('new1.png'), page('new2.png')]);
     expect(model.pages.length, 3);
     expect(model.changes.length, 2);
-    expect(model.changes.every((c) => c.kind == PageChangeKind.inserted), isTrue);
+    expect(
+      model.changes.every((c) => c.kind == PageChangeKind.inserted),
+      isTrue,
+    );
   });
 
   test('renumber uses 4-digit page names', () {
@@ -59,10 +66,7 @@ void main() {
         'ComicInfo.xml': utf8.encode('<ComicInfo/>'),
       }),
     );
-    final model = PageEditModel([
-      page('page_001.png'),
-      page('page_002.png'),
-    ]);
+    final model = PageEditModel([page('page_001.png'), page('page_002.png')]);
     model.deleteAt(0);
 
     final bytes = buildEditedArchive(original, model, renumber: true);
@@ -78,10 +82,7 @@ void main() {
         'ComicInfo.xml': utf8.encode('<ComicInfo/>'),
       }),
     );
-    final model = PageEditModel([
-      page('page_001.png'),
-      page('page_002.png'),
-    ]);
+    final model = PageEditModel([page('page_001.png'), page('page_002.png')]);
     final replacement = makeSolidPng(8, 8);
     model.markEdited(0, replacement);
 
@@ -98,7 +99,11 @@ void main() {
       (name: 'a.png', data: makeSolidPng(4, 2)),
       (name: 'a2.png', data: makeSolidPng(4, 2)),
     ]);
-    expect(model.pages.map((p) => p.name).toList(), ['a.png', 'a2.png', 'b.png']);
+    expect(model.pages.map((p) => p.name).toList(), [
+      'a.png',
+      'a2.png',
+      'b.png',
+    ]);
     expect(model.pages[0].data, isNotNull);
   });
 }

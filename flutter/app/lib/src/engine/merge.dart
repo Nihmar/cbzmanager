@@ -146,7 +146,9 @@ bool isVolumeFile(String fileName, String seriesName) {
 
 /// Strict chapter classification (numeric or alphabetic tag). Returns null when
 /// the name is not a chapter (backups, decimals, other suffixes).
-({String series, int number, bool isSpecial})? classifyChapter(String fileName) {
+({String series, int number, bool isSpecial})? classifyChapter(
+  String fileName,
+) {
   final base = _stem(fileName);
   final dash = base.lastIndexOf(' -');
   if (dash <= 0) return null;
@@ -262,13 +264,10 @@ List<ChapterInfo> collectChapters(List<String> files, String seriesName) {
     if (!c.isSpecial && c.number > maxNum) maxNum = c.number;
   }
 
-  var sorted = _stableSort<ChapterInfo>(
-    chapters,
-    (a, b) {
-      if (a.number != b.number) return a.number - b.number;
-      return compareStr(a.fileName, b.fileName);
-    },
-  );
+  var sorted = _stableSort<ChapterInfo>(chapters, (a, b) {
+    if (a.number != b.number) return a.number - b.number;
+    return compareStr(a.fileName, b.fileName);
+  });
 
   var next = maxNum + 1;
   sorted = [
@@ -279,13 +278,10 @@ List<ChapterInfo> collectChapters(List<String> files, String seriesName) {
         c,
   ];
 
-  return _stableSort<ChapterInfo>(
-    sorted,
-    (a, b) {
-      if (a.number != b.number) return a.number - b.number;
-      return compareStr(a.fileName, b.fileName);
-    },
-  );
+  return _stableSort<ChapterInfo>(sorted, (a, b) {
+    if (a.number != b.number) return a.number - b.number;
+    return compareStr(a.fileName, b.fileName);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -414,12 +410,19 @@ Uint8List? buildVolumeBytes(
   if (generateComicInfo) {
     final first = chapterNumbers.isNotEmpty ? chapterNumbers.first : 0;
     final last = chapterNumbers.isNotEmpty ? chapterNumbers.last : 0;
-    final info = ComicInfo(series: seriesName, volume: volNum, manga: 'Unknown');
+    final info = ComicInfo(
+      series: seriesName,
+      volume: volNum,
+      manga: 'Unknown',
+    );
     info.number = (first > 0 && last > 0) ? '$first-$last' : '$volNum';
     info.title = '$seriesName Vol.$volNum';
     info.pageCount = output.length;
     output.add(
-      ZipEntryData(comicInfoName, Uint8List.fromList(utf8.encode(info.toXml()))),
+      ZipEntryData(
+        comicInfoName,
+        Uint8List.fromList(utf8.encode(info.toXml())),
+      ),
     );
   }
 

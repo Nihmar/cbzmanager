@@ -22,10 +22,10 @@ void main() {
     );
     await vfs.writeAll('bad.cbz', [1, 2, 3, 4]);
 
-    final outcomes = await service.validateMany(
-      vfs,
-      [item('good.cbz'), item('bad.cbz')],
-    );
+    final outcomes = await service.validateMany(vfs, [
+      item('good.cbz'),
+      item('bad.cbz'),
+    ]);
 
     expect(outcomes.length, 2);
     expect(outcomes[0].result.valid, isTrue);
@@ -48,11 +48,10 @@ void main() {
   test('honours cancellation', () async {
     final vfs = MemoryVfs();
     await vfs.writeAll('a.cbz', makeZip({'p.png': makeSolidPng(4, 4)}));
-    final outcomes = await service.validateMany(
-      vfs,
-      [item('a.cbz'), item('b.cbz')],
-      isCancelled: () => true,
-    );
+    final outcomes = await service.validateMany(vfs, [
+      item('a.cbz'),
+      item('b.cbz'),
+    ], isCancelled: () => true);
     expect(outcomes, isEmpty);
   });
 
@@ -104,8 +103,7 @@ void main() {
     await vfs.writeAll(
       'big.cbz',
       makeZip({
-        for (var i = 0; i < 6; i++)
-          'page_00$i.png': makeNoisePng(300, 300, i),
+        for (var i = 0; i < 6; i++) 'page_00$i.png': makeNoisePng(300, 300, i),
       }),
     );
 

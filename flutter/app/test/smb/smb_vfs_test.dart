@@ -36,10 +36,7 @@ void main() {
 
     try {
       await vfs.mkdir('poc');
-      await vfs.writeAll(
-        'poc/hello.txt',
-        Uint8List.fromList('ciao'.codeUnits),
-      );
+      await vfs.writeAll('poc/hello.txt', Uint8List.fromList('ciao'.codeUnits));
 
       expect(await vfs.exists('poc/hello.txt'), isTrue);
       expect(String.fromCharCodes(await vfs.readAll('poc/hello.txt')), 'ciao');
@@ -90,10 +87,7 @@ void main() {
       final data = await workspace.read(vfs, 'engine/book.cbz');
       expect((await engine.validate(data)).valid, isTrue);
 
-      final converted = await engine.convertWebp(
-        data,
-        const ConvertOptions(),
-      );
+      final converted = await engine.convertWebp(data, const ConvertOptions());
       expect(converted.success, isTrue);
       expect(converted.converted, 1);
 

@@ -35,9 +35,6 @@ void main() {
     await vfs.writeAll('/books/a.cbz', [1]);
     await workspace.publish(vfs, '/books/a.cbz', Uint8List.fromList([2]));
     await workspace.publish(vfs, '/books/a.cbz', Uint8List.fromList([3]));
-    expect(
-      await vfs.readAll('/books/a_OLD.cbz'),
-      Uint8List.fromList([2]),
-    );
+    expect(await vfs.readAll('/books/a_OLD.cbz'), Uint8List.fromList([2]));
   });
 }

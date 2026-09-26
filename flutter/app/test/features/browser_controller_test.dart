@@ -20,10 +20,12 @@ void main() {
 
     final state = container.read(browserProvider);
     expect(state.error, isNull);
-    expect(
-      state.items.map((e) => e.name).toList(),
-      ['book1.cbz', 'book10.cbz', 'book2.cbz', 'scan.CBR'],
-    );
+    expect(state.items.map((e) => e.name).toList(), [
+      'book1.cbz',
+      'book10.cbz',
+      'book2.cbz',
+      'scan.CBR',
+    ]);
     expect(state.items.last.isCbr, isTrue);
     // Directories are never archives: they are listed separately.
     expect(state.folders.map((e) => e.name).toList(), ['sub']);
@@ -41,14 +43,16 @@ void main() {
     await container.read(browserProvider.notifier).load(vfs, '/lib');
 
     final state = container.read(browserProvider);
-    expect(
-      state.folders.map((e) => e.name).toList(),
-      ['Beta', 'alpha', 'zeta'],
-    );
-    expect(
-      state.folders.map((e) => e.path).toList(),
-      ['/lib/Beta', '/lib/alpha', '/lib/zeta'],
-    );
+    expect(state.folders.map((e) => e.name).toList(), [
+      'Beta',
+      'alpha',
+      'zeta',
+    ]);
+    expect(state.folders.map((e) => e.path).toList(), [
+      '/lib/Beta',
+      '/lib/alpha',
+      '/lib/zeta',
+    ]);
     expect(state.items.map((e) => e.name).toList(), ['book1.cbz']);
     expect(state.isEmpty, isFalse);
   });

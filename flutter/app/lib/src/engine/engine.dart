@@ -21,10 +21,7 @@ abstract class CbzEngine {
   /// Synchronous validation core, safe to run inside a background isolate
   /// (`Isolate.run` cannot await). It must not touch the filesystem and must
   /// not rely on isolate-local state.
-  ValidateResult validateSync(
-    ArchiveData data, {
-    ProgressCallback? onProgress,
-  });
+  ValidateResult validateSync(ArchiveData data, {ProgressCallback? onProgress});
 
   /// Converts the images to WebP (quality 75 by default), keeping the encoded
   /// bytes only when smaller, filtering ComicInfo.xml and renumbering

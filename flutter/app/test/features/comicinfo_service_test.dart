@@ -84,10 +84,10 @@ void main() {
       makeZip({'page_001.png': makeSolidPng(8, 8)}),
     );
 
-    final result = await service.removeMany(
-      vfs,
-      [item('with.cbz'), item('without.cbz')],
-    );
+    final result = await service.removeMany(vfs, [
+      item('with.cbz'),
+      item('without.cbz'),
+    ]);
     expect(result.scanned, 2);
     expect(result.changed, 1);
     expect(result.skipped, 1);
@@ -104,10 +104,10 @@ void main() {
       }),
     );
 
-    final result = await service.removeMany(
-      vfs,
-      [item('gone.cbz'), item('with.cbz')],
-    );
+    final result = await service.removeMany(vfs, [
+      item('gone.cbz'),
+      item('with.cbz'),
+    ]);
     expect(result.scanned, 2);
     expect(result.changed, 1);
     expect(result.skipped, 0);
@@ -138,24 +138,26 @@ void main() {
       );
     }
 
-    final r1 = await service.removeMany(
-      one,
-      [item('a.cbz'), item('b.cbz'), item('c.cbz')],
-      threads: 1,
-    );
-    final r4 = await service.removeMany(
-      four,
-      [item('a.cbz'), item('b.cbz'), item('c.cbz')],
-      threads: 4,
-    );
+    final r1 = await service.removeMany(one, [
+      item('a.cbz'),
+      item('b.cbz'),
+      item('c.cbz'),
+    ], threads: 1);
+    final r4 = await service.removeMany(four, [
+      item('a.cbz'),
+      item('b.cbz'),
+      item('c.cbz'),
+    ], threads: 4);
 
     expect(r1.changed, 2);
     expect(r4.changed, 2);
     expect(r4.skipped, r1.skipped);
     expect(r4.errors, r1.errors);
     for (final name in ['a', 'b', 'c']) {
-      expectSameArchive(await one.readAll('/$name.cbz'),
-          await four.readAll('/$name.cbz'));
+      expectSameArchive(
+        await one.readAll('/$name.cbz'),
+        await four.readAll('/$name.cbz'),
+      );
     }
   });
 
@@ -168,7 +170,8 @@ void main() {
       await vfs.writeAll(
         '/book$i.cbz',
         makeZip({
-          for (var p = 0; p < 3; p++) 'page_00$p.png': makeNoisePng(200, 200, p),
+          for (var p = 0; p < 3; p++)
+            'page_00$p.png': makeNoisePng(200, 200, p),
           'ComicInfo.xml': utf8.encode(ComicInfo(series: 'S$i').toXml()),
         }),
       );
@@ -181,10 +184,9 @@ void main() {
     );
     addTearDown(timer.cancel);
 
-    final result = await service.removeMany(
-      vfs,
-      [for (var i = 0; i < 4; i++) item('book$i.cbz')],
-    );
+    final result = await service.removeMany(vfs, [
+      for (var i = 0; i < 4; i++) item('book$i.cbz'),
+    ]);
 
     expect(result.changed, 4);
     expect(ticks, greaterThan(0));

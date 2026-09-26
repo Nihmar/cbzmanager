@@ -14,8 +14,8 @@ import 'thumbnail_isolate.dart';
 /// not fetched all at once; decoding is CPU-bound and runs off the UI isolate.
 class ThumbnailService {
   ThumbnailService({int readConcurrency = 4, int decodeConcurrency = 4})
-      : _readPool = Pool(readConcurrency),
-        _decodePool = Pool(decodeConcurrency);
+    : _readPool = Pool(readConcurrency),
+      _decodePool = Pool(decodeConcurrency);
 
   final Pool _readPool;
   final Pool _decodePool;
@@ -41,7 +41,8 @@ class ThumbnailService {
           return null;
         }
         return _decodePool.withResource(
-          () => decodeFirstThumbInIsolate(bytes, item.name, maxWidth, maxHeight),
+          () =>
+              decodeFirstThumbInIsolate(bytes, item.name, maxWidth, maxHeight),
         );
       }),
     );

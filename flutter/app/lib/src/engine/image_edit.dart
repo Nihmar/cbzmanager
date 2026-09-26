@@ -112,19 +112,19 @@ img.Image? adjustColors(img.Image source, ColorAdjust adjust) {
   for (var y = 0; y < source.height; y++) {
     for (var x = 0; x < source.width; x++) {
       final p = source.getPixel(x, y);
-      final t = _transform(p.r.toDouble(), p.g.toDouble(), p.b.toDouble(), adjust);
+      final t = _transform(
+        p.r.toDouble(),
+        p.g.toDouble(),
+        p.b.toDouble(),
+        adjust,
+      );
       dst.setPixelRgba(x, y, t.$1, t.$2, t.$3, p.a.toInt());
     }
   }
   return dst;
 }
 
-(int, int, int) _transform(
-  double r,
-  double g,
-  double b,
-  ColorAdjust adj,
-) {
+(int, int, int) _transform(double r, double g, double b, ColorAdjust adj) {
   if (adj.invert) {
     r = 255 - r;
     g = 255 - g;
@@ -174,8 +174,8 @@ img.Image? adjustColors(img.Image source, ColorAdjust adjust) {
 int _clamp255(double v) => v < 0
     ? 0
     : v > 255
-        ? 255
-        : v.round();
+    ? 255
+    : v.round();
 
 /// Encodes [image] for [targetExt] using the reference writers: JPEG q92,
 /// PNG/BMP lossless, WebP q75; anything else falls back to PNG. [targetExt] is
@@ -285,15 +285,18 @@ List<int> _normalizeCuts(List<double> cutPos, int dim) {
 }
 
 img.Image _copyHorizontal(img.Image source, int y0, int height) {
-  final piece = img.Image(
-    width: source.width,
-    height: height,
-    numChannels: 4,
-  );
+  final piece = img.Image(width: source.width, height: height, numChannels: 4);
   for (var y = 0; y < height; y++) {
     for (var x = 0; x < source.width; x++) {
       final p = source.getPixel(x, y0 + y);
-      piece.setPixelRgba(x, y, p.r.toInt(), p.g.toInt(), p.b.toInt(), p.a.toInt());
+      piece.setPixelRgba(
+        x,
+        y,
+        p.r.toInt(),
+        p.g.toInt(),
+        p.b.toInt(),
+        p.a.toInt(),
+      );
     }
   }
   return piece;
@@ -304,7 +307,14 @@ img.Image _copyVertical(img.Image source, int x0, int width) {
   for (var y = 0; y < source.height; y++) {
     for (var x = 0; x < width; x++) {
       final p = source.getPixel(x0 + x, y);
-      piece.setPixelRgba(x, y, p.r.toInt(), p.g.toInt(), p.b.toInt(), p.a.toInt());
+      piece.setPixelRgba(
+        x,
+        y,
+        p.r.toInt(),
+        p.g.toInt(),
+        p.b.toInt(),
+        p.a.toInt(),
+      );
     }
   }
   return piece;

@@ -18,8 +18,10 @@ class ImageSearchService {
   static const String _wikimedia = 'https://commons.wikimedia.org/w/api.php';
   static const String _openLibrary = 'https://openlibrary.org/search.json';
   static const String _artic = 'https://api.artic.edu/api/v1/artworks/search';
-  static const String _cleveland = 'https://openaccess-api.clevelandart.org/api/artworks/';
-  static const String _wellcome = 'https://api.wellcomecollection.org/catalogue/v2/works';
+  static const String _cleveland =
+      'https://openaccess-api.clevelandart.org/api/artworks/';
+  static const String _wellcome =
+      'https://api.wellcomecollection.org/catalogue/v2/works';
   static const String _nasa = 'https://images-api.nasa.gov/search';
   static const String _metSearch =
       'https://collectionapi.metmuseum.org/public/collection/v1/search';
@@ -109,8 +111,7 @@ class ImageSearchService {
         final uri = Uri.parse(
           '$_openLibrary?q=${Uri.encodeQueryComponent(query)}&limit=$limit',
         );
-        final (results, error) =
-            parseOpenLibraryResults(await _getString(uri));
+        final (results, error) = parseOpenLibraryResults(await _getString(uri));
         if (error != null) throw Exception(error);
         return results;
 
@@ -119,8 +120,9 @@ class ImageSearchService {
           '$_artic?q=${Uri.encodeQueryComponent(query)}&limit=$limit'
           '&fields=id,title,artist_title,date_display,image_id,is_public_domain',
         );
-        final (results, error) =
-            parseArtInstituteResults(await _getString(uri));
+        final (results, error) = parseArtInstituteResults(
+          await _getString(uri),
+        );
         if (error != null) throw Exception(error);
         return results;
 
@@ -162,8 +164,9 @@ class ImageSearchService {
         final results = <ImageResult>[];
         for (final id in capped) {
           try {
-            final (result, _) =
-                parseMetObject(await _getString(Uri.parse('$_metObject$id')));
+            final (result, _) = parseMetObject(
+              await _getString(Uri.parse('$_metObject$id')),
+            );
             if (result != null) results.add(result);
           } catch (_) {
             // Skip an object that fails; keep the rest.
@@ -175,8 +178,9 @@ class ImageSearchService {
         final seriesUri = Uri.parse(
           '$_mangaDex/manga?title=${Uri.encodeQueryComponent(query)}&limit=5',
         );
-        final (series, seriesError) =
-            parseMangaDexSeries(await _getString(seriesUri));
+        final (series, seriesError) = parseMangaDexSeries(
+          await _getString(seriesUri),
+        );
         if (seriesError != null) throw Exception(seriesError);
         if (series.isEmpty) return const <ImageResult>[];
 
@@ -184,8 +188,10 @@ class ImageSearchService {
         final coverUri = Uri.parse(
           '$_mangaDex/cover?manga[]=$ids&limit=$limit&order%5Bvolume%5D=asc',
         );
-        final (results, coverError) =
-            parseMangaDexCovers(await _getString(coverUri), series);
+        final (results, coverError) = parseMangaDexCovers(
+          await _getString(coverUri),
+          series,
+        );
         if (coverError != null) throw Exception(coverError);
         return results;
 

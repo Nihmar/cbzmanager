@@ -60,8 +60,12 @@ class _PageEditorDialog extends StatefulWidget {
 class _PageEditorDialogState extends State<_PageEditorDialog> {
   late final int _origW = widget.source.width;
   late final int _origH = widget.source.height;
-  late final TextEditingController _width = TextEditingController(text: '$_origW');
-  late final TextEditingController _height = TextEditingController(text: '$_origH');
+  late final TextEditingController _width = TextEditingController(
+    text: '$_origW',
+  );
+  late final TextEditingController _height = TextEditingController(
+    text: '$_origH',
+  );
 
   bool _lockAspect = true;
   ColorAdjust _adjust = ColorAdjust.neutral;
@@ -165,15 +169,15 @@ class _PageEditorDialogState extends State<_PageEditorDialog> {
   }
 
   List<Uint8List> _build() => applyEditPipeline(
-        widget.source,
-        width: _intOf(_width, _origW),
-        height: _intOf(_height, _origH),
-        adjust: _adjust,
-        split: _split,
-        horizontal: _horizontal,
-        cuts: _cuts,
-        targetExt: widget.targetExt,
-      );
+    widget.source,
+    width: _intOf(_width, _origW),
+    height: _intOf(_height, _origH),
+    adjust: _adjust,
+    split: _split,
+    horizontal: _horizontal,
+    cuts: _cuts,
+    targetExt: widget.targetExt,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -213,9 +217,10 @@ class _PageEditorDialogState extends State<_PageEditorDialog> {
                           child: TextField(
                             controller: _width,
                             keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(labelText: 'Width'),
-                            onChanged: (_) =>
-                                setState(() => _onWidthChanged()),
+                            decoration: const InputDecoration(
+                              labelText: 'Width',
+                            ),
+                            onChanged: (_) => setState(() => _onWidthChanged()),
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -223,7 +228,9 @@ class _PageEditorDialogState extends State<_PageEditorDialog> {
                           child: TextField(
                             controller: _height,
                             keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(labelText: 'Height'),
+                            decoration: const InputDecoration(
+                              labelText: 'Height',
+                            ),
                             onChanged: (_) =>
                                 setState(() => _onHeightChanged()),
                           ),
@@ -257,7 +264,10 @@ class _PageEditorDialogState extends State<_PageEditorDialog> {
                           SegmentedButton<bool>(
                             segments: const [
                               ButtonSegment(value: true, label: Text('Rows')),
-                              ButtonSegment(value: false, label: Text('Columns')),
+                              ButtonSegment(
+                                value: false,
+                                label: Text('Columns'),
+                              ),
                             ],
                             selected: {_horizontal},
                             onSelectionChanged: (s) => setState(() {

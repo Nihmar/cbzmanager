@@ -17,8 +17,9 @@ Future<Uint8List?> decodeFirstThumbInIsolate(
   String name,
   int maxWidth,
   int maxHeight,
-) =>
-    Isolate.run(() => decodeFirstPageThumbnail(bytes, name, maxWidth, maxHeight));
+) => Isolate.run(
+  () => decodeFirstPageThumbnail(bytes, name, maxWidth, maxHeight),
+);
 
 Future<Uint8List?> decodePageThumbInIsolate(
   Uint8List bytes,
@@ -26,10 +27,9 @@ Future<Uint8List?> decodePageThumbInIsolate(
   int index,
   int maxWidth,
   int maxHeight,
-) =>
-    Isolate.run(
-      () => decodePageThumbnail(bytes, name, index, maxWidth, maxHeight),
-    );
+) => Isolate.run(
+  () => decodePageThumbnail(bytes, name, index, maxWidth, maxHeight),
+);
 
 Future<int> countPagesInIsolate(Uint8List bytes, String name) =>
     Isolate.run(() => countImagePages(bytes, name));
@@ -51,8 +51,7 @@ Future<Uint8List?> decodeBytesThumbnailInIsolate(
   Uint8List imageBytes,
   int maxWidth,
   int maxHeight,
-) =>
-    Isolate.run(() => decodeBytesThumbnail(imageBytes, maxWidth, maxHeight));
+) => Isolate.run(() => decodeBytesThumbnail(imageBytes, maxWidth, maxHeight));
 
 /// Top-level functions safe to run in a background isolate (via `Isolate.run`).
 
@@ -63,8 +62,7 @@ Uint8List? decodeFirstPageThumbnail(
   String archiveName,
   int maxWidth,
   int maxHeight,
-) =>
-    decodePageThumbnail(bytes, archiveName, 0, maxWidth, maxHeight);
+) => decodePageThumbnail(bytes, archiveName, 0, maxWidth, maxHeight);
 
 /// Decodes the image page at [index] (0-based, alphabetical order) into a small
 /// JPEG. Returns null when the page is missing or undecodable.
@@ -110,11 +108,12 @@ bool _isCbr(String name) => name.toLowerCase().endsWith('.cbr');
 List<String> _imageNames(Uint8List bytes, String archiveName) {
   if (_isCbr(archiveName)) {
     try {
-      final names = CbrReader.collectEntries(bytes)
-          .where((e) => isImageExt(_ext(e.name)))
-          .map((e) => e.name)
-          .toList()
-        ..sort(compareStr);
+      final names =
+          CbrReader.collectEntries(bytes)
+              .where((e) => isImageExt(_ext(e.name)))
+              .map((e) => e.name)
+              .toList()
+            ..sort(compareStr);
       return names;
     } catch (_) {
       return const <String>[];
@@ -133,10 +132,11 @@ Uint8List? _pageBytes(Uint8List bytes, String archiveName, int index) {
     // RAR has no central directory: one streaming pass is needed, so read all
     // entries once and pick the page rather than scanning the archive twice.
     try {
-      final images = CbrReader.collectEntries(bytes)
-          .where((e) => isImageExt(_ext(e.name)))
-          .toList()
-        ..sort((a, b) => compareStr(a.name, b.name));
+      final images =
+          CbrReader.collectEntries(bytes)
+              .where((e) => isImageExt(_ext(e.name)))
+              .toList()
+            ..sort((a, b) => compareStr(a.name, b.name));
       if (index >= images.length) return null;
       return images[index].bytes;
     } catch (_) {

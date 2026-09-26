@@ -53,7 +53,9 @@ class _ComicInfoEditorDialogState extends State<_ComicInfoEditorDialog> {
   late final _month = TextEditingController(text: _num(_i.month));
   late final _day = TextEditingController(text: _num(_i.day));
   late final _pageCount = TextEditingController(text: _num(_i.pageCount));
-  late final _rating = TextEditingController(text: _ratingText(_i.communityRating));
+  late final _rating = TextEditingController(
+    text: _ratingText(_i.communityRating),
+  );
 
   static String _num(int v) => v == kComicUnsetInt ? '' : '$v';
   static String _ratingText(double v) =>
@@ -62,9 +64,25 @@ class _ComicInfoEditorDialogState extends State<_ComicInfoEditorDialog> {
   @override
   void dispose() {
     for (final controller in [
-      _series, _number, _title, _writer, _penciller, _publisher, _genre,
-      _web, _language, _manga, _ageRating, _summary, _volume, _count,
-      _year, _month, _day, _pageCount, _rating,
+      _series,
+      _number,
+      _title,
+      _writer,
+      _penciller,
+      _publisher,
+      _genre,
+      _web,
+      _language,
+      _manga,
+      _ageRating,
+      _summary,
+      _volume,
+      _count,
+      _year,
+      _month,
+      _day,
+      _pageCount,
+      _rating,
     ]) {
       controller.dispose();
     }
@@ -84,46 +102,46 @@ class _ComicInfoEditorDialogState extends State<_ComicInfoEditorDialog> {
   }
 
   ComicInfo _collect() => ComicInfo(
-        title: _title.text,
-        series: _series.text,
-        number: _number.text,
-        count: _intOf(_count),
-        volume: _intOf(_volume),
-        alternateSeries: _i.alternateSeries,
-        alternateNumber: _i.alternateNumber,
-        alternateCount: _i.alternateCount,
-        summary: _summary.text,
-        notes: _i.notes,
-        year: _intOf(_year),
-        month: _intOf(_month),
-        day: _intOf(_day),
-        writer: _writer.text,
-        penciller: _penciller.text,
-        inker: _i.inker,
-        colorist: _i.colorist,
-        letterer: _i.letterer,
-        coverArtist: _i.coverArtist,
-        editor: _i.editor,
-        publisher: _publisher.text,
-        imprint: _i.imprint,
-        genre: _genre.text,
-        tags: _i.tags,
-        web: _web.text,
-        pageCount: _intOf(_pageCount),
-        languageIso: _language.text,
-        format: _i.format,
-        blackAndWhite: _i.blackAndWhite,
-        manga: _manga.text,
-        characters: _i.characters,
-        teams: _i.teams,
-        locations: _i.locations,
-        scanInformation: _i.scanInformation,
-        storyArc: _i.storyArc,
-        storyArcNumber: _i.storyArcNumber,
-        seriesGroup: _i.seriesGroup,
-        ageRating: _ageRating.text,
-        communityRating: _doubleOf(_rating),
-      );
+    title: _title.text,
+    series: _series.text,
+    number: _number.text,
+    count: _intOf(_count),
+    volume: _intOf(_volume),
+    alternateSeries: _i.alternateSeries,
+    alternateNumber: _i.alternateNumber,
+    alternateCount: _i.alternateCount,
+    summary: _summary.text,
+    notes: _i.notes,
+    year: _intOf(_year),
+    month: _intOf(_month),
+    day: _intOf(_day),
+    writer: _writer.text,
+    penciller: _penciller.text,
+    inker: _i.inker,
+    colorist: _i.colorist,
+    letterer: _i.letterer,
+    coverArtist: _i.coverArtist,
+    editor: _i.editor,
+    publisher: _publisher.text,
+    imprint: _i.imprint,
+    genre: _genre.text,
+    tags: _i.tags,
+    web: _web.text,
+    pageCount: _intOf(_pageCount),
+    languageIso: _language.text,
+    format: _i.format,
+    blackAndWhite: _i.blackAndWhite,
+    manga: _manga.text,
+    characters: _i.characters,
+    teams: _i.teams,
+    locations: _i.locations,
+    scanInformation: _i.scanInformation,
+    storyArc: _i.storyArc,
+    storyArcNumber: _i.storyArcNumber,
+    seriesGroup: _i.seriesGroup,
+    ageRating: _ageRating.text,
+    communityRating: _doubleOf(_rating),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -177,7 +195,9 @@ class _ComicInfoEditorDialogState extends State<_ComicInfoEditorDialog> {
               ),
               Row(
                 children: [
-                  Expanded(child: _text('Page count', _pageCount, numeric: true)),
+                  Expanded(
+                    child: _text('Page count', _pageCount, numeric: true),
+                  ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: _text('Community rating', _rating, numeric: true),

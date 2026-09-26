@@ -13,8 +13,7 @@ Future<List<Object?>> validateInIsolate(
   Uint8List bytes,
   String name,
   String engineId,
-) =>
-    Isolate.run(() => validateArchiveBytes(bytes, name, engineId));
+) => Isolate.run(() => validateArchiveBytes(bytes, name, engineId));
 
 /// Synchronous deep-validation core, safe to run inside a background isolate.
 ///

@@ -22,18 +22,13 @@ Future<CbrConvertRequest?> showCbrOptionsDialog(
 }) {
   return showDialog<CbrConvertRequest>(
     context: context,
-    builder: (context) => _CbrOptionsDialog(
-      fileCount: fileCount,
-      defaultThreads: defaultThreads,
-    ),
+    builder: (context) =>
+        _CbrOptionsDialog(fileCount: fileCount, defaultThreads: defaultThreads),
   );
 }
 
 class _CbrOptionsDialog extends StatefulWidget {
-  const _CbrOptionsDialog({
-    required this.fileCount,
-    this.defaultThreads = 0,
-  });
+  const _CbrOptionsDialog({required this.fileCount, this.defaultThreads = 0});
 
   final int fileCount;
   final int defaultThreads;
@@ -45,8 +40,7 @@ class _CbrOptionsDialog extends StatefulWidget {
 class _CbrOptionsDialogState extends State<_CbrOptionsDialog> {
   bool _skipExisting = true;
   bool _deleteSource = false;
-  late final _threads =
-      TextEditingController(text: '${widget.defaultThreads}');
+  late final _threads = TextEditingController(text: '${widget.defaultThreads}');
 
   @override
   void dispose() {
@@ -86,7 +80,8 @@ class _CbrOptionsDialogState extends State<_CbrOptionsDialog> {
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(
                 labelText: 'Parallel files (0 = auto)',
-                helperText: 'Automatic uses one worker per CPU core, capped at 4.',
+                helperText:
+                    'Automatic uses one worker per CPU core, capped at 4.',
               ),
             ),
           ],

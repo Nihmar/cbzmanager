@@ -19,18 +19,18 @@ enum ImageProvider {
 }
 
 String providerName(ImageProvider p) => switch (p) {
-      ImageProvider.all => 'All sources',
-      ImageProvider.mangaDex => 'MangaDex (manga volumes)',
-      ImageProvider.openverse => 'Openverse',
-      ImageProvider.wikimedia => 'Wikimedia Commons',
-      ImageProvider.openLibrary => 'Open Library',
-      ImageProvider.artInstitute => 'Art Institute of Chicago',
-      ImageProvider.met => 'The Met',
-      ImageProvider.cleveland => 'Cleveland Museum of Art',
-      ImageProvider.wellcome => 'Wellcome Collection',
-      ImageProvider.nasa => 'NASA Images',
-      ImageProvider.url => 'Paste a URL',
-    };
+  ImageProvider.all => 'All sources',
+  ImageProvider.mangaDex => 'MangaDex (manga volumes)',
+  ImageProvider.openverse => 'Openverse',
+  ImageProvider.wikimedia => 'Wikimedia Commons',
+  ImageProvider.openLibrary => 'Open Library',
+  ImageProvider.artInstitute => 'Art Institute of Chicago',
+  ImageProvider.met => 'The Met',
+  ImageProvider.cleveland => 'Cleveland Museum of Art',
+  ImageProvider.wellcome => 'Wellcome Collection',
+  ImageProvider.nasa => 'NASA Images',
+  ImageProvider.url => 'Paste a URL',
+};
 
 /// Providers combined by the `all` fan-out (the URL pseudo-provider is not a
 /// backend and is excluded).
@@ -74,7 +74,14 @@ class MangaSeries {
 }
 
 const Set<String> _imageExts = {
-  '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tif', '.tiff',
+  '.jpg',
+  '.jpeg',
+  '.png',
+  '.gif',
+  '.bmp',
+  '.webp',
+  '.tif',
+  '.tiff',
 };
 
 /// Best-effort image extension (leading dot) inferred from a URL's path.
@@ -109,12 +116,7 @@ bool _bool(Object? v, [bool fallback = false]) => v is bool ? v : fallback;
 
 /// Row label shared by the museum backends: `Title (date) — Artist`, dropping
 /// whichever parts the record does not carry.
-String _artworkTitle(
-  Map o,
-  String titleKey,
-  String artistKey,
-  String dateKey,
-) {
+String _artworkTitle(Map o, String titleKey, String artistKey, String dateKey) {
   var title = _str(o[titleKey]);
   if (title.trim().isEmpty) title = '(untitled)';
   final date = _str(o[dateKey]).trim();
@@ -223,7 +225,9 @@ String _coverMangaId(Map el) {
   try {
     final data = jsonDecode(json);
     final arr = data is Map ? data['data'] : null;
-    if (arr is! List) return (const <MangaSeries>[], 'No "data" array in response');
+    if (arr is! List) {
+      return (const <MangaSeries>[], 'No "data" array in response');
+    }
     final out = <MangaSeries>[];
     for (final el in arr) {
       if (el is! Map) continue;
@@ -246,7 +250,9 @@ String _coverMangaId(Map el) {
   try {
     final data = jsonDecode(json);
     final arr = data is Map ? data['data'] : null;
-    if (arr is! List) return (const <ImageResult>[], 'No "data" array in response');
+    if (arr is! List) {
+      return (const <ImageResult>[], 'No "data" array in response');
+    }
     final out = <ImageResult>[];
     for (final el in arr) {
       if (el is! Map) continue;
@@ -294,7 +300,9 @@ String _coverMangaId(Map el) {
   try {
     final data = jsonDecode(json);
     final docs = data is Map ? data['docs'] : null;
-    if (docs is! List) return (const <ImageResult>[], 'No "docs" array in response');
+    if (docs is! List) {
+      return (const <ImageResult>[], 'No "docs" array in response');
+    }
     final out = <ImageResult>[];
     for (final el in docs) {
       if (el is! Map) continue;
@@ -312,7 +320,8 @@ String _coverMangaId(Map el) {
         ImageResult(
           provider: ImageProvider.openLibrary,
           title: title,
-          fullUrl: 'https://covers.openlibrary.org/b/id/$cover-L.jpg?default=false',
+          fullUrl:
+              'https://covers.openlibrary.org/b/id/$cover-L.jpg?default=false',
           thumbUrl:
               'https://covers.openlibrary.org/b/id/$cover-M.jpg?default=false',
           pageUrl: key.isEmpty ? '' : 'https://openlibrary.org$key',
@@ -331,7 +340,9 @@ String _coverMangaId(Map el) {
   try {
     final data = jsonDecode(json);
     final arr = data is Map ? data['data'] : null;
-    if (arr is! List) return (const <ImageResult>[], 'No "data" array in response');
+    if (arr is! List) {
+      return (const <ImageResult>[], 'No "data" array in response');
+    }
     final out = <ImageResult>[];
     for (final el in arr) {
       if (el is! Map) continue;
@@ -341,8 +352,10 @@ String _coverMangaId(Map el) {
         ImageResult(
           provider: ImageProvider.artInstitute,
           title: _artworkTitle(el, 'title', 'artist_title', 'date_display'),
-          fullUrl: 'https://www.artic.edu/iiif/2/$imageId/full/843,/0/default.jpg',
-          thumbUrl: 'https://www.artic.edu/iiif/2/$imageId/full/200,/0/default.jpg',
+          fullUrl:
+              'https://www.artic.edu/iiif/2/$imageId/full/843,/0/default.jpg',
+          thumbUrl:
+              'https://www.artic.edu/iiif/2/$imageId/full/200,/0/default.jpg',
           pageUrl: 'https://www.artic.edu/artworks/${_int(el['id'])}',
           license: _bool(el['is_public_domain'])
               ? 'Public domain'
@@ -361,7 +374,9 @@ String _coverMangaId(Map el) {
   try {
     final data = jsonDecode(json);
     final arr = data is Map ? data['data'] : null;
-    if (arr is! List) return (const <ImageResult>[], 'No "data" array in response');
+    if (arr is! List) {
+      return (const <ImageResult>[], 'No "data" array in response');
+    }
     final out = <ImageResult>[];
     for (final el in arr) {
       if (el is! Map) continue;
@@ -415,7 +430,9 @@ String wellcomeFullUrl(String thumb) {
   try {
     final data = jsonDecode(json);
     final arr = data is Map ? data['results'] : null;
-    if (arr is! List) return (const <ImageResult>[], 'No "results" array in response');
+    if (arr is! List) {
+      return (const <ImageResult>[], 'No "results" array in response');
+    }
     final out = <ImageResult>[];
     for (final el in arr) {
       if (el is! Map) continue;
@@ -432,8 +449,7 @@ String wellcomeFullUrl(String thumb) {
           title: _str(el['title'], '(untitled)'),
           fullUrl: full.isEmpty ? thumbUrl : full,
           thumbUrl: thumbUrl,
-          pageUrl:
-              id.isEmpty ? '' : 'https://wellcomecollection.org/works/$id',
+          pageUrl: id.isEmpty ? '' : 'https://wellcomecollection.org/works/$id',
           license: license is Map ? _str(license['label']) : '',
           ext: '.jpg',
         ),
@@ -448,8 +464,9 @@ String wellcomeFullUrl(String thumb) {
 (List<ImageResult>, String?) parseNasaResults(String json) {
   try {
     final data = jsonDecode(json);
-    final collection =
-        data is Map && data['collection'] is Map ? data['collection'] : null;
+    final collection = data is Map && data['collection'] is Map
+        ? data['collection']
+        : null;
     final items = collection is Map ? collection['items'] : null;
     if (items is! List) {
       return (const <ImageResult>[], 'No "collection.items" array in response');
@@ -472,11 +489,14 @@ String wellcomeFullUrl(String thumb) {
       out.add(
         ImageResult(
           provider: ImageProvider.nasa,
-          title: meta == null ? '(untitled)' : _str(meta['title'], '(untitled)'),
+          title: meta == null
+              ? '(untitled)'
+              : _str(meta['title'], '(untitled)'),
           fullUrl: full,
           thumbUrl: thumb,
-          pageUrl:
-              nasaId.isEmpty ? '' : 'https://images.nasa.gov/details/$nasaId',
+          pageUrl: nasaId.isEmpty
+              ? ''
+              : 'https://images.nasa.gov/details/$nasaId',
           license: 'NASA media usage guidelines',
           ext: '.jpg',
         ),
@@ -497,7 +517,13 @@ String wellcomeFullUrl(String thumb) {
     if (arr is! List) {
       return (const <int>[], 'No "objectIDs" array in response');
     }
-    return (<int>[for (final v in arr) if (v is num) v.toInt()], null);
+    return (
+      <int>[
+        for (final v in arr)
+          if (v is num) v.toInt(),
+      ],
+      null,
+    );
   } catch (e) {
     return (const <int>[], 'Invalid JSON: $e');
   }

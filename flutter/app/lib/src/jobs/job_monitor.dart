@@ -59,10 +59,7 @@ class _JobMonitor extends ConsumerWidget {
                         itemCount: job.log.length,
                         itemBuilder: (context, index) {
                           final entry = job.log[job.log.length - 1 - index];
-                          return Text(
-                            entry,
-                            style: theme.textTheme.bodySmall,
-                          );
+                          return Text(entry, style: theme.textTheme.bodySmall);
                         },
                       ),
                     ),
@@ -74,7 +71,9 @@ class _JobMonitor extends ConsumerWidget {
                       TextButton(
                         onPressed: job.cancelled
                             ? null
-                            : () => ref.read(jobProvider.notifier).requestCancel(),
+                            : () => ref
+                                  .read(jobProvider.notifier)
+                                  .requestCancel(),
                         child: const Text('Cancel'),
                       ),
                       const SizedBox(width: 8),

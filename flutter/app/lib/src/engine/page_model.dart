@@ -36,20 +36,20 @@ class PageState {
   final int origIndex;
 
   PageState copy() => PageState(
-        origName: origName,
-        name: name,
-        data: data,
-        gone: gone,
-        origIndex: origIndex,
-      );
+    origName: origName,
+    name: name,
+    data: data,
+    gone: gone,
+    origIndex: origIndex,
+  );
 }
 
 /// Editable page list with an undo/log and baseline for revert. Port of the
 /// pure part of `uPageEditModel`.
 class PageEditModel {
   PageEditModel(List<PageState> initial)
-      : _baseline = [for (final p in initial) p.copy()],
-        pages = [for (final p in initial) p.copy()];
+    : _baseline = [for (final p in initial) p.copy()],
+      pages = [for (final p in initial) p.copy()];
 
   final List<PageState> pages;
   final List<PageState> _baseline;
@@ -62,8 +62,10 @@ class PageEditModel {
   bool get hasChanges => changes.isNotEmpty;
   int get pendingChanges => changes.length;
 
-  List<PageState> get visible =>
-      <PageState>[for (final p in pages) if (!p.gone) p];
+  List<PageState> get visible => <PageState>[
+    for (final p in pages)
+      if (!p.gone) p,
+  ];
 
   void _log(PageChangeKind kind, String name) =>
       changes.add(PageChange(kind, name));
@@ -111,7 +113,10 @@ class PageEditModel {
 
   /// Replaces the page at [index] with the first piece and inserts the rest
   /// after it. Each piece is (name, bytes).
-  void replaceWithPieces(int index, List<({String name, Uint8List data})> pieces) {
+  void replaceWithPieces(
+    int index,
+    List<({String name, Uint8List data})> pieces,
+  ) {
     if (index < 0 || index >= pages.length || pieces.isEmpty) return;
     final original = pages[index];
     original.data = pieces.first.data;
@@ -185,7 +190,8 @@ Uint8List buildEditedArchive(
     if (index >= 0) consumed[index] = true;
     if (page.gone) continue;
 
-    final data = page.data ?? (index >= 0 ? originalEntries[index].bytes : null);
+    final data =
+        page.data ?? (index >= 0 ? originalEntries[index].bytes : null);
     if (data == null) continue;
 
     pageNum++;

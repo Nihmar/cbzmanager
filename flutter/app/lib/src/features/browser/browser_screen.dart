@@ -48,8 +48,9 @@ class BrowserScreen extends ConsumerWidget {
     final job = ref.watch(jobProvider);
     final l10n = AppLocalizations.of(context);
     final selecting = selection.isNotEmpty;
-    final selectedItems =
-        browser.items.where((i) => selection.contains(i.path)).toList();
+    final selectedItems = browser.items
+        .where((i) => selection.contains(i.path))
+        .toList();
     final up = source == null
         ? null
         : browserParentPath(source.root, browser.path);
@@ -62,7 +63,8 @@ class BrowserScreen extends ConsumerWidget {
           LogicalKeyboardKey.keyO,
           control: true,
           shift: true,
-        ): () => _openSmb(context, ref),
+        ): () =>
+            _openSmb(context, ref),
         const SingleActivator(LogicalKeyboardKey.f5): () {
           final current = ref.read(sourceProvider);
           if (current != null) {
@@ -80,152 +82,157 @@ class BrowserScreen extends ConsumerWidget {
         autofocus: true,
         child: Scaffold(
           appBar: AppBar(
-        leading: selecting
-            ? IconButton(
-                tooltip: 'Cancel selection',
-                icon: const Icon(Icons.close),
-                onPressed: () => ref.read(selectionProvider.notifier).clear(),
-              )
-            : up == null
+            leading: selecting
+                ? IconButton(
+                    tooltip: 'Cancel selection',
+                    icon: const Icon(Icons.close),
+                    onPressed: () =>
+                        ref.read(selectionProvider.notifier).clear(),
+                  )
+                : up == null
                 ? null
                 : IconButton(
                     tooltip: 'Up',
                     icon: const Icon(Icons.arrow_back),
                     onPressed: () => _navigate(ref, source!, up),
                   ),
-        title: Text(
-          selecting ? '${selection.length} selected' : (source?.label ?? l10n.appTitle),
-        ),
-        actions: selecting
-            ? [
-                IconButton(
-                  tooltip: 'Validate',
-                  icon: const Icon(Icons.fact_check_outlined),
-                  onPressed: job?.running == true || source == null
-                      ? null
-                      : () => _validate(context, ref, source, selectedItems),
-                ),
-                IconButton(
-                  tooltip: 'Convert to WebP',
-                  icon: const Icon(Icons.transform),
-                  onPressed: job?.running == true || source == null
-                      ? null
-                      : () => _convert(context, ref, source, selectedItems),
-                ),
-                IconButton(
-                  tooltip: 'Batch edit pages',
-                  icon: const Icon(Icons.tune),
-                  onPressed: job?.running == true || source == null
-                      ? null
-                      : () => _batchEdit(context, ref, source, selectedItems),
-                ),
-                IconButton(
-                  tooltip: 'Remove ComicInfo',
-                  icon: const Icon(Icons.bookmark_remove_outlined),
-                  onPressed: job?.running == true || source == null
-                      ? null
-                      : () => _removeComicInfo(context, ref, source, selectedItems),
-                ),
-                IconButton(
-                  tooltip: 'Select all',
-                  icon: const Icon(Icons.select_all),
-                  onPressed: () => ref
-                      .read(selectionProvider.notifier)
-                      .select(browser.items.map((i) => i.path)),
-                ),
-              ]
-            : [
-                if (source != null)
-                  IconButton(
-                    tooltip: 'Refresh',
-                    icon: const Icon(Icons.refresh),
-                    onPressed: job?.running == true
-                        ? null
-                        : () => ref
-                            .read(browserProvider.notifier)
-                            .load(source.vfs, browser.path),
-                  ),
-                if (source != null && browser.items.isNotEmpty)
-                  IconButton(
-                    tooltip: 'Select',
-                    icon: const Icon(Icons.checklist),
-                    onPressed: () => ref
-                        .read(selectionProvider.notifier)
-                        .select(browser.items.map((i) => i.path)),
-                  ),
-                if (source != null && browser.items.isNotEmpty)
-                  IconButton(
-                    tooltip: 'Merge chapters',
-                    icon: const Icon(Icons.merge_type),
-                    onPressed: job?.running == true
-                        ? null
-                        : () => _merge(context, ref, source, browser.items),
-                  ),
-                if (source != null && browser.items.any((i) => i.isCbr))
-                  IconButton(
-                    tooltip: 'Convert CBR to CBZ',
-                    icon: const Icon(Icons.swap_horiz),
-                    onPressed: job?.running == true
-                        ? null
-                        : () => _convertCbr(
+            title: Text(
+              selecting
+                  ? '${selection.length} selected'
+                  : (source?.label ?? l10n.appTitle),
+            ),
+            actions: selecting
+                ? [
+                    IconButton(
+                      tooltip: 'Validate',
+                      icon: const Icon(Icons.fact_check_outlined),
+                      onPressed: job?.running == true || source == null
+                          ? null
+                          : () =>
+                                _validate(context, ref, source, selectedItems),
+                    ),
+                    IconButton(
+                      tooltip: 'Convert to WebP',
+                      icon: const Icon(Icons.transform),
+                      onPressed: job?.running == true || source == null
+                          ? null
+                          : () => _convert(context, ref, source, selectedItems),
+                    ),
+                    IconButton(
+                      tooltip: 'Batch edit pages',
+                      icon: const Icon(Icons.tune),
+                      onPressed: job?.running == true || source == null
+                          ? null
+                          : () =>
+                                _batchEdit(context, ref, source, selectedItems),
+                    ),
+                    IconButton(
+                      tooltip: 'Remove ComicInfo',
+                      icon: const Icon(Icons.bookmark_remove_outlined),
+                      onPressed: job?.running == true || source == null
+                          ? null
+                          : () => _removeComicInfo(
                               context,
                               ref,
                               source,
-                              [
+                              selectedItems,
+                            ),
+                    ),
+                    IconButton(
+                      tooltip: 'Select all',
+                      icon: const Icon(Icons.select_all),
+                      onPressed: () => ref
+                          .read(selectionProvider.notifier)
+                          .select(browser.items.map((i) => i.path)),
+                    ),
+                  ]
+                : [
+                    if (source != null)
+                      IconButton(
+                        tooltip: 'Refresh',
+                        icon: const Icon(Icons.refresh),
+                        onPressed: job?.running == true
+                            ? null
+                            : () => ref
+                                  .read(browserProvider.notifier)
+                                  .load(source.vfs, browser.path),
+                      ),
+                    if (source != null && browser.items.isNotEmpty)
+                      IconButton(
+                        tooltip: 'Select',
+                        icon: const Icon(Icons.checklist),
+                        onPressed: () => ref
+                            .read(selectionProvider.notifier)
+                            .select(browser.items.map((i) => i.path)),
+                      ),
+                    if (source != null && browser.items.isNotEmpty)
+                      IconButton(
+                        tooltip: 'Merge chapters',
+                        icon: const Icon(Icons.merge_type),
+                        onPressed: job?.running == true
+                            ? null
+                            : () => _merge(context, ref, source, browser.items),
+                      ),
+                    if (source != null && browser.items.any((i) => i.isCbr))
+                      IconButton(
+                        tooltip: 'Convert CBR to CBZ',
+                        icon: const Icon(Icons.swap_horiz),
+                        onPressed: job?.running == true
+                            ? null
+                            : () => _convertCbr(context, ref, source, [
                                 for (final i in browser.items)
                                   if (i.isCbr) i.name,
-                              ],
-                            ),
-                  ),
-                PopupMenuButton<String>(
-                  tooltip: 'Open source',
-                  onSelected: (value) {
-                    if (value == 'local') {
-                      _openLocal(context, ref);
-                    } else {
-                      _openSmb(context, ref);
-                    }
-                  },
-                  itemBuilder: (context) => [
-                    if (!kIsWeb &&
-                        defaultTargetPlatform != TargetPlatform.android)
-                      const PopupMenuItem(
-                        value: 'local',
-                        child: Text('Open local folder'),
+                              ]),
                       ),
-                    const PopupMenuItem(
-                      value: 'smb',
-                      child: Text('Connect to SMB share'),
+                    PopupMenuButton<String>(
+                      tooltip: 'Open source',
+                      onSelected: (value) {
+                        if (value == 'local') {
+                          _openLocal(context, ref);
+                        } else {
+                          _openSmb(context, ref);
+                        }
+                      },
+                      itemBuilder: (context) => [
+                        if (!kIsWeb &&
+                            defaultTargetPlatform != TargetPlatform.android)
+                          const PopupMenuItem(
+                            value: 'local',
+                            child: Text('Open local folder'),
+                          ),
+                        const PopupMenuItem(
+                          value: 'smb',
+                          child: Text('Connect to SMB share'),
+                        ),
+                      ],
+                    ),
+                    IconButton(
+                      tooltip: l10n.settings,
+                      icon: const Icon(Icons.settings_outlined),
+                      onPressed: () => showSettingsDialog(context),
                     ),
                   ],
+            bottom: job == null
+                ? null
+                : PreferredSize(
+                    preferredSize: const Size.fromHeight(44),
+                    child: _JobBar(job: job),
+                  ),
+          ),
+          body: source == null
+              ? _Welcome(
+                  onLocal: () => _openLocal(context, ref),
+                  onSmb: () => _openSmb(context, ref),
+                )
+              : PopScope(
+                  // System back climbs out of a subfolder before leaving the app.
+                  canPop: up == null,
+                  onPopInvokedWithResult: (didPop, _) {
+                    if (didPop || up == null) return;
+                    _navigate(ref, source, up);
+                  },
+                  child: _BrowserBody(source: source, browser: browser),
                 ),
-                IconButton(
-                  tooltip: l10n.settings,
-                  icon: const Icon(Icons.settings_outlined),
-                  onPressed: () => showSettingsDialog(context),
-                ),
-              ],
-        bottom: job == null
-            ? null
-            : PreferredSize(
-                preferredSize: const Size.fromHeight(44),
-                child: _JobBar(job: job),
-              ),
-      ),
-      body: source == null
-          ? _Welcome(
-              onLocal: () => _openLocal(context, ref),
-              onSmb: () => _openSmb(context, ref),
-            )
-          : PopScope(
-              // System back climbs out of a subfolder before leaving the app.
-              canPop: up == null,
-              onPopInvokedWithResult: (didPop, _) {
-                if (didPop || up == null) return;
-                _navigate(ref, source, up);
-              },
-              child: _BrowserBody(source: source, browser: browser),
-            ),
         ),
       ),
     );
@@ -269,13 +276,14 @@ class BrowserScreen extends ConsumerWidget {
     job.start('Validate', message: 'Validating ${items.length} file(s)...');
     List<ValidateOutcome> outcomes;
     try {
-      outcomes = await ValidateService(ref.read(cbzEngineProvider)).validateMany(
-        source.vfs,
-        items,
-        onProgress: (done, total, message) =>
-            job.progress(total == 0 ? 0 : done * 100 ~/ total, message),
-        isCancelled: () => job.cancelRequested,
-      );
+      outcomes = await ValidateService(ref.read(cbzEngineProvider))
+          .validateMany(
+            source.vfs,
+            items,
+            onProgress: (done, total, message) =>
+                job.progress(total == 0 ? 0 : done * 100 ~/ total, message),
+            isCancelled: () => job.cancelRequested,
+          );
     } catch (e) {
       job.finish();
       if (context.mounted) _snack(context, 'Validation failed: $e');
@@ -375,9 +383,7 @@ class BrowserScreen extends ConsumerWidget {
       if (!context.mounted) return;
       final ok = outcomes.where((o) => o.success).length;
       _snack(context, 'Edited $ok of ${outcomes.length} file(s)');
-      await ref
-          .read(browserProvider.notifier)
-          .load(source.vfs, _cwd(ref));
+      await ref.read(browserProvider.notifier).load(source.vfs, _cwd(ref));
     } catch (e) {
       job.finish();
       if (context.mounted) _snack(context, 'Batch edit failed: $e');
@@ -413,7 +419,10 @@ class BrowserScreen extends ConsumerWidget {
     if (request == null || !context.mounted) return;
 
     final job = ref.read(jobProvider.notifier);
-    job.start('Convert to WebP', message: 'Converting ${items.length} file(s)...');
+    job.start(
+      'Convert to WebP',
+      message: 'Converting ${items.length} file(s)...',
+    );
     try {
       final outcomes = await const ConvertService().convertMany(
         source.vfs,
@@ -443,7 +452,10 @@ class BrowserScreen extends ConsumerWidget {
       return;
     }
     if (!CbrReader.isSupported) {
-      _snack(context, 'CBR support requires libarchive, which is not available');
+      _snack(
+        context,
+        'CBR support requires libarchive, which is not available',
+      );
       return;
     }
 
@@ -485,16 +497,19 @@ class BrowserScreen extends ConsumerWidget {
     List<ArchiveItem> items,
   ) async {
     final job = ref.read(jobProvider.notifier);
-    job.start('Remove ComicInfo', message: 'Scanning ${items.length} file(s)...');
+    job.start(
+      'Remove ComicInfo',
+      message: 'Scanning ${items.length} file(s)...',
+    );
     try {
       final result = await ComicInfoService(ref.read(cbzEngineProvider))
           .removeMany(
-        source.vfs,
-        items,
-        onProgress: (done, total, message) =>
-            job.progress(total == 0 ? 0 : done * 100 ~/ total, message),
-        isCancelled: () => job.cancelRequested,
-      );
+            source.vfs,
+            items,
+            onProgress: (done, total, message) =>
+                job.progress(total == 0 ? 0 : done * 100 ~/ total, message),
+            isCancelled: () => job.cancelRequested,
+          );
       job.finish();
       if (context.mounted) {
         _snack(
@@ -583,10 +598,7 @@ class _Welcome extends StatelessWidget {
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 8),
-            Text(
-              l10n.welcomeSubtitle,
-              textAlign: TextAlign.center,
-            ),
+            Text(l10n.welcomeSubtitle, textAlign: TextAlign.center),
             const SizedBox(height: 24),
             Wrap(
               spacing: 12,
@@ -800,7 +812,8 @@ class _ArchiveTile extends ConsumerWidget {
             );
           }
         },
-        onLongPress: () => ref.read(selectionProvider.notifier).toggle(item.path),
+        onLongPress: () =>
+            ref.read(selectionProvider.notifier).toggle(item.path),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -900,7 +913,9 @@ class _ArchiveTile extends ConsumerWidget {
                                 builder: (_) => PageEditScreen(
                                   vfs: source.vfs,
                                   item: item,
-                                  backup: ref.read(settingsProvider).backupByDefault,
+                                  backup: ref
+                                      .read(settingsProvider)
+                                      .backupByDefault,
                                 ),
                               ),
                             );
@@ -982,14 +997,14 @@ class _BrowserActions {
   ) async {
     final job = ref.read(jobProvider.notifier);
     job.start('Validate', message: 'Validating ${item.name}');
-    final outcomes =
-        await ValidateService(ref.read(cbzEngineProvider)).validateMany(
-      source.vfs,
-      [item],
-      onProgress: (done, total, message) =>
-          job.progress(total == 0 ? 0 : done * 100 ~/ total, message),
-      isCancelled: () => job.cancelRequested,
-    );
+    final outcomes = await ValidateService(ref.read(cbzEngineProvider))
+        .validateMany(
+          source.vfs,
+          [item],
+          onProgress: (done, total, message) =>
+              job.progress(total == 0 ? 0 : done * 100 ~/ total, message),
+          isCancelled: () => job.cancelRequested,
+        );
     job.finish();
     if (context.mounted) await showValidateResultsDialog(context, outcomes);
   }

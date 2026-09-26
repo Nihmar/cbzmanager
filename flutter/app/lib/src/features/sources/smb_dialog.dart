@@ -68,8 +68,9 @@ class _SmbConnectDialogState extends State<_SmbConnectDialog> {
               TextFormField(
                 controller: _password,
                 obscureText: true,
-                decoration:
-                    const InputDecoration(labelText: 'Password (optional)'),
+                decoration: const InputDecoration(
+                  labelText: 'Password (optional)',
+                ),
               ),
             ],
           ),

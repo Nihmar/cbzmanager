@@ -50,11 +50,9 @@ void main() {
       }),
     );
 
-    await const BatchEditService().applyMany(
-      vfs,
-      [item('book.cbz')],
-      const BatchEditParams(split: true, horizontal: true, pieces: 2),
-    );
+    await const BatchEditService().applyMany(vfs, [
+      item('book.cbz'),
+    ], const BatchEditParams(split: true, horizontal: true, pieces: 2));
 
     final entries = collectZipEntries(await vfs.readAll('/book.cbz'));
     expect(entries.length, 4);
@@ -64,11 +62,9 @@ void main() {
   test('neutral params are a no-op success', () async {
     final vfs = MemoryVfs();
     await vfs.writeAll('/book.cbz', makeZip({'a.png': makeSolidPng(8, 8)}));
-    final outcomes = await const BatchEditService().applyMany(
-      vfs,
-      [item('book.cbz')],
-      const BatchEditParams(),
-    );
+    final outcomes = await const BatchEditService().applyMany(vfs, [
+      item('book.cbz'),
+    ], const BatchEditParams());
     expect(outcomes.single.success, isTrue);
     expect(await vfs.exists('/book_OLD.cbz'), isFalse);
   });
@@ -81,11 +77,9 @@ void main() {
     });
     await vfs.writeAll('/book.cbz', original);
 
-    final outcomes = await const BatchEditService().applyMany(
-      vfs,
-      [item('book.cbz')],
-      const BatchEditParams(percent: 50),
-    );
+    final outcomes = await const BatchEditService().applyMany(vfs, [
+      item('book.cbz'),
+    ], const BatchEditParams(percent: 50));
 
     expect(outcomes.single.success, isFalse);
     expect(outcomes.single.error, contains('page_002.png'));

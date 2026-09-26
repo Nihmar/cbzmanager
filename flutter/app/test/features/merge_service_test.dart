@@ -42,9 +42,7 @@ class _FailingWriteVfs extends MemoryVfs {
 Future<void> putChapter(MemoryVfs vfs, String name, int pages) async {
   await vfs.writeAll(
     '/$name',
-    makeZip({
-      for (var i = 1; i <= pages; i++) 'p$i.png': makeSolidPng(8, 8),
-    }),
+    makeZip({for (var i = 1; i <= pages; i++) 'p$i.png': makeSolidPng(8, 8)}),
   );
 }
 
@@ -64,7 +62,8 @@ void expectSameArchive(Uint8List a, Uint8List b) {
 }
 
 void main() {
-  test('merges full volumes and backs up sources', () async {    final vfs = MemoryVfs();
+  test('merges full volumes and backs up sources', () async {
+    final vfs = MemoryVfs();
     await putChapters(vfs, 6);
 
     final outcome = await const MergeService().merge(
@@ -77,17 +76,13 @@ void main() {
     expect(outcome.volumesCreated, 3);
     for (var i = 1; i <= 3; i++) {
       expect(await vfs.exists('/Test V00$i.cbz'), isTrue);
-      expect(
-        collectZipEntries(await vfs.readAll('/Test V00$i.cbz')).length,
-        2,
-      );
+      expect(collectZipEntries(await vfs.readAll('/Test V00$i.cbz')).length, 2);
     }
     expect(await vfs.exists('/Test - 01_OLD.cbz'), isTrue);
     expect(await vfs.exists('/Test - 01.cbz'), isFalse);
   });
 
-  test('rollback keeps a pre-existing target it could not overwrite',
-      () async {
+  test('rollback keeps a pre-existing target it could not overwrite', () async {
     // Models a volume appearing between the listing/plan and the write (the
     // CLI plan is built from a snapshot).  The old code marked the batch as
     // written before writeAll, so a failed write made rollback delete a file
@@ -105,10 +100,16 @@ void main() {
     );
 
     expect(outcome.success, isFalse);
-    expect(await vfs.exists('/Test V001.cbz'), isTrue,
-        reason: 'not created by this run: leave it alone');
-    expect(await vfs.exists('/Test - 01.cbz'), isTrue,
-        reason: 'failed run keeps its sources');
+    expect(
+      await vfs.exists('/Test V001.cbz'),
+      isTrue,
+      reason: 'not created by this run: leave it alone',
+    );
+    expect(
+      await vfs.exists('/Test - 01.cbz'),
+      isTrue,
+      reason: 'failed run keeps its sources',
+    );
   });
 
   test('rollback removes a partial volume this run created', () async {
@@ -125,8 +126,11 @@ void main() {
     );
 
     expect(outcome.success, isFalse);
-    expect(await vfs.exists('/Test V001.cbz'), isFalse,
-        reason: 'the truncated file created by this run is rolled back');
+    expect(
+      await vfs.exists('/Test V001.cbz'),
+      isFalse,
+      reason: 'the truncated file created by this run is rolled back',
+    );
   });
 
   test('delete mode removes sources with no backup', () async {
@@ -154,10 +158,7 @@ void main() {
     );
 
     expect(outcome.volumesCreated, 2);
-    expect(
-      collectZipEntries(await vfs.readAll('/Test V002.cbz')).length,
-      3,
-    );
+    expect(collectZipEntries(await vfs.readAll('/Test V002.cbz')).length, 3);
   });
 
   test('not enough chapters is a benign no-op', () async {

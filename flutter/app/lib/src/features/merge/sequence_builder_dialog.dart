@@ -11,10 +11,8 @@ Future<List<int>?> showSequenceBuilder(
 }) {
   return showDialog<List<int>>(
     context: context,
-    builder: (context) => _SequenceBuilderDialog(
-      chapters: chapters,
-      lastVolume: lastVolume,
-    ),
+    builder: (context) =>
+        _SequenceBuilderDialog(chapters: chapters, lastVolume: lastVolume),
   );
 }
 
@@ -125,8 +123,9 @@ class _SequenceBuilderDialogState extends State<_SequenceBuilderDialog> {
                   child: const Text('Undo'),
                 ),
                 TextButton(
-                  onPressed:
-                      _sequence.isEmpty ? null : () => setState(_sequence.clear),
+                  onPressed: _sequence.isEmpty
+                      ? null
+                      : () => setState(_sequence.clear),
                   child: const Text('Clear'),
                 ),
               ],

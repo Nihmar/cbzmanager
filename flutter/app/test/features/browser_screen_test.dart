@@ -23,8 +23,7 @@ class _FakeThumbnails extends ThumbnailService {
     ArchiveItem item, {
     int maxWidth = 320,
     int maxHeight = 400,
-  }) async =>
-      makeSolidPng(8, 8);
+  }) async => makeSolidPng(8, 8);
 }
 
 void main() {
@@ -40,9 +39,9 @@ void main() {
       ],
     );
     addTearDown(container.dispose);
-    container.read(sourceProvider.notifier).set(
-          ArchiveSource(vfs: vfs, root: '/lib', label: 'lib'),
-        );
+    container
+        .read(sourceProvider.notifier)
+        .set(ArchiveSource(vfs: vfs, root: '/lib', label: 'lib'));
     await container.read(browserProvider.notifier).load(vfs, '/lib');
 
     await tester.pumpWidget(
@@ -77,9 +76,9 @@ void main() {
       ],
     );
     addTearDown(container.dispose);
-    container.read(sourceProvider.notifier).set(
-          ArchiveSource(vfs: vfs, root: '/lib', label: 'lib'),
-        );
+    container
+        .read(sourceProvider.notifier)
+        .set(ArchiveSource(vfs: vfs, root: '/lib', label: 'lib'));
     await container.read(browserProvider.notifier).load(vfs, '/lib');
 
     await tester.pumpWidget(

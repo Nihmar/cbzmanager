@@ -38,7 +38,9 @@ class _SettingsDialogState extends ConsumerState<_SettingsDialog> {
   int _threads(TextEditingController c) => int.tryParse(c.text.trim()) ?? 0;
 
   Future<void> _save() async {
-    await ref.read(settingsProvider.notifier).update(
+    await ref
+        .read(settingsProvider.notifier)
+        .update(
           _settings.copyWith(
             convertThreads: _threads(_convert),
             mergeThreads: _threads(_merge),
@@ -69,8 +71,9 @@ class _SettingsDialogState extends ConsumerState<_SettingsDialog> {
                   ButtonSegment(value: ThemeMode.dark, label: Text('Dark')),
                 ],
                 selected: {_settings.themeMode},
-                onSelectionChanged: (s) =>
-                    setState(() => _settings = _settings.copyWith(themeMode: s.first)),
+                onSelectionChanged: (s) => setState(
+                  () => _settings = _settings.copyWith(themeMode: s.first),
+                ),
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
@@ -86,7 +89,10 @@ class _SettingsDialogState extends ConsumerState<_SettingsDialog> {
                 ),
               ),
               const SizedBox(height: 16),
-              Text('Default threads (0 = auto)', style: theme.textTheme.labelLarge),
+              Text(
+                'Default threads (0 = auto)',
+                style: theme.textTheme.labelLarge,
+              ),
               const SizedBox(height: 8),
               Row(
                 children: [

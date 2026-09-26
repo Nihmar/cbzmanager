@@ -43,7 +43,8 @@ void main() {
   });
 
   test('parses arbitrary documents and ignores unknown elements', () {
-    const xml = '<?xml version="1.0"?><ComicInfo><Series>X</Series>'
+    const xml =
+        '<?xml version="1.0"?><ComicInfo><Series>X</Series>'
         '<Unknown>y</Unknown><PageCount>10</PageCount></ComicInfo>';
     final info = ComicInfo.parse(xml);
     expect(info.series, 'X');

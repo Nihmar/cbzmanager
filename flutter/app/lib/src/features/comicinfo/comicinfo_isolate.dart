@@ -20,22 +20,22 @@ Future<bool> scanComicInfoInIsolate(
   Uint8List bytes,
   String name,
   String engineId,
-) =>
-    Isolate.run(
-      () => engineFromId(engineId).scanComicInfoSync(ArchiveData(name, bytes)).found,
-    );
+) => Isolate.run(
+  () =>
+      engineFromId(engineId).scanComicInfoSync(ArchiveData(name, bytes)).found,
+);
 
 /// The ComicInfo.xml of the archive, or null when it has none.
 Future<String?> readComicInfoXmlInIsolate(
   Uint8List bytes,
   String name,
   String engineId,
-) =>
-    Isolate.run(
-      () => engineFromId(
-        engineId,
-      ).readComicInfoSync(ArchiveData(name, bytes))?.toXml(),
-    );
+) => Isolate.run(
+  () =>
+      engineFromId(engineId)
+          .readComicInfoSync(ArchiveData(name, bytes))
+          ?.toXml(),
+);
 
 /// Rewrites the archive with [xml] as its ComicInfo.xml.
 Future<Uint8List> writeComicInfoInIsolate(
@@ -43,21 +43,19 @@ Future<Uint8List> writeComicInfoInIsolate(
   String name,
   String xml,
   String engineId,
-) =>
-    Isolate.run(
-      () => engineFromId(engineId)
+) => Isolate.run(
+  () =>
+      engineFromId(engineId)
           .writeComicInfoSync(ArchiveData(name, bytes), ComicInfo.parse(xml))
           .bytes,
-    );
+);
 
 /// Rewrites the archive without its ComicInfo.xml.
 Future<Uint8List> stripComicInfoInIsolate(
   Uint8List bytes,
   String name,
   String engineId,
-) =>
-    Isolate.run(
-      () => engineFromId(
-        engineId,
-      ).stripComicInfoSync(ArchiveData(name, bytes)).bytes,
-    );
+) => Isolate.run(
+  () =>
+      engineFromId(engineId).stripComicInfoSync(ArchiveData(name, bytes)).bytes,
+);

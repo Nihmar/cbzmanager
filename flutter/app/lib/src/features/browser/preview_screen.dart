@@ -90,8 +90,9 @@ class _PreviewScreenState extends ConsumerState<PreviewScreen> {
             if (_pageCount > 0)
               Text(
                 '${_current + 1} / $_pageCount',
-                style: theme.textTheme.labelSmall
-                    ?.copyWith(color: Colors.white70),
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: Colors.white70,
+                ),
               ),
           ],
         ),
@@ -108,8 +109,9 @@ class _PreviewScreenState extends ConsumerState<PreviewScreen> {
         ],
       ),
       body: _buildBody(),
-      bottomNavigationBar:
-          _pageCount > 1 && _bytes != null ? _buildRail(context) : null,
+      bottomNavigationBar: _pageCount > 1 && _bytes != null
+          ? _buildRail(context)
+          : null,
     );
   }
 
@@ -178,7 +180,9 @@ class _PreviewScreenState extends ConsumerState<PreviewScreen> {
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(
-                  color: selected ? Theme.of(context).colorScheme.primary : Colors.white24,
+                  color: selected
+                      ? Theme.of(context).colorScheme.primary
+                      : Colors.white24,
                   width: selected ? 2 : 1,
                 ),
               ),
@@ -224,14 +228,22 @@ class _PageView extends StatelessWidget {
         final bytes = snapshot.data;
         if (bytes == null) {
           return const Center(
-            child: Icon(Icons.broken_image_outlined, color: Colors.white54, size: 48),
+            child: Icon(
+              Icons.broken_image_outlined,
+              color: Colors.white54,
+              size: 48,
+            ),
           );
         }
         return InteractiveViewer(
           minScale: 1,
           maxScale: 6,
           child: Center(
-            child: Image.memory(bytes, fit: BoxFit.contain, gaplessPlayback: true),
+            child: Image.memory(
+              bytes,
+              fit: BoxFit.contain,
+              gaplessPlayback: true,
+            ),
           ),
         );
       },

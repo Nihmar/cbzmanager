@@ -42,8 +42,7 @@ class _MergeDialogState extends State<_MergeDialog> {
   final _start = TextEditingController(text: '0');
   final _end = TextEditingController();
   final _cpv = TextEditingController();
-  late final _threads =
-      TextEditingController(text: '${widget.defaultThreads}');
+  late final _threads = TextEditingController(text: '${widget.defaultThreads}');
 
   bool _autoCpv = true;
   bool _force = false;
@@ -71,19 +70,18 @@ class _MergeDialogState extends State<_MergeDialog> {
   }
 
   MergeOptions get _options => MergeOptions(
-        seriesName: _series,
-        chapterStart: int.tryParse(_start.text.trim()) ?? 0,
-        chapterEnd: _end.text.trim().isEmpty
-            ? 0x7fffffff
-            : (int.tryParse(_end.text.trim()) ?? 0x7fffffff),
-        chaptersPerVolume:
-            _autoCpv ? 0 : (int.tryParse(_cpv.text.trim()) ?? 0),
-        chaptersList: _chaptersList,
-        force: _force,
-        delete: !_backup,
-        generateComicInfo: _comicInfo,
-        threads: int.tryParse(_threads.text.trim()) ?? 0,
-      );
+    seriesName: _series,
+    chapterStart: int.tryParse(_start.text.trim()) ?? 0,
+    chapterEnd: _end.text.trim().isEmpty
+        ? 0x7fffffff
+        : (int.tryParse(_end.text.trim()) ?? 0x7fffffff),
+    chaptersPerVolume: _autoCpv ? 0 : (int.tryParse(_cpv.text.trim()) ?? 0),
+    chaptersList: _chaptersList,
+    force: _force,
+    delete: !_backup,
+    generateComicInfo: _comicInfo,
+    threads: int.tryParse(_threads.text.trim()) ?? 0,
+  );
 
   Future<void> _openSequenceBuilder() async {
     final chapters = collectChapters(widget.files, _series);
@@ -126,8 +124,9 @@ class _MergeDialogState extends State<_MergeDialog> {
                           child: TextField(
                             controller: _start,
                             keyboardType: TextInputType.number,
-                            decoration:
-                                const InputDecoration(labelText: 'Chapter from'),
+                            decoration: const InputDecoration(
+                              labelText: 'Chapter from',
+                            ),
                             onChanged: (_) => setState(() {}),
                           ),
                         ),
@@ -151,7 +150,7 @@ class _MergeDialogState extends State<_MergeDialog> {
                         autoCpv >= 1
                             ? 'Calculated: ${autoCpv.toStringAsFixed(2)}'
                             : 'No existing volumes — default '
-                                '$kDefaultChaptersPerVolume',
+                                  '$kDefaultChaptersPerVolume',
                       ),
                       value: _autoCpv,
                       onChanged: (v) => setState(() => _autoCpv = v),
@@ -160,13 +159,16 @@ class _MergeDialogState extends State<_MergeDialog> {
                       TextField(
                         controller: _cpv,
                         keyboardType: TextInputType.number,
-                        decoration:
-                            const InputDecoration(labelText: 'Chapters per volume'),
+                        decoration: const InputDecoration(
+                          labelText: 'Chapters per volume',
+                        ),
                         onChanged: (_) => setState(() {}),
                       ),
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
-                      title: const Text('Force remaining chapters into last volume'),
+                      title: const Text(
+                        'Force remaining chapters into last volume',
+                      ),
                       value: _force,
                       onChanged: (v) => setState(() => _force = v),
                     ),

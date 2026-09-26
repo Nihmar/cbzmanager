@@ -30,7 +30,10 @@ const Set<String> _commands = {
 };
 
 Future<void> main(List<String> args) async {
-  if (args.isEmpty || args.first == '--help' || args.first == '-h' || args.first == 'help') {
+  if (args.isEmpty ||
+      args.first == '--help' ||
+      args.first == '-h' ||
+      args.first == 'help') {
     _usage();
     exit(args.isEmpty ? _exitUsage : _exitOk);
   }
@@ -144,7 +147,8 @@ _Options _parseOptions(List<String> args) {
     }
   }
   if (options.chapters != null && options.chaptersPerVolume > 0) {
-    options.error = '--chapters and --chapters-per-volume are mutually exclusive';
+    options.error =
+        '--chapters and --chapters-per-volume are mutually exclusive';
   }
   return options;
 }
@@ -177,16 +181,21 @@ Future<int> _validate(Vfs vfs, String dir, _Options options) async {
     vfs,
     items,
     threads: options.threads,
-    onProgress: (done, total, message) => stdout.writeln('[$done/$total] $message'),
+    onProgress: (done, total, message) =>
+        stdout.writeln('[$done/$total] $message'),
   );
   var invalid = 0;
   for (final outcome in outcomes) {
     if (outcome.result.valid) {
-      stdout.writeln('OK   ${outcome.item.name} (${outcome.result.imageCount} images)');
+      stdout.writeln(
+        'OK   ${outcome.item.name} (${outcome.result.imageCount} images)',
+      );
     } else {
       invalid++;
-      stderr.writeln('FAIL ${outcome.item.name}: '
-          '${outcome.result.error ?? '${outcome.result.errors.length} bad page(s)'}');
+      stderr.writeln(
+        'FAIL ${outcome.item.name}: '
+        '${outcome.result.error ?? '${outcome.result.errors.length} bad page(s)'}',
+      );
       for (final error in outcome.result.errors) {
         stderr.writeln('     ${error.page}: ${error.message}');
       }
@@ -207,13 +216,16 @@ Future<int> _convert(Vfs vfs, String dir, _Options options) async {
     items,
     backup: !options.delete,
     threads: options.threads,
-    onProgress: (done, total, message) => stdout.writeln('[$done/$total] $message'),
+    onProgress: (done, total, message) =>
+        stdout.writeln('[$done/$total] $message'),
   );
   var failed = 0;
   for (final outcome in outcomes) {
     if (outcome.success) {
-      stdout.writeln('OK   ${outcome.item.name} '
-          '(${outcome.converted} converted, ${outcome.kept} kept)');
+      stdout.writeln(
+        'OK   ${outcome.item.name} '
+        '(${outcome.converted} converted, ${outcome.kept} kept)',
+      );
     } else {
       failed++;
       stderr.writeln('FAIL ${outcome.item.name}: ${outcome.error}');
@@ -230,9 +242,9 @@ Future<int> _merge(Vfs vfs, String dir, _Options options) async {
   }
   final series = <String>{
     for (final item in all)
-      if (detectSeriesName([item.name]).isNotEmpty) detectSeriesName([item.name]),
-  }.toList()
-    ..sort();
+      if (detectSeriesName([item.name]).isNotEmpty)
+        detectSeriesName([item.name]),
+  }.toList()..sort();
 
   var created = 0;
   var failed = 0;
@@ -249,7 +261,8 @@ Future<int> _merge(Vfs vfs, String dir, _Options options) async {
         delete: options.delete,
         threads: options.threads,
       ),
-      onProgress: (percent, message) => stdout.writeln('  [$percent%] $message'),
+      onProgress: (percent, message) =>
+          stdout.writeln('  [$percent%] $message'),
     );
     if (result.success) {
       stdout.writeln('$name: ${result.volumesCreated} volume(s) created');
@@ -265,7 +278,9 @@ Future<int> _merge(Vfs vfs, String dir, _Options options) async {
     }
   }
   if (failed > 0) return _exitError;
-  stdout.writeln(created == 0 ? 'No volumes created' : '$created volume(s) created');
+  stdout.writeln(
+    created == 0 ? 'No volumes created' : '$created volume(s) created',
+  );
   return _exitOk;
 }
 
@@ -305,13 +320,19 @@ void _usage() {
   stdout.writeln('');
   stdout.writeln('Commands:');
   stdout.writeln('  validate <dir>            Validate every *.cbz');
-  stdout.writeln('  convert-webp <dir>        Convert images to WebP (only if smaller)');
+  stdout.writeln(
+    '  convert-webp <dir>        Convert images to WebP (only if smaller)',
+  );
   stdout.writeln('  merge <dir>               Merge chapters into volumes');
   stdout.writeln('  cbr-to-cbz <dir>          Convert CBR archives to CBZ');
   stdout.writeln('');
   stdout.writeln('Options:');
-  stdout.writeln('  --delete                  Replace originals (no _OLD backup) / delete CBR source');
-  stdout.writeln('  --force                   Append remaining chapters to the last volume');
+  stdout.writeln(
+    '  --delete                  Replace originals (no _OLD backup) / delete CBR source',
+  );
+  stdout.writeln(
+    '  --force                   Append remaining chapters to the last volume',
+  );
   stdout.writeln('  --chapters N1,N2,...      Exact chapter counts per volume');
   stdout.writeln('  --chapters-per-volume N   Fixed chapters per volume');
   stdout.writeln('  --threads N               Worker threads (0 = auto)');

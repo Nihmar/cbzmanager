@@ -58,7 +58,9 @@ class CbzManagerApp extends ConsumerWidget {
         border: OutlineInputBorder(),
         isDense: true,
       ),
-      snackBarTheme: const SnackBarThemeData(behavior: SnackBarBehavior.floating),
+      snackBarTheme: const SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 }

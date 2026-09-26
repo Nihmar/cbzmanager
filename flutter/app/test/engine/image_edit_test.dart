@@ -44,8 +44,10 @@ void main() {
     });
 
     test('invert', () {
-      final out = adjustColors(solid(1, 1, 10, 20, 30),
-          const ColorAdjust(invert: true))!;
+      final out = adjustColors(
+        solid(1, 1, 10, 20, 30),
+        const ColorAdjust(invert: true),
+      )!;
       expect(rgb(out), [245, 235, 225]);
     });
 
@@ -126,10 +128,7 @@ void main() {
         targetExt: '.png',
       );
       expect(pieces.length, 3);
-      expect(
-        [for (final p in pieces) img.decodeImage(p)!.height],
-        [2, 6, 2],
-      );
+      expect([for (final p in pieces) img.decodeImage(p)!.height], [2, 6, 2]);
     });
 
     test('falls back to equal pieces when no cuts are given', () {

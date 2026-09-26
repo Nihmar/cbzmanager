@@ -63,7 +63,9 @@ void main() {
     const json = '''
     {"data":[{"id":"c1","attributes":{"fileName":"cover.jpg","volume":"1","locale":"en"},
       "relationships":[{"type":"manga","id":"abc"}]}]}''';
-    final (results, error) = parseMangaDexCovers(json, const [MangaSeries('abc', 'One Piece')]);
+    final (results, error) = parseMangaDexCovers(json, const [
+      MangaSeries('abc', 'One Piece'),
+    ]);
     expect(error, isNull);
     final r = results.single;
     expect(r.fullUrl, 'https://uploads.mangadex.org/covers/abc/cover.jpg');

@@ -37,16 +37,15 @@ class AppSettings {
     int? cbrThreads,
     int? batchThreads,
     bool? backupByDefault,
-  }) =>
-      AppSettings(
-        themeMode: themeMode ?? this.themeMode,
-        languageCode: languageCode ?? this.languageCode,
-        convertThreads: convertThreads ?? this.convertThreads,
-        mergeThreads: mergeThreads ?? this.mergeThreads,
-        cbrThreads: cbrThreads ?? this.cbrThreads,
-        batchThreads: batchThreads ?? this.batchThreads,
-        backupByDefault: backupByDefault ?? this.backupByDefault,
-      );
+  }) => AppSettings(
+    themeMode: themeMode ?? this.themeMode,
+    languageCode: languageCode ?? this.languageCode,
+    convertThreads: convertThreads ?? this.convertThreads,
+    mergeThreads: mergeThreads ?? this.mergeThreads,
+    cbrThreads: cbrThreads ?? this.cbrThreads,
+    batchThreads: batchThreads ?? this.batchThreads,
+    backupByDefault: backupByDefault ?? this.backupByDefault,
+  );
 }
 
 /// Reads/writes [AppSettings] from [sharedPrefsProvider].

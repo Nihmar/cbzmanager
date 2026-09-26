@@ -36,10 +36,10 @@ class VfsStat {
   });
 
   const VfsStat.missing()
-      : exists = false,
-        isDirectory = false,
-        size = 0,
-        modified = null;
+    : exists = false,
+      isDirectory = false,
+      size = 0,
+      modified = null;
 
   final bool exists;
   final bool isDirectory;

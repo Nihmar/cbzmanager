@@ -31,21 +31,21 @@ class BatchEditParams {
   bool get isNeutral => percent <= 0 && adjust.isNeutral && !split;
 
   Map<String, Object?> toMap() => <String, Object?>{
-        'percent': percent,
-        'invert': adjust.invert,
-        'grayscale': adjust.grayscale,
-        'sepia': adjust.sepia,
-        'rGain': adjust.rGain,
-        'gGain': adjust.gGain,
-        'bGain': adjust.bGain,
-        'saturation': adjust.saturation,
-        'contrast': adjust.contrast,
-        'brightness': adjust.brightness,
-        'gamma': adjust.gamma,
-        'split': split,
-        'horizontal': horizontal,
-        'pieces': pieces,
-      };
+    'percent': percent,
+    'invert': adjust.invert,
+    'grayscale': adjust.grayscale,
+    'sepia': adjust.sepia,
+    'rGain': adjust.rGain,
+    'gGain': adjust.gGain,
+    'bGain': adjust.bGain,
+    'saturation': adjust.saturation,
+    'contrast': adjust.contrast,
+    'brightness': adjust.brightness,
+    'gamma': adjust.gamma,
+    'split': split,
+    'horizontal': horizontal,
+    'pieces': pieces,
+  };
 }
 
 class BatchEditOutcome {
@@ -84,8 +84,7 @@ class BatchEditService {
     if (total == 0) return const <BatchEditOutcome>[];
     if (params.isNeutral) {
       return <BatchEditOutcome>[
-        for (final item in items)
-          BatchEditOutcome(item: item, success: true),
+        for (final item in items) BatchEditOutcome(item: item, success: true),
       ];
     }
 
@@ -126,7 +125,11 @@ class BatchEditService {
                 );
               }
             } catch (e) {
-              slots[i] = BatchEditOutcome(item: item, success: false, error: '$e');
+              slots[i] = BatchEditOutcome(
+                item: item,
+                success: false,
+                error: '$e',
+              );
             }
             done++;
             onProgress?.call(done * 100 ~/ total, 'Edited $done/$total');

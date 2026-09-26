@@ -42,9 +42,7 @@ Future<void> showValidateResultsDialog(
               const SizedBox(height: 12),
               Expanded(
                 child: outcomes.every((o) => o.result.valid)
-                    ? const Center(
-                        child: Text('All archives are valid.'),
-                      )
+                    ? const Center(child: Text('All archives are valid.'))
                     : ListView.builder(
                         itemCount: outcomes.length,
                         itemBuilder: (context, index) {
@@ -52,7 +50,10 @@ Future<void> showValidateResultsDialog(
                           if (outcome.result.valid) {
                             return ListTile(
                               dense: true,
-                              leading: const Icon(Icons.check, color: Colors.green),
+                              leading: const Icon(
+                                Icons.check,
+                                color: Colors.green,
+                              ),
                               title: Text(outcome.item.name),
                             );
                           }
@@ -89,9 +90,8 @@ Future<void> showValidateResultsDialog(
         ),
         actions: [
           TextButton.icon(
-            onPressed: () => Clipboard.setData(
-              ClipboardData(text: _report(outcomes)),
-            ),
+            onPressed: () =>
+                Clipboard.setData(ClipboardData(text: _report(outcomes))),
             icon: const Icon(Icons.copy),
             label: const Text('Copy report'),
           ),
@@ -108,11 +108,15 @@ Future<void> showValidateResultsDialog(
 String _report(List<ValidateOutcome> outcomes) {
   final valid = outcomes.where((o) => o.result.valid).length;
   final buffer = StringBuffer()
-    ..writeln('Validation report — ${outcomes.length} file(s): '
-        '$valid ok, ${outcomes.length - valid} failed');
+    ..writeln(
+      'Validation report — ${outcomes.length} file(s): '
+      '$valid ok, ${outcomes.length - valid} failed',
+    );
   for (final outcome in outcomes) {
-    buffer.writeln('${outcome.result.valid ? 'OK  ' : 'FAIL'} ${outcome.item.name}'
-        '${outcome.result.imageCount > 0 ? ' (${outcome.result.imageCount} images)' : ''}');
+    buffer.writeln(
+      '${outcome.result.valid ? 'OK  ' : 'FAIL'} ${outcome.item.name}'
+      '${outcome.result.imageCount > 0 ? ' (${outcome.result.imageCount} images)' : ''}',
+    );
     if (!outcome.result.valid) {
       if (outcome.result.error != null) {
         buffer.writeln('     ${outcome.result.error}');

@@ -135,7 +135,8 @@ class MergeService {
       }
       return MergeOutcome(
         success: false,
-        error: 'Error during merge — created volumes have been removed '
+        error:
+            'Error during merge — created volumes have been removed '
             '($firstError)',
       );
     }

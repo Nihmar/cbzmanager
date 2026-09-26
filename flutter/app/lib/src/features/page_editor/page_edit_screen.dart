@@ -37,7 +37,8 @@ class _PageEditScreenState extends State<PageEditScreen> {
   PageEditModel? _model;
   Map<String, Uint8List> _byName = <String, Uint8List>{};
   final Set<int> _selected = <int>{};
-  final Map<String, Future<Uint8List?>> _thumbs = <String, Future<Uint8List?>>{};
+  final Map<String, Future<Uint8List?>> _thumbs =
+      <String, Future<Uint8List?>>{};
   bool _loading = true;
   bool _saving = false;
   String? _error;
@@ -99,10 +100,7 @@ class _PageEditScreenState extends State<PageEditScreen> {
     final named = <({String name, Uint8List data})>[
       (name: page.name, data: pieces.first),
       for (var i = 1; i < pieces.length; i++)
-        (
-          name: '${_stem(page.name)}_$i$ext',
-          data: pieces[i],
-        ),
+        (name: '${_stem(page.name)}_$i$ext', data: pieces[i]),
     ];
     setState(() {
       model.replaceWithPieces(modelIndex, named);
@@ -182,10 +180,10 @@ class _PageEditScreenState extends State<PageEditScreen> {
             onPressed: _selected.isEmpty
                 ? null
                 : () => setState(() {
-                      model!.deleteMany(_selected);
-                      _selected.clear();
-                      _thumbs.clear();
-                    }),
+                    model!.deleteMany(_selected);
+                    _selected.clear();
+                    _thumbs.clear();
+                  }),
           ),
           IconButton(
             tooltip: 'Move earlier',
@@ -193,12 +191,12 @@ class _PageEditScreenState extends State<PageEditScreen> {
             onPressed: _selected.isEmpty
                 ? null
                 : () => setState(() {
-                      for (final i in _selected.toList()..sort()) {
-                        model!.move(i, i - 1);
-                      }
-                      _selected.clear();
-                      _thumbs.clear();
-                    }),
+                    for (final i in _selected.toList()..sort()) {
+                      model!.move(i, i - 1);
+                    }
+                    _selected.clear();
+                    _thumbs.clear();
+                  }),
           ),
           IconButton(
             tooltip: 'Move later',
@@ -206,12 +204,12 @@ class _PageEditScreenState extends State<PageEditScreen> {
             onPressed: _selected.isEmpty
                 ? null
                 : () => setState(() {
-                      for (final i in _selected.toList()..sort((a, b) => b - a)) {
-                        model!.move(i, i + 1);
-                      }
-                      _selected.clear();
-                      _thumbs.clear();
-                    }),
+                    for (final i in _selected.toList()..sort((a, b) => b - a)) {
+                      model!.move(i, i + 1);
+                    }
+                    _selected.clear();
+                    _thumbs.clear();
+                  }),
           ),
           PopupMenuButton<String>(
             onSelected: (value) {
@@ -247,10 +245,10 @@ class _PageEditScreenState extends State<PageEditScreen> {
                     onPressed: _saving
                         ? null
                         : () => setState(() {
-                              model.revert();
-                              _selected.clear();
-                              _thumbs.clear();
-                            }),
+                            model.revert();
+                            _selected.clear();
+                            _thumbs.clear();
+                          }),
                     child: const Text('Revert'),
                   ),
                   const SizedBox(width: 8),
@@ -274,10 +272,12 @@ class _PageEditScreenState extends State<PageEditScreen> {
   Widget _buildBody(PageEditModel? model, List<int> visible) {
     if (_loading) return const Center(child: CircularProgressIndicator());
     if (_error != null) {
-      return Center(child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Text(_error!, textAlign: TextAlign.center),
-      ));
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(_error!, textAlign: TextAlign.center),
+        ),
+      );
     }
     if (model == null || visible.isEmpty) {
       return const Center(child: Text('No pages'));
@@ -309,7 +309,9 @@ class _PageEditScreenState extends State<PageEditScreen> {
 
         return Card(
           key: ValueKey(page),
-          color: selected ? Theme.of(context).colorScheme.primaryContainer : null,
+          color: selected
+              ? Theme.of(context).colorScheme.primaryContainer
+              : null,
           child: ListTile(
             selected: selected,
             onTap: () => setState(() {

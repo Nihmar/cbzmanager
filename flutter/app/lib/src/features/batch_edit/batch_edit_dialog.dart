@@ -28,19 +28,18 @@ class ColorAdjustEditor extends StatelessWidget {
     double? contrast,
     double? brightness,
     double? gamma,
-  }) =>
-      ColorAdjust(
-        invert: invert ?? value.invert,
-        grayscale: grayscale ?? value.grayscale,
-        sepia: sepia ?? value.sepia,
-        rGain: rGain ?? value.rGain,
-        gGain: gGain ?? value.gGain,
-        bGain: bGain ?? value.bGain,
-        saturation: saturation ?? value.saturation,
-        contrast: contrast ?? value.contrast,
-        brightness: brightness ?? value.brightness,
-        gamma: gamma ?? value.gamma,
-      );
+  }) => ColorAdjust(
+    invert: invert ?? value.invert,
+    grayscale: grayscale ?? value.grayscale,
+    sepia: sepia ?? value.sepia,
+    rGain: rGain ?? value.rGain,
+    gGain: gGain ?? value.gGain,
+    bGain: bGain ?? value.bGain,
+    saturation: saturation ?? value.saturation,
+    contrast: contrast ?? value.contrast,
+    brightness: brightness ?? value.brightness,
+    gamma: gamma ?? value.gamma,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -67,26 +66,62 @@ class ColorAdjustEditor extends StatelessWidget {
             ),
           ],
         ),
-        _slider('Brightness', value.brightness, -100, 100,
-            (v) => onChanged(_with(brightness: v))),
-        _slider('Contrast', value.contrast, 0.25, 3,
-            (v) => onChanged(_with(contrast: v))),
-        _slider('Saturation', value.saturation, 0, 2,
-            (v) => onChanged(_with(saturation: v))),
-        _slider('Gamma', value.gamma, 0.25, 3, (v) => onChanged(_with(gamma: v))),
+        _slider(
+          'Brightness',
+          value.brightness,
+          -100,
+          100,
+          (v) => onChanged(_with(brightness: v)),
+        ),
+        _slider(
+          'Contrast',
+          value.contrast,
+          0.25,
+          3,
+          (v) => onChanged(_with(contrast: v)),
+        ),
+        _slider(
+          'Saturation',
+          value.saturation,
+          0,
+          2,
+          (v) => onChanged(_with(saturation: v)),
+        ),
+        _slider(
+          'Gamma',
+          value.gamma,
+          0.25,
+          3,
+          (v) => onChanged(_with(gamma: v)),
+        ),
         Row(
           children: [
             Expanded(
-              child: _slider('R gain', value.rGain, 0, 2,
-                  (v) => onChanged(_with(rGain: v))),
+              child: _slider(
+                'R gain',
+                value.rGain,
+                0,
+                2,
+                (v) => onChanged(_with(rGain: v)),
+              ),
             ),
             Expanded(
-              child: _slider('G gain', value.gGain, 0, 2,
-                  (v) => onChanged(_with(gGain: v))),
+              child: _slider(
+                'G gain',
+                value.gGain,
+                0,
+                2,
+                (v) => onChanged(_with(gGain: v)),
+              ),
             ),
             Expanded(
-              child: _slider('B gain', value.bGain, 0, 2,
-                  (v) => onChanged(_with(bGain: v))),
+              child: _slider(
+                'B gain',
+                value.bGain,
+                0,
+                2,
+                (v) => onChanged(_with(bGain: v)),
+              ),
             ),
           ],
         ),
@@ -238,7 +273,9 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
                       contentPadding: EdgeInsets.zero,
                       title: const Text('Split pages'),
                       subtitle: Text(
-                        _split ? '$_pieces line(s) → $piecesTotal pieces' : 'Off',
+                        _split
+                            ? '$_pieces line(s) → $piecesTotal pieces'
+                            : 'Off',
                       ),
                       value: _split,
                       onChanged: (v) => setState(() => _split = v),
@@ -249,7 +286,10 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
                           SegmentedButton<bool>(
                             segments: const [
                               ButtonSegment(value: true, label: Text('Rows')),
-                              ButtonSegment(value: false, label: Text('Columns')),
+                              ButtonSegment(
+                                value: false,
+                                label: Text('Columns'),
+                              ),
                             ],
                             selected: {_horizontal},
                             onSelectionChanged: (s) =>

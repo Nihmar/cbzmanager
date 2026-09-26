@@ -46,8 +46,7 @@ class _ConvertOptionsDialog extends StatefulWidget {
 
 class _ConvertOptionsDialogState extends State<_ConvertOptionsDialog> {
   late bool _backup = widget.defaultBackup;
-  late final _threads =
-      TextEditingController(text: '${widget.defaultThreads}');
+  late final _threads = TextEditingController(text: '${widget.defaultThreads}');
 
   @override
   void dispose() {
@@ -104,7 +103,8 @@ class _ConvertOptionsDialogState extends State<_ConvertOptionsDialog> {
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(
                 labelText: 'Parallel files (0 = auto)',
-                helperText: 'Automatic uses one worker per CPU core, capped at 8.',
+                helperText:
+                    'Automatic uses one worker per CPU core, capped at 8.',
               ),
             ),
           ],
@@ -119,7 +119,10 @@ class _ConvertOptionsDialogState extends State<_ConvertOptionsDialog> {
           onPressed: () {
             final threads = int.tryParse(_threads.text.trim()) ?? 0;
             Navigator.of(context).pop(
-              ConvertRequest(backup: _backup, threads: threads < 0 ? 0 : threads),
+              ConvertRequest(
+                backup: _backup,
+                threads: threads < 0 ? 0 : threads,
+              ),
             );
           },
           icon: const Icon(Icons.transform),
@@ -165,8 +168,7 @@ Future<void> showConvertResultsDialog(
                     avatar: const Icon(Icons.check_circle, size: 18),
                     label: Text('$ok converted'),
                   ),
-                  if (kept > 0)
-                    Chip(label: Text('$kept page(s) kept')),
+                  if (kept > 0) Chip(label: Text('$kept page(s) kept')),
                   if (failed > 0)
                     Chip(
                       avatar: const Icon(Icons.error, size: 18),

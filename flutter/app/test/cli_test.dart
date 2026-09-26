@@ -9,27 +9,30 @@ import 'package:flutter_test/flutter_test.dart';
 /// (no Flutter widgetset) and honour the reference exit codes.
 void main() {
   test('--version exits 0 and prints the version', () async {
-    final result = await Process.run(
-      'dart',
-      ['run', 'bin/cbzmanager.dart', '--version'],
-    );
+    final result = await Process.run('dart', [
+      'run',
+      'bin/cbzmanager.dart',
+      '--version',
+    ]);
     expect(result.exitCode, 0);
     expect(result.stdout, contains('cbzmanager'));
   });
 
   test('an unknown command exits 2', () async {
-    final result = await Process.run(
-      'dart',
-      ['run', 'bin/cbzmanager.dart', 'bogus'],
-    );
+    final result = await Process.run('dart', [
+      'run',
+      'bin/cbzmanager.dart',
+      'bogus',
+    ]);
     expect(result.exitCode, 2);
   });
 
   test('a missing directory exits 2', () async {
-    final result = await Process.run(
-      'dart',
-      ['run', 'bin/cbzmanager.dart', 'validate'],
-    );
+    final result = await Process.run('dart', [
+      'run',
+      'bin/cbzmanager.dart',
+      'validate',
+    ]);
     expect(result.exitCode, 2);
   });
 }

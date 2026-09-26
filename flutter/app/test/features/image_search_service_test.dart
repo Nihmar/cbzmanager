@@ -31,27 +31,31 @@ void main() {
     );
   });
 
-  test('download rejects a declared oversize body without reading it',
-      () async {
-    final service = ImageSearchService(
-      client: MockClient.streaming((request, bodyStream) async {
-        return http.StreamedResponse(
-          const Stream<List<int>>.empty(),
-          200,
-          contentLength: 21 * 1024 * 1024,
-        );
-      }),
-    );
-    addTearDown(service.dispose);
+  test(
+    'download rejects a declared oversize body without reading it',
+    () async {
+      final service = ImageSearchService(
+        client: MockClient.streaming((request, bodyStream) async {
+          return http.StreamedResponse(
+            const Stream<List<int>>.empty(),
+            200,
+            contentLength: 21 * 1024 * 1024,
+          );
+        }),
+      );
+      addTearDown(service.dispose);
 
-    await expectLater(
-      service.download('https://example.test/huge.jpg'),
-      throwsA(predicate((e) => '$e'.contains('20 MB'))),
-    );
-  });
+      await expectLater(
+        service.download('https://example.test/huge.jpg'),
+        throwsA(predicate((e) => '$e'.contains('20 MB'))),
+      );
+    },
+  );
 
   test('download returns a small body unchanged', () async {
-    final payload = Uint8List.fromList(List<int>.generate(1024, (i) => i % 251));
+    final payload = Uint8List.fromList(
+      List<int>.generate(1024, (i) => i % 251),
+    );
     final service = ImageSearchService(
       client: MockClient.streaming((request, bodyStream) async {
         return http.StreamedResponse(

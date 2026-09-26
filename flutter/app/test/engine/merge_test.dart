@@ -58,10 +58,11 @@ void main() {
     });
 
     test('collectChapters orders specials after regular chapters', () {
-      final chapters = collectChapters(
-        ['Test - 003.cbz', 'Test - 001.cbz', 'Test - SP01.cbz'],
-        'Test',
-      );
+      final chapters = collectChapters([
+        'Test - 003.cbz',
+        'Test - 001.cbz',
+        'Test - SP01.cbz',
+      ], 'Test');
       expect(chapters.map((c) => c.number).toList(), [1, 3, 4]);
       expect(chapters.last.isSpecial, isTrue);
     });
@@ -69,13 +70,14 @@ void main() {
 
   group('planMerge', () {
     List<String> chapters(int n) => [
-          for (var i = 1; i <= n; i++)
-            'Test - ${i.toString().padLeft(2, '0')}.cbz',
-        ];
+      for (var i = 1; i <= n; i++) 'Test - ${i.toString().padLeft(2, '0')}.cbz',
+    ];
 
     test('only full volumes without force', () {
-      final result =
-          planMerge(chapters(5), const MergeOptions(chaptersPerVolume: 2));
+      final result = planMerge(
+        chapters(5),
+        const MergeOptions(chaptersPerVolume: 2),
+      );
       expect(result.error, isNull);
       expect(result.plan!.batches.length, 2);
       expect(result.plan!.batches.first.files.length, 2);
@@ -95,17 +97,17 @@ void main() {
         chapters(6),
         const MergeOptions(chaptersList: [1, 2, 3]),
       );
-      expect(
-        result.plan!.batches.map((b) => b.files.length).toList(),
-        [1, 2, 3],
-      );
+      expect(result.plan!.batches.map((b) => b.files.length).toList(), [
+        1,
+        2,
+        3,
+      ]);
     });
 
     test('no chapters yields an error', () {
-      final result = planMerge(
-        ['Test V001.cbz'],
-        const MergeOptions(seriesName: 'Test'),
-      );
+      final result = planMerge([
+        'Test V001.cbz',
+      ], const MergeOptions(seriesName: 'Test'));
       expect(result.error, isNotNull);
     });
 
@@ -117,17 +119,23 @@ void main() {
   });
 
   test('customSequenceLabels marks overflow rows as unassigned', () {
-    expect(
-      customSequenceLabels(5, [2, 3], 0),
-      ['Vol.1', 'Vol.1', 'Vol.2', 'Vol.2', 'Vol.2'],
-    );
+    expect(customSequenceLabels(5, [2, 3], 0), [
+      'Vol.1',
+      'Vol.1',
+      'Vol.2',
+      'Vol.2',
+      'Vol.2',
+    ]);
     expect(customSequenceLabels(3, [5], 0), ['-', '-', '-']);
   });
 
   group('buildVolumeBytes', () {
     test('merges images, renumbers and optionally adds ComicInfo', () {
       final a = makeZip({'a1.png': makeSolidPng(8, 8)});
-      final b = makeZip({'b1.png': makeSolidPng(8, 8), 'ComicInfo.xml': [1]});
+      final b = makeZip({
+        'b1.png': makeSolidPng(8, 8),
+        'ComicInfo.xml': [1],
+      });
 
       final bytes = buildVolumeBytes(
         [a, b],
@@ -152,7 +160,9 @@ void main() {
     });
 
     test('an imageless batch produces no volume', () {
-      final empty = makeZip({'credits.txt': [1, 2]});
+      final empty = makeZip({
+        'credits.txt': [1, 2],
+      });
       expect(
         buildVolumeBytes(
           [empty],

@@ -13,8 +13,15 @@ const int _archiveEof = 1;
 // Native (C) signatures.
 typedef _ReadNewC = Pointer<Void> Function();
 typedef _ReadSupportC = Int32 Function(Pointer<Void>);
-typedef _ReadOpenMemoryC = Int32 Function(Pointer<Void>, Pointer<Uint8>, IntPtr);
-typedef _ReadNextHeaderC = Int32 Function(Pointer<Void>, Pointer<Pointer<Void>>);
+typedef _ReadOpenMemoryC = Int32 Function(
+  Pointer<Void>,
+  Pointer<Uint8>,
+  IntPtr,
+);
+typedef _ReadNextHeaderC = Int32 Function(
+  Pointer<Void>,
+  Pointer<Pointer<Void>>,
+);
 typedef _EntryPathnameC = Pointer<Utf8> Function(Pointer<Void>);
 typedef _ReadDataC = IntPtr Function(Pointer<Void>, Pointer<Uint8>, IntPtr);
 typedef _ReadFreeC = Int32 Function(Pointer<Void>);
@@ -81,36 +88,34 @@ class Libarchive {
     ];
   }
 
-  late final _ReadNewDart _readNew =
-      _lib.lookupFunction<_ReadNewC, _ReadNewDart>('archive_read_new');
-  late final _ReadSupportDart _supportFilterAll =
-      _lib.lookupFunction<_ReadSupportC, _ReadSupportDart>(
-    'archive_read_support_filter_all',
-  );
-  late final _ReadSupportDart _supportFormatAll =
-      _lib.lookupFunction<_ReadSupportC, _ReadSupportDart>(
-    'archive_read_support_format_all',
-  );
-  late final _ReadOpenMemoryDart _openMemory =
-      _lib.lookupFunction<_ReadOpenMemoryC, _ReadOpenMemoryDart>(
-    'archive_read_open_memory',
-  );
-  late final _ReadNextHeaderDart _nextHeader =
-      _lib.lookupFunction<_ReadNextHeaderC, _ReadNextHeaderDart>(
-    'archive_read_next_header',
-  );
-  late final _EntryPathnameDart _entryPathname =
-      _lib.lookupFunction<_EntryPathnameC, _EntryPathnameDart>(
-    'archive_entry_pathname',
-  );
-  late final _ReadDataDart _readData =
-      _lib.lookupFunction<_ReadDataC, _ReadDataDart>('archive_read_data');
-  late final _ReadFreeDart _readFree =
-      _lib.lookupFunction<_ReadFreeC, _ReadFreeDart>('archive_read_free');
-  late final _ErrorStringDart _errorString =
-      _lib.lookupFunction<_ErrorStringC, _ErrorStringDart>(
-    'archive_error_string',
-  );
+  late final _ReadNewDart _readNew = _lib
+      .lookupFunction<_ReadNewC, _ReadNewDart>('archive_read_new');
+  late final _ReadSupportDart _supportFilterAll = _lib
+      .lookupFunction<_ReadSupportC, _ReadSupportDart>(
+        'archive_read_support_filter_all',
+      );
+  late final _ReadSupportDart _supportFormatAll = _lib
+      .lookupFunction<_ReadSupportC, _ReadSupportDart>(
+        'archive_read_support_format_all',
+      );
+  late final _ReadOpenMemoryDart _openMemory = _lib
+      .lookupFunction<_ReadOpenMemoryC, _ReadOpenMemoryDart>(
+        'archive_read_open_memory',
+      );
+  late final _ReadNextHeaderDart _nextHeader = _lib
+      .lookupFunction<_ReadNextHeaderC, _ReadNextHeaderDart>(
+        'archive_read_next_header',
+      );
+  late final _EntryPathnameDart _entryPathname = _lib
+      .lookupFunction<_EntryPathnameC, _EntryPathnameDart>(
+        'archive_entry_pathname',
+      );
+  late final _ReadDataDart _readData = _lib
+      .lookupFunction<_ReadDataC, _ReadDataDart>('archive_read_data');
+  late final _ReadFreeDart _readFree = _lib
+      .lookupFunction<_ReadFreeC, _ReadFreeDart>('archive_read_free');
+  late final _ErrorStringDart _errorString = _lib
+      .lookupFunction<_ErrorStringC, _ErrorStringDart>('archive_error_string');
 
   /// Reads every file entry of a RAR/CBR archive held in [bytes].
   ///

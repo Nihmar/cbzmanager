@@ -31,11 +31,9 @@ void main() {
       }),
     );
 
-    final outcomes = await const ConvertService().convertMany(
-      vfs,
-      [item('book.cbz')],
-      backup: true,
-    );
+    final outcomes = await const ConvertService().convertMany(vfs, [
+      item('book.cbz'),
+    ], backup: true);
 
     expect(outcomes.single.success, isTrue);
     expect(outcomes.single.converted, 1);
@@ -49,11 +47,9 @@ void main() {
     final vfs = MemoryVfs();
     await vfs.writeAll('book.cbz', makeZip({'a.png': makeNoisePng(64, 64)}));
 
-    await const ConvertService().convertMany(
-      vfs,
-      [item('book.cbz')],
-      backup: false,
-    );
+    await const ConvertService().convertMany(vfs, [
+      item('book.cbz'),
+    ], backup: false);
     expect(await vfs.exists('/book_OLD.cbz'), isFalse);
   });
 
@@ -63,20 +59,37 @@ void main() {
     for (final vfs in [one, four]) {
       await vfs.writeAll(
         'a.cbz',
-        makeZip({'p1.png': makeNoisePng(64, 64), 'p2.png': makeNoisePng(64, 64)}),
+        makeZip({
+          'p1.png': makeNoisePng(64, 64),
+          'p2.png': makeNoisePng(64, 64),
+        }),
       );
       await vfs.writeAll('b.cbz', makeZip({'p1.png': makeNoisePng(64, 64)}));
     }
 
-    final r1 = await const ConvertService()
-        .convertMany(one, [item('a.cbz'), item('b.cbz')], backup: true, threads: 1);
-    final r4 = await const ConvertService()
-        .convertMany(four, [item('a.cbz'), item('b.cbz')], backup: true, threads: 4);
+    final r1 = await const ConvertService().convertMany(
+      one,
+      [item('a.cbz'), item('b.cbz')],
+      backup: true,
+      threads: 1,
+    );
+    final r4 = await const ConvertService().convertMany(
+      four,
+      [item('a.cbz'), item('b.cbz')],
+      backup: true,
+      threads: 4,
+    );
 
     expect(r1.every((o) => o.success), isTrue);
     expect(r4.every((o) => o.success), isTrue);
-    expectSameArchive(await one.readAll('/a.cbz'), await four.readAll('/a.cbz'));
-    expectSameArchive(await one.readAll('/b.cbz'), await four.readAll('/b.cbz'));
+    expectSameArchive(
+      await one.readAll('/a.cbz'),
+      await four.readAll('/a.cbz'),
+    );
+    expectSameArchive(
+      await one.readAll('/b.cbz'),
+      await four.readAll('/b.cbz'),
+    );
   });
 
   test('a bad file reports an error without aborting the batch', () async {
@@ -84,8 +97,10 @@ void main() {
     await vfs.writeAll('bad.cbz', [1, 2, 3, 4]);
     await vfs.writeAll('good.cbz', makeZip({'a.png': makeNoisePng(64, 64)}));
 
-    final outcomes = await const ConvertService()
-        .convertMany(vfs, [item('bad.cbz'), item('good.cbz')], backup: true);
+    final outcomes = await const ConvertService().convertMany(vfs, [
+      item('bad.cbz'),
+      item('good.cbz'),
+    ], backup: true);
 
     expect(outcomes.length, 2);
     expect(outcomes.first.error, isNotNull);

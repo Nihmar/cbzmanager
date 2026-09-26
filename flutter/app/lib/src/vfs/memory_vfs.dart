@@ -51,15 +51,16 @@ class MemoryVfs extends Vfs {
   @override
   Future<VfsStat> stat(String path) async {
     final p = _norm(path);
-    if (_dirs.contains(p)) return const VfsStat(exists: true, isDirectory: true);
+    if (_dirs.contains(p)) {
+      return const VfsStat(exists: true, isDirectory: true);
+    }
     final bytes = _files[p];
     if (bytes == null) return const VfsStat.missing();
     return VfsStat(exists: true, size: bytes.length);
   }
 
   @override
-  Future<bool> exists(String path) async =>
-      (await stat(path)).exists;
+  Future<bool> exists(String path) async => (await stat(path)).exists;
 
   @override
   Future<Uint8List> readAll(String path) async {

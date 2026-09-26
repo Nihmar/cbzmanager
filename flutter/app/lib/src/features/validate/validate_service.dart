@@ -87,9 +87,7 @@ class ValidateService {
       pool.close();
     }
 
-    final outcomes = slots.whereType<ValidateOutcome>().toList(
-          growable: false,
-        );
+    final outcomes = slots.whereType<ValidateOutcome>().toList(growable: false);
     onProgress?.call(outcomes.length, total, 'Done');
     return outcomes;
   }

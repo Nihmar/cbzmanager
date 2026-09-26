@@ -83,5 +83,4 @@ List<Object?> batchEditArchiveIsolate(
 Future<List<Object?>> batchEditInIsolate(
   Uint8List bytes,
   Map<String, Object?> params,
-) =>
-    Isolate.run(() => batchEditArchiveIsolate(bytes, params));
+) => Isolate.run(() => batchEditArchiveIsolate(bytes, params));

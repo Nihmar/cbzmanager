@@ -20,9 +20,8 @@ class JobState {
   final DateTime? startedAt;
   final List<String> log;
 
-  Duration get elapsed => startedAt == null
-      ? Duration.zero
-      : DateTime.now().difference(startedAt!);
+  Duration get elapsed =>
+      startedAt == null ? Duration.zero : DateTime.now().difference(startedAt!);
 
   JobState copyWith({
     int? percent,
@@ -31,16 +30,15 @@ class JobState {
     bool? cancelled,
     DateTime? startedAt,
     List<String>? log,
-  }) =>
-      JobState(
-        label: label,
-        percent: percent ?? this.percent,
-        message: message ?? this.message,
-        running: running ?? this.running,
-        cancelled: cancelled ?? this.cancelled,
-        startedAt: startedAt ?? this.startedAt,
-        log: log ?? this.log,
-      );
+  }) => JobState(
+    label: label,
+    percent: percent ?? this.percent,
+    message: message ?? this.message,
+    running: running ?? this.running,
+    cancelled: cancelled ?? this.cancelled,
+    startedAt: startedAt ?? this.startedAt,
+    log: log ?? this.log,
+  );
 }
 
 /// Tracks a single background operation: label, progress, message, a rolling

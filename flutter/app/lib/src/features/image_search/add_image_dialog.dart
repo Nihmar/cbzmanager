@@ -66,9 +66,11 @@ class _AddImageDialogState extends State<_AddImageDialog> {
       final ext = result.ext.isNotEmpty
           ? result.ext
           : guessExtFromURL(result.fullUrl);
-      Navigator.of(context).pop(
-        (bytes: bytes, ext: ext.isEmpty ? '.jpg' : ext, title: result.title),
-      );
+      Navigator.of(context).pop((
+        bytes: bytes,
+        ext: ext.isEmpty ? '.jpg' : ext,
+        title: result.title,
+      ));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
@@ -98,7 +100,10 @@ class _AddImageDialogState extends State<_AddImageDialog> {
                     decoration: const InputDecoration(labelText: 'Source'),
                     items: [
                       for (final p in ImageProvider.values)
-                        DropdownMenuItem(value: p, child: Text(providerName(p))),
+                        DropdownMenuItem(
+                          value: p,
+                          child: Text(providerName(p)),
+                        ),
                     ],
                     onChanged: (value) =>
                         setState(() => _provider = value ?? _provider),
@@ -142,59 +147,59 @@ class _AddImageDialogState extends State<_AddImageDialog> {
               child: _downloading
                   ? const Center(child: CircularProgressIndicator())
                   : _results.isEmpty
-                      ? const Center(child: Text('No results yet'))
-                      : GridView.builder(
-                          gridDelegate:
-                              const SliverGridDelegateWithMaxCrossAxisExtent(
+                  ? const Center(child: Text('No results yet'))
+                  : GridView.builder(
+                      gridDelegate:
+                          const SliverGridDelegateWithMaxCrossAxisExtent(
                             maxCrossAxisExtent: 180,
                             childAspectRatio: 0.66,
                             mainAxisSpacing: 8,
                             crossAxisSpacing: 8,
                           ),
-                          itemCount: _results.length,
-                          itemBuilder: (context, index) {
-                            final result = _results[index];
-                            return Card(
-                              clipBehavior: Clip.antiAlias,
-                              child: InkWell(
-                                onTap: _downloading ? null : () => _add(result),
-                                child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    Expanded(
-                                      child: Image.network(
-                                        result.thumbUrl,
-                                        fit: BoxFit.cover,
-                                        errorBuilder: (_, _, _) => const Center(
-                                          child: Icon(Icons.broken_image_outlined),
-                                        ),
-                                        loadingBuilder: (context, child, progress) =>
+                      itemCount: _results.length,
+                      itemBuilder: (context, index) {
+                        final result = _results[index];
+                        return Card(
+                          clipBehavior: Clip.antiAlias,
+                          child: InkWell(
+                            onTap: _downloading ? null : () => _add(result),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Expanded(
+                                  child: Image.network(
+                                    result.thumbUrl,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, _, _) => const Center(
+                                      child: Icon(Icons.broken_image_outlined),
+                                    ),
+                                    loadingBuilder:
+                                        (context, child, progress) =>
                                             progress == null
-                                                ? child
-                                                : const Center(
-                                                    child:
-                                                        CircularProgressIndicator(
+                                            ? child
+                                            : const Center(
+                                                child:
+                                                    CircularProgressIndicator(
                                                       strokeWidth: 2,
                                                     ),
-                                                  ),
-                                      ),
-                                    ),
-                                    Padding(
-                                      padding: const EdgeInsets.all(4),
-                                      child: Text(
-                                        result.title,
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: theme.textTheme.labelSmall,
-                                      ),
-                                    ),
-                                  ],
+                                              ),
+                                  ),
                                 ),
-                              ),
-                            );
-                          },
-                        ),
+                                Padding(
+                                  padding: const EdgeInsets.all(4),
+                                  child: Text(
+                                    result.title,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.labelSmall,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
             ),
           ],
         ),

@@ -168,8 +168,10 @@ class ComicInfo {
   String toXml() {
     final b = StringBuffer()
       ..write('<?xml version="1.0" encoding="utf-8"?>\n')
-      ..write('<ComicInfo xmlns:xsd="http://www.w3.org/2001/XMLSchema" '
-          'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">\n');
+      ..write(
+        '<ComicInfo xmlns:xsd="http://www.w3.org/2001/XMLSchema" '
+        'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">\n',
+      );
 
     void elem(String tag, String value) {
       if (value.isNotEmpty) {
@@ -250,10 +252,7 @@ ComicInfo? comicInfoFromEntries(List<ZipEntryData> entries) {
 }
 
 /// Returns a copy of [entries] with ComicInfo.xml replaced or appended.
-List<ZipEntryData> withComicInfo(
-  List<ZipEntryData> entries,
-  ComicInfo info,
-) {
+List<ZipEntryData> withComicInfo(List<ZipEntryData> entries, ComicInfo info) {
   final xml = info.toXml();
   final result = <ZipEntryData>[...entries];
   final index = findComicInfoIndex(result);

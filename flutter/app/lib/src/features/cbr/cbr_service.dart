@@ -78,13 +78,20 @@ class CbrConvertService {
 
             try {
               if (skipExisting && await vfs.exists(targetPath)) {
-                slots[i] = CbrConvertOutcome(name: name, success: true, skipped: true);
+                slots[i] = CbrConvertOutcome(
+                  name: name,
+                  success: true,
+                  skipped: true,
+                );
               } else {
                 final bytes = await vfs.readAll(sourcePath);
                 final result = await convertCbrInIsolate(bytes);
                 final output = result[0] as Uint8List?;
                 if (output == null) {
-                  slots[i] = CbrConvertOutcome(name: name, error: 'No images found');
+                  slots[i] = CbrConvertOutcome(
+                    name: name,
+                    error: 'No images found',
+                  );
                 } else {
                   await vfs.writeAll(targetPath, output);
                   var deleted = false;

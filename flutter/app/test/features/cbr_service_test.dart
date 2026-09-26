@@ -99,7 +99,12 @@ void main() {
       return;
     }
     final vfs = MemoryVfs();
-    await vfs.writeAll('/empty.cbr', makeZip({'readme.txt': [1]}));
+    await vfs.writeAll(
+      '/empty.cbr',
+      makeZip({
+        'readme.txt': [1],
+      }),
+    );
 
     final outcomes = await const CbrConvertService().convertMany(
       vfs,
@@ -142,7 +147,13 @@ void main() {
       threads: 4,
     );
 
-    expectSameArchive(await one.readAll('/a.cbz'), await four.readAll('/a.cbz'));
-    expectSameArchive(await one.readAll('/b.cbz'), await four.readAll('/b.cbz'));
+    expectSameArchive(
+      await one.readAll('/a.cbz'),
+      await four.readAll('/a.cbz'),
+    );
+    expectSameArchive(
+      await one.readAll('/b.cbz'),
+      await four.readAll('/b.cbz'),
+    );
   });
 }

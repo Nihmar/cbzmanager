@@ -33,8 +33,7 @@ class DartCbzEngine implements CbzEngine {
     ArchiveData data, {
     int threads = 0,
     ProgressCallback? onProgress,
-  }) async =>
-      validateSync(data, onProgress: onProgress);
+  }) async => validateSync(data, onProgress: onProgress);
 
   /// Synchronous validation core, safe to run inside a background isolate.
   ///
@@ -160,9 +159,7 @@ class DartCbzEngine implements CbzEngine {
         kept++;
       }
 
-      final name = options.renumber
-          ? formatPageName(pageNum, ext)
-          : entry.name;
+      final name = options.renumber ? formatPageName(pageNum, ext) : entry.name;
       output.add(ZipEntryData(name, bytes));
 
       onProgress?.call(

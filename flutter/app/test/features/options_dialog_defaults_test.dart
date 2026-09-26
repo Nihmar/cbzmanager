@@ -31,8 +31,9 @@ Future<void> pumpDialog(
 // Regression: the operation dialogs never read the persisted settings, so
 // "Default threads" and "Keep _OLD backups by default" had no effect.
 void main() {
-  testWidgets('convert dialog starts from the settings defaults',
-      (tester) async {
+  testWidgets('convert dialog starts from the settings defaults', (
+    tester,
+  ) async {
     await pumpDialog(
       tester,
       (context) => showConvertOptionsDialog(
@@ -52,11 +53,8 @@ void main() {
   testWidgets('cbr dialog starts from the settings defaults', (tester) async {
     await pumpDialog(
       tester,
-      (context) => showCbrOptionsDialog(
-        context,
-        fileCount: 2,
-        defaultThreads: 6,
-      ),
+      (context) =>
+          showCbrOptionsDialog(context, fileCount: 2, defaultThreads: 6),
     );
     expect(find.widgetWithText(TextField, '6'), findsOneWidget);
   });
@@ -78,15 +76,13 @@ void main() {
     expect(backup.selected, {false});
   });
 
-  testWidgets('batch edit dialog starts from the settings defaults',
-      (tester) async {
+  testWidgets('batch edit dialog starts from the settings defaults', (
+    tester,
+  ) async {
     await pumpDialog(
       tester,
-      (context) => showBatchEditDialog(
-        context,
-        fileCount: 2,
-        defaultBackup: false,
-      ),
+      (context) =>
+          showBatchEditDialog(context, fileCount: 2, defaultBackup: false),
     );
     final backup = tester.widget<SwitchListTile>(
       find.widgetWithText(SwitchListTile, 'Backup originals (_OLD.cbz)'),

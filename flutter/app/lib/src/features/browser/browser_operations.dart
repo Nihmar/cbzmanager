@@ -92,14 +92,22 @@ class BrowserOperations {
     List<ArchiveItem> items,
   ) async {
     final l10n = AppLocalizations.of(context);
+    final editable = <ArchiveItem>[
+      for (final item in items)
+        if (!item.isCbr) item,
+    ];
+    if (editable.isEmpty) {
+      snack(context, l10n.cbrReadOnlyConvertFirst);
+      return;
+    }
     final job = ref.read(jobProvider.notifier);
-    job.start(l10n.jobValidate, message: l10n.validatingFiles(items.length));
+    job.start(l10n.jobValidate, message: l10n.validatingFiles(editable.length));
     List<ValidateOutcome> outcomes;
     try {
       outcomes = await ValidateService(ref.read(cbzEngineProvider))
           .validateMany(
             source.vfs,
-            items,
+            editable,
             onProgress: (done, total, message) =>
                 job.progress(total == 0 ? 0 : done * 100 ~/ total, message),
             isCancelled: () => job.cancelRequested,
@@ -335,13 +343,25 @@ class BrowserOperations {
     List<ArchiveItem> items,
   ) async {
     final l10n = AppLocalizations.of(context);
+    final editable = <ArchiveItem>[
+      for (final item in items)
+        if (!item.isCbr) item,
+    ];
+    if (editable.isEmpty) {
+      snack(context, l10n.cbrReadOnlyConvertFirst);
+      return;
+    }
     final job = ref.read(jobProvider.notifier);
-    job.start(l10n.removeComicInfo, message: l10n.scanningFiles(items.length));
+    job.start(
+      l10n.removeComicInfo,
+      message: l10n.scanningFiles(editable.length),
+    );
     try {
       final result = await ComicInfoService(ref.read(cbzEngineProvider))
           .removeMany(
             source.vfs,
-            items,
+            editable,
+            backup: ref.read(settingsProvider).backupByDefault,
             onProgress: (done, total, message) =>
                 job.progress(total == 0 ? 0 : done * 100 ~/ total, message),
             isCancelled: () => job.cancelRequested,
@@ -418,7 +438,12 @@ class BrowserOperations {
     if (edited == null || !context.mounted) return;
     job.start(l10n.jobComicInfo, message: l10n.savingName(item.name));
     try {
-      await service.write(source.vfs, item, edited);
+      await service.write(
+        source.vfs,
+        item,
+        edited,
+        backup: ref.read(settingsProvider).backupByDefault,
+      );
       if (context.mounted) {
         snack(context, l10n.comicInfoSaved(item.name));
       }

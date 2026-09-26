@@ -420,31 +420,32 @@ class ArchiveTile extends ConsumerWidget {
                         }
                       },
                       itemBuilder: (context) => [
-                        PopupMenuItem(
-                          value: 'validate',
-                          child: Text(l10n.validate),
-                        ),
-                        PopupMenuItem(
-                          value: 'convert',
-                          child: Text(l10n.convertWebp),
-                        ),
+                        if (!item.isCbr) ...[
+                          PopupMenuItem(
+                            value: 'validate',
+                            child: Text(l10n.validate),
+                          ),
+                          PopupMenuItem(
+                            value: 'convert',
+                            child: Text(l10n.convertWebp),
+                          ),
+                          PopupMenuItem(
+                            value: 'pages',
+                            child: Text(l10n.editPages),
+                          ),
+                          PopupMenuItem(
+                            value: 'remove',
+                            child: Text(l10n.removeComicInfo),
+                          ),
+                        ],
                         if (item.isCbr)
                           PopupMenuItem(
                             value: 'cbr',
                             child: Text(l10n.convertCbz),
                           ),
-                        if (!item.isCbr)
-                          PopupMenuItem(
-                            value: 'pages',
-                            child: Text(l10n.editPages),
-                          ),
                         PopupMenuItem(
                           value: 'comicinfo',
                           child: Text(l10n.editComicInfo),
-                        ),
-                        PopupMenuItem(
-                          value: 'remove',
-                          child: Text(l10n.removeComicInfo),
                         ),
                       ],
                     ),

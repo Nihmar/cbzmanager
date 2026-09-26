@@ -66,7 +66,7 @@ unit main;
   Thumbnails are stored at CacheW×CacheH (320×400) resolution in
   TLazIntfImageList instances (FFirstPages for the file list, FPagePreviews
   for the page list).  The zoom slider (ZoomScroll) rebuilds the TImageList
-  icons on-the-fly via RebuildThumbs.  A debounce timer (TimerDebounceZoom)
+  icons on-the-fly via the thumbnail strips.  A debounce timer
   prevents rapid rebuilds while the user drags the slider.
 
   Keyboard shortcuts
@@ -107,7 +107,8 @@ uses
   uimageedit,
   uservicebase,
   uselection,
-  uselectioncontroller;
+  uselectioncontroller,
+  uthumbview;
 
 type
   {
@@ -340,6 +341,12 @@ type
     FFirstPages: TLazIntfImageList;
     { Full-resolution cached images for the page-preview pane (all pages of one .cbz). }
     FPagePreviews: TLazIntfImageList;
+    { Thumbnail rendering and zoom, extracted from this unit: one strip per
+      list view plus the debounced slider controller.  Created in FormCreate,
+      freed in FormDestroy. }
+    FThumbFiles: TThumbnailStrip;
+    FThumbPages: TThumbnailStrip;
+    FZoom: TZoomController;
     { In-memory editing model }
     FPages: TPageStates;
     FBaseline: TPageStates;
@@ -432,11 +439,6 @@ type
       page with the first piece and inserts the remaining pieces after it,
       then renumbers all visible pages.  Owns (and consumes) the result. }
     procedure ApplyPageEdit(Idx: integer; const AResult: TPageEditResult);
-    { Rebuilds ILPages at ASize from the in-memory FPages model (visible
-      pages only), keeping the thumbnails aligned with the page rows.  Used
-      by the zoom debounce timer — the FPagePreviews cache is no longer
-      index-aligned with FPages after edits/splits. }
-    procedure RebuildPagesThumbs(ASize: integer);
     { True while the open preview is a .cbr (RAR) archive: the page model
       is read-only and the conversion path is the only way to edit it. }
     function IsReadOnlyPreview: boolean;
@@ -445,11 +447,8 @@ type
       else the file one). }
     function SelectionFor(ALV: TListView): TListSelectionController;
     procedure SetupLVFiles;
-    procedure SetupILFilesFirstPages;
-    procedure SetupILPages;
-    procedure SetupZoomScroll;
-    procedure RebuildThumbs(ALV: TListView; AIL: TImageList;
-      APages: TLazIntfImageList; ASize: integer);
+    { Zoom debounce elapsed: rebuild both thumbnail strips at ASize. }
+    procedure ZoomApplied(ASize: integer);
     { Collect file names from LvFiles. When AAll=True returns every file;
       otherwise returns selected files, or all files if none selected.
       Only files whose extension matches AExt are returned (default .cbz):
@@ -502,14 +501,6 @@ uses
 
   {$R *.lfm}
 
-const
-  { Zoom / thumbnail sizing.  The zoom slider value is the thumbnail width in
-    pixels; height is derived via ThumbHeight (uimgutil / PAGE_ASPECT_RATIO). }
-  THUMB_DEFAULT_SIZE = 128;   // initial thumbnail width and default zoom
-  THUMB_MIN_SIZE = 48;        // smallest width the zoom slider allows
-  THUMB_RENDER_FLOOR = 16;    // absolute lower bound when rendering thumbs
-  ZOOM_STEP = 32;             // width change per zoom-in / zoom-out step
-
 resourcestring
   { Status-bar messages used from more than one handler. }
   RSOpenFolderFirst = 'Open a folder first';
@@ -541,10 +532,12 @@ begin
   { Refuse to close while a save/service thread is running: see Busy. }
   OnCloseQuery := @FormCloseQuery;
   Application.AddOnIdleHandler(@AppIdle);
-  SetupILFilesFirstPages;
-  SetupILPages;
+  FThumbFiles := TThumbnailStrip.Create(LVFiles, ILFilesFirstPages);
+  FThumbPages := TThumbnailStrip.Create(LVPages, ILPages);
+  FZoom := TZoomController.Create(ZoomScroll, LblZoomVal, TimerDebounceZoom,
+    @ZoomApplied);
+  FZoom.Setup(CacheW, THUMB_DEFAULT_SIZE);
   SetupLVFiles;
-  SetupZoomScroll;
   HidePreview;
   SetFolderOpsEnabled(False);
   SetStatus(RSReady);
@@ -598,6 +591,9 @@ begin
   FreePagesThread;
   FSelectionFiles.Free;
   FSelectionPages.Free;
+  FThumbFiles.Free;
+  FThumbPages.Free;
+  FZoom.Free;
   FFirstPages.Free;
   FPagePreviews.Free;
 end;
@@ -866,41 +862,6 @@ begin
 end;
 
 {
-  RebuildThumbs
-  -------------
-  Re-creates thumbnails for a given TListView + TImageList pair at the
-  requested size.  Used by the zoom debounce timer.
-
-  The procedure:
-  1. Detaches LargeImages from the ListView (otherwise the image list refuses
-     to clear while it is assigned).
-  2. Clears and resizes the TImageList.
-  3. Iterates the TLazIntfImageList, calls MakeThumb to produce a TBitmap at
-     the target size, adds it to the TImageList, then frees the bitmap.
-  4. Reattaches LargeImages.
-
-  BeginUpdate / EndUpdate suppress per-item repaints for performance.
-}
-procedure TfrmMain.RebuildThumbs(ALV: TListView; AIL: TImageList;
-  APages: TLazIntfImageList; ASize: integer);
-var
-  i: integer;
-begin
-  ALV.BeginUpdate;
-  try
-    ALV.LargeImages := nil;
-    AIL.Clear;
-    AIL.Width := ASize;
-    AIL.Height := ThumbHeight(ASize);
-    for i := 0 to APages.Count - 1 do
-      AppendThumb(AIL, APages[i]);
-    ALV.LargeImages := AIL;
-  finally
-    ALV.EndUpdate;
-  end;
-end;
-
-{
   RenderPages
   -----------
   Rebuilds the LVPages content from the in-memory FPages array, skipping
@@ -913,19 +874,14 @@ end;
 }
 procedure TfrmMain.RenderPages;
 var
-  i: integer;
+  i, ImageIdx: integer;
   It: TListItem;
-  Sz: integer;
 begin
   LVPages.BeginUpdate;
   try
     LVPages.Items.Clear;
     FSelectionPages.Reset;
-    LVPages.LargeImages := nil;
-    ILPages.Clear;
-    Sz := Max(THUMB_RENDER_FLOOR, ZoomScroll.Position);
-    ILPages.Width := Sz;
-    ILPages.Height := ThumbHeight(Sz);
+    ImageIdx := 0;
     for i := 0 to High(FPages) do
     begin
       if FPages[i].Gone then Continue;
@@ -938,9 +894,14 @@ begin
         compacted view (Gone entries are skipped), so row index <> FPages
         index; consumers must map through Data, never assume they are equal. }
       It.Data := Pointer(PtrInt(i));
-      It.ImageIndex := AppendThumb(ILPages, FPages[i].Image);
+      { The strip renders the visible pages in the same order, so the n-th
+        visible row owns image n. }
+      It.ImageIndex := ImageIdx;
+      Inc(ImageIdx);
     end;
-    LVPages.LargeImages := ILPages;
+    { Renders from the model, not from FPagePreviews: after edits/splits the
+      cache is no longer index-aligned with FPages. }
+    FThumbPages.LoadFromModel(FPages, FZoom.RenderedSize);
   finally
     LVPages.EndUpdate;
   end;
@@ -957,25 +918,6 @@ begin
   LVPages.ReadOnly := True;
   LVPages.ViewStyle := vsIcon;
   LVPages.LargeImages := ILPages;
-end;
-
-procedure TfrmMain.SetupILFilesFirstPages;
-begin
-  ILFilesFirstPages.Width := THUMB_DEFAULT_SIZE;
-  ILFilesFirstPages.Height := ThumbHeight(THUMB_DEFAULT_SIZE);
-end;
-
-procedure TfrmMain.SetupILPages;
-begin
-  ILPages.Width := THUMB_DEFAULT_SIZE;
-  ILPages.Height := ThumbHeight(THUMB_DEFAULT_SIZE);
-end;
-
-procedure TfrmMain.SetupZoomScroll;
-begin
-  ZoomScroll.Min := THUMB_MIN_SIZE;
-  ZoomScroll.Max := CacheW;
-  ZoomScroll.Position := THUMB_DEFAULT_SIZE;
 end;
 
 {
@@ -1065,50 +1007,12 @@ end;
   ----------------------
   Debounce timer tick handler.  When the user drags the zoom slider we
   restart the timer on every Change event; only when the slider stops moving
-  for ~300 ms does the timer fire and rebuild both thumbnail sets at the new
-  size.  This avoids dozens of expensive RebuildThumbs calls during a drag.
+  for ~300 ms does the timer fire and rebuild both thumbnail strips at the
+  new size.  This avoids dozens of expensive rebuilds during a drag.
 }
 procedure TfrmMain.TimerDebounceZoomTimer(Sender: TObject);
-var
-  Sz: integer;
 begin
-  TimerDebounceZoom.Enabled := False;
-  Sz := Max(THUMB_RENDER_FLOOR, ZoomScroll.Position);
-  RebuildThumbs(LVFiles, ILFilesFirstPages, FFirstPages, Sz);
-  if PanelSingleFile.Visible then
-    RebuildPagesThumbs(Sz);
-  LblZoomVal.Caption := IntToStr(ZoomScroll.Position);
-end;
-
-{
-  RebuildPagesThumbs
-  ------------------
-  Zoom-time rebuild of the page-preview thumbnails, rendered from the
-  in-memory FPages model (visible, non-Gone pages) instead of the
-  FPagePreviews cache: after edits and splits the cache is no longer
-  index-aligned with the page list, so rendering from it would show stale
-  or shifted thumbnails.
-}
-procedure TfrmMain.RebuildPagesThumbs(ASize: integer);
-var
-  i: integer;
-begin
-  if FPages = nil then Exit;
-  LVPages.BeginUpdate;
-  try
-    LVPages.LargeImages := nil;
-    ILPages.Clear;
-    ILPages.Width := ASize;
-    ILPages.Height := ThumbHeight(ASize);
-    for i := 0 to High(FPages) do
-    begin
-      if FPages[i].Gone then Continue;
-      AppendThumb(ILPages, FPages[i].Image);
-    end;
-    LVPages.LargeImages := ILPages;
-  finally
-    LVPages.EndUpdate;
-  end;
+  FZoom.OnTimer;
 end;
 
 {
@@ -1120,9 +1024,18 @@ end;
 }
 procedure TfrmMain.ZoomScrollChange(Sender: TObject);
 begin
-  TimerDebounceZoom.Enabled := False;
-  TimerDebounceZoom.Enabled := True;
-  LblZoomVal.Caption := IntToStr(ZoomScroll.Position);
+  FZoom.OnTrackChange;
+end;
+
+{ TfrmMain.ZoomApplied
+
+  Debounce elapsed: the strips re-render at the new width.  The file grid
+  always rebuilds; the page strip only when the preview pane is open. }
+procedure TfrmMain.ZoomApplied(ASize: integer);
+begin
+  FThumbFiles.LoadFromCache(FFirstPages, ASize);
+  if PanelSingleFile.Visible then
+    FThumbPages.LoadFromModel(FPages, ASize);
 end;
 
 {
@@ -1134,10 +1047,7 @@ end;
 procedure TfrmMain.ZoomScrollMouseWheel(Sender: TObject; Shift: TShiftState;
   WheelDelta: integer; MousePos: TPoint; var Handled: boolean);
 begin
-  if WheelDelta > 0 then
-    ZoomScroll.Position := ZoomScroll.Position + ZoomScroll.Frequency
-  else
-    ZoomScroll.Position := ZoomScroll.Position - ZoomScroll.Frequency;
+  FZoom.OnWheel(WheelDelta);
 end;
 
 {
@@ -1591,8 +1501,6 @@ end;
   starting the thread so items appear at the right size as they arrive.
 }
 procedure TfrmMain.OpenPreview(AItem: TListItem);
-var
-  Sz: integer;
 begin
   if AItem = nil then Exit;
   if SaveInProgress then
@@ -1602,15 +1510,13 @@ begin
   end;
   ClearPreview;
 
-  Sz := Max(THUMB_RENDER_FLOOR, ZoomScroll.Position);
   LblPreviewFile.Caption := ItemFileName(AItem);
   PanelSingleFile.Visible := True;
   SplitterPreview.Visible := True;
 
-  LVPages.LargeImages := nil;
-  ILPages.Width := Sz;
-  ILPages.Height := ThumbHeight(Sz);
-  LVPages.LargeImages := ILPages;
+  { Pre-size the page image list: the loader threads append to it as batches
+    arrive and must find the zoom dimensions already applied. }
+  FThumbPages.Prepare(FZoom.RenderedSize);
 
   FPageFile := IncludeTrailingPathDelimiter(FDir) + ItemFileName(AItem);
   FAddFrontSeq := 0;
@@ -2370,7 +2276,7 @@ end;
 }
 procedure TfrmMain.MnuZoomInClick(Sender: TObject);
 begin
-  ZoomScroll.Position := Min(ZoomScroll.Max, ZoomScroll.Position + ZOOM_STEP);
+  FZoom.StepBy(ZOOM_STEP);
 end;
 
 {
@@ -2380,7 +2286,7 @@ end;
 }
 procedure TfrmMain.MnuZoomOutClick(Sender: TObject);
 begin
-  ZoomScroll.Position := Max(ZoomScroll.Min, ZoomScroll.Position - ZOOM_STEP);
+  FZoom.StepBy(-ZOOM_STEP);
 end;
 
 { ---------------------------------------------------------------------------

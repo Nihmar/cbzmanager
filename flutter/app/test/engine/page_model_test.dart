@@ -106,4 +106,27 @@ void main() {
     ]);
     expect(model.pages[0].data, isNotNull);
   });
+
+  test('buildEditedArchive fails loudly when a page is missing', () {
+    // Regression: a page whose source entry is no longer in the archive (it
+    // changed under us) used to be skipped in silence, writing an archive
+    // without it.  The Pascal save fails with the same contract.
+    final original = collectZipEntries(
+      makeZip({'page_001.png': makeSolidPng(4, 4)}),
+    );
+    final model = PageEditModel([
+      page('page_001.png'),
+      page('page_002.png'), // never existed in the archive
+    ]);
+    expect(
+      () => buildEditedArchive(original, model, renumber: true),
+      throwsA(
+        isA<StateError>().having(
+          (e) => e.message,
+          'message',
+          contains('page_002.png'),
+        ),
+      ),
+    );
+  });
 }

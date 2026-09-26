@@ -204,7 +204,15 @@ Uint8List buildEditedArchive(
 
     final data =
         page.data ?? (index >= 0 ? originalEntries[index].bytes : null);
-    if (data == null) continue;
+    if (data == null) {
+      // The archive changed under us (or a page reference was lost): fail
+      // loudly instead of silently writing an archive without that page.
+      // Same contract as the Pascal TSaveChangesThread.
+      final name = page.origName.isNotEmpty ? page.origName : page.name;
+      throw StateError(
+        'Page $name is missing from the archive — nothing was saved',
+      );
+    }
 
     pageNum++;
     final name = renumber

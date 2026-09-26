@@ -147,6 +147,13 @@ class Libarchive {
         final name = namePtr == nullptr ? '' : namePtr.toDartString();
         if (name.isEmpty || name.endsWith('/')) continue;
 
+        // Copy each read out of the reusable native chunk buffer before
+        // handing it to the builder.  `chunk.asTypedList(read)` is a view
+        // over the *same* calloc'ed buffer for every iteration; with
+        // `BytesBuilder(copy: false)` all the views alias one another, so
+        // every 64 KiB block of an entry larger than one chunk ended up
+        // holding the last chunk's bytes (silent corruption of any real
+        // CBR page).  One explicit copy per chunk is the fix.
         final builder = BytesBuilder(copy: false);
         while (true) {
           final read = _readData(archive, chunk, 64 * 1024);
@@ -154,7 +161,7 @@ class Libarchive {
             throw StateError('libarchive: ${_lastError(archive)}');
           }
           if (read == 0) break;
-          builder.add(chunk.asTypedList(read));
+          builder.add(Uint8List.fromList(chunk.asTypedList(read)));
         }
         out.add(ZipEntryData(name, builder.toBytes()));
       }

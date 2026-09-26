@@ -215,35 +215,34 @@ type
   end;
   TConvertSlots = array of TConvertSlot;
 
-  { Shared state of a WebP conversion pool: the job list, the slots, the
-    claim counter and the progress callback.  All mutable fields are
-    guarded by Lock; the pool owner creates it and frees it after join. }
-  TConvertPoolState = class
-    Lock: TRTLCriticalSection;
+  { Shared state of a WebP conversion pool: the job list, the slots and the
+    progress callback.  The claim counter lives in TIndexPool; each worker
+    writes only Slots[Idx] for the Idx it claimed, so slot writes need no
+    lock.  The first worker exception is recorded in Error and stops further
+    claiming: the file fails as a whole, mirroring the sequential path. }
+  TConvertPoolState = class(TIndexPool)
+  public
     Entries: TZipEntries;        { read-only source data }
     Slots: TConvertSlots;        { one writer per index }
     Work: array of integer;      { indices of convertible entries }
-    Next: integer;               { next index into Work (under Lock) }
     Completed: integer;          { finished jobs (under Lock) }
     Quality: integer;
     BaseName: string;            { ExtractFileName(FileName), for messages }
     OnProgress: TServiceProgressEvent;
     Error: string;               { first worker exception (under Lock) }
-    constructor Create;
-    destructor Destroy; override;
+    function CreateWorker: TIndexPoolWorker; override;
   end;
 
-  { Pool worker: claims convertible entry indices under the shared lock and
-    decodes + WebP-encodes each one into its own slot.  DecodeImage and
-    IntfImageToWebP are stateless per call, so workers never share mutable
-    state except the pool fields above.  Progress is reported per finished
-    job, serialized by the lock (a callback may itself block, e.g. the
-    service thread's Synchronize). }
-  TWebPConvertWorker = class(TThread)
+  { Pool worker: decodes + WebP-encodes claimed convertible entries into
+    their own slots.  DecodeImage and IntfImageToWebP are stateless per
+    call, so workers never share mutable state except the pool fields above.
+    Progress is reported per finished job, serialized by the lock (a
+    callback may itself block, e.g. the service thread's Synchronize). }
+  TWebPConvertWorker = class(TIndexPoolWorker)
   private
     FPool: TConvertPoolState;
   protected
-    procedure Execute; override;
+    procedure ProcessIndex(Pos: integer); override;
   public
     constructor Create(APool: TConvertPoolState);
   end;
@@ -950,84 +949,64 @@ begin
   end;
 end;
 
-constructor TConvertPoolState.Create;
+function TConvertPoolState.CreateWorker: TIndexPoolWorker;
 begin
-  inherited Create;
-  InitCriticalSection(Lock);
-end;
-
-destructor TConvertPoolState.Destroy;
-begin
-  DoneCriticalSection(Lock);
-  inherited Destroy;
+  Result := TWebPConvertWorker.Create(Self);
 end;
 
 constructor TWebPConvertWorker.Create(APool: TConvertPoolState);
 begin
-  { Created suspended: the caller Start()s every worker before joining. }
-  inherited Create(True);
+  inherited Create(APool);
   FPool := APool;
 end;
 
-{ TWebPConvertWorker.Execute
+{ TWebPConvertWorker.ProcessIndex
 
-  Claims the next convertible entry index under the pool lock, then
-  decodes + WebP-encodes it into its own slot (each index is claimed
-  exactly once, so the slot write needs no lock).  Progress is reported
-  per finished job, serialized by the lock — the callback may itself
-  block (e.g. TServiceThread.Progress uses a blocking Synchronize), so it
-  must never be entered concurrently.  The reported percentage derives
-  from the completed-job counter, which makes the sequence monotonic even
-  though jobs finish out of order.
+  Decodes + WebP-encodes the claimed work position into its own slot (each
+  index is claimed exactly once, so the slot write needs no lock).  Progress
+  is reported per finished job, serialized by the pool lock — the callback
+  may itself block (e.g. TServiceThread.Progress uses a blocking
+  Synchronize), so it must never be entered concurrently.  The reported
+  percentage derives from the completed-job counter, which makes the
+  sequence monotonic even though jobs finish out of order.
 
-  When any job raises, the first error is recorded and every worker stops
+  When the job raises, the first error is recorded and every worker stops
   claiming new work: the file fails as a whole, mirroring the sequential
   path's exception propagation. }
-procedure TWebPConvertWorker.Execute;
+procedure TWebPConvertWorker.ProcessIndex(Pos: integer);
 var
   Idx: integer;
   Stream: TMemoryStream;
 begin
-  while True do
-  begin
-    EnterCriticalSection(FPool.Lock);
-    try
-      if FPool.Error <> '' then Exit;
-      if FPool.Next >= Length(FPool.Work) then Exit;
-      Idx := FPool.Work[FPool.Next];
-      Inc(FPool.Next);
-    finally
-      LeaveCriticalSection(FPool.Lock);
-    end;
-
-    try
-      Stream := EncodeEntryAsWebP(FPool.Entries[Idx],
-        ExtractFileExt(FPool.Entries[Idx].Name), FPool.Quality);
-      FPool.Slots[Idx].Data := Stream;
-    except
-      on E: Exception do
-      begin
-        EnterCriticalSection(FPool.Lock);
-        try
-          if FPool.Error = '' then
-            FPool.Error := Format('%s: %s', [FPool.Entries[Idx].Name, E.Message]);
-        finally
-          LeaveCriticalSection(FPool.Lock);
-        end;
-        Exit;
+  Idx := FPool.Work[Pos];
+  try
+    Stream := EncodeEntryAsWebP(FPool.Entries[Idx],
+      ExtractFileExt(FPool.Entries[Idx].Name), FPool.Quality);
+    FPool.Slots[Idx].Data := Stream;
+  except
+    on E: Exception do
+    begin
+      FPool.LockPool;
+      try
+        if FPool.Error = '' then
+          FPool.Error := Format('%s: %s', [FPool.Entries[Idx].Name, E.Message]);
+      finally
+        FPool.UnlockPool;
       end;
+      FPool.RequestStop;
+      Exit;
     end;
+  end;
 
-    EnterCriticalSection(FPool.Lock);
-    try
-      Inc(FPool.Completed);
-      if Assigned(FPool.OnProgress) then
-        FPool.OnProgress((FPool.Completed * 100) div Length(FPool.Work),
-          Format('%s — entry %d/%d (%s)', [FPool.BaseName, Idx + 1,
-            Length(FPool.Entries), FPool.Entries[Idx].Name]));
-    finally
-      LeaveCriticalSection(FPool.Lock);
-    end;
+  FPool.LockPool;
+  try
+    Inc(FPool.Completed);
+    if Assigned(FPool.OnProgress) then
+      FPool.OnProgress((FPool.Completed * 100) div Length(FPool.Work),
+        Format('%s — entry %d/%d (%s)', [FPool.BaseName, Idx + 1,
+          Length(FPool.Entries), FPool.Entries[Idx].Name]));
+  finally
+    FPool.UnlockPool;
   end;
 end;
 
@@ -1085,8 +1064,8 @@ var
   WebPData: TMemoryStream;
   Pool: TConvertPoolState;
   Slots: TConvertSlots;
-  Workers: array of TWebPConvertWorker;
-  Started: boolean;
+  Work: array of integer;
+  Pos: integer;
 begin
   Result := nil;
   NewEntryCount := 0;
@@ -1099,35 +1078,34 @@ begin
     { Phase 1 — decode + WebP-encode every convertible entry into its slot.
       Convertible means: a known raster format, or an existing .webp that
       must be re-encoded because SkipExistingWebP is off. }
-    Pool := TConvertPoolState.Create;
-    Workers := nil;
-    Started := False;
+    Work := nil;
+    for i := 0 to High(AllEntries) do
+    begin
+      Ext := ExtractFileExt(AllEntries[i].Name);
+      if SameText(Ext, EXT_WEBP) then
+      begin
+        if not SkipExistingWebP then
+        begin
+          SetLength(Work, Length(Work) + 1);
+          Work[High(Work)] := i;
+        end;
+      end
+      else if IsConvertibleExt(Ext) then
+      begin
+        SetLength(Work, Length(Work) + 1);
+        Work[High(Work)] := i;
+      end;
+    end;
+
+    Pool := TConvertPoolState.Create(Length(Work));
     try
       Pool.Entries := AllEntries;
       Pool.Quality := Quality;
       Pool.OnProgress := AOnProgress;
       Pool.BaseName := ExtractFileName(FileName);
       BaseName := Pool.BaseName;
-      Slots := nil;
-      for i := 0 to High(AllEntries) do
-      begin
-        Ext := ExtractFileExt(AllEntries[i].Name);
-        if SameText(Ext, EXT_WEBP) then
-        begin
-          if not SkipExistingWebP then
-          begin
-            SetLength(Pool.Work, Length(Pool.Work) + 1);
-            Pool.Work[High(Pool.Work)] := i;
-          end;
-        end
-        else if IsConvertibleExt(Ext) then
-        begin
-          SetLength(Pool.Work, Length(Pool.Work) + 1);
-          Pool.Work[High(Pool.Work)] := i;
-        end;
-      end;
-
-      WorkCount := Length(Pool.Work);
+      Pool.Work := Work;
+      WorkCount := Length(Work);
       if WorkCount > 0 then
       begin
         SetLength(Pool.Slots, Length(AllEntries));
@@ -1137,31 +1115,25 @@ begin
         ThreadCount := Min(ThreadCount, WorkCount);
 
         if ThreadCount > 1 then
-        begin
-          SetLength(Workers, ThreadCount);
-          for i := 0 to ThreadCount - 1 do
-            Workers[i] := TWebPConvertWorker.Create(Pool);
-          Started := True;
-          for i := 0 to ThreadCount - 1 do
-            Workers[i].Start;
-        end
+          Pool.Run(ThreadCount)
         else
         begin
-          { Single job (or explicitly sequential): claim and encode inline.
-            Same slot semantics and progress shape as the pool path, no
-            thread creation. }
-          while Pool.Next < Length(Pool.Work) do
+          { Single job (or explicitly sequential): encode inline.  Same slot
+            semantics and progress shape as the pool path, no thread
+            creation. }
+          for Pos := 0 to High(Work) do
           begin
-            i := Pool.Work[Pool.Next];
-            Inc(Pool.Next);
+            i := Work[Pos];
             try
               Pool.Slots[i].Data := EncodeEntryAsWebP(AllEntries[i],
                 ExtractFileExt(AllEntries[i].Name), Quality);
             except
               on E: Exception do
+              begin
                 Pool.Error := Format('%s: %s', [AllEntries[i].Name, E.Message]);
+                Break;
+              end;
             end;
-            if Pool.Error <> '' then Break;
             Inc(Pool.Completed);
             if Assigned(AOnProgress) then
               AOnProgress((Pool.Completed * 100) div WorkCount,
@@ -1181,14 +1153,6 @@ begin
         raise Exception.Create(Pool.Error);
       end;
     finally
-      { Join and free the workers here — also covers a mid-spawn failure,
-        where only the created (started) workers must be waited for. }
-      if Started then
-        for i := 0 to High(Workers) do
-          Workers[i].WaitFor;
-      for i := 0 to High(Workers) do
-        if Workers[i] <> nil then
-          Workers[i].Free;
       { Keep a refcounted reference to the slot array: phase 2 reads the
         encoded streams after the pool object itself is freed. }
       Slots := Pool.Slots;

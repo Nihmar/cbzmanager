@@ -26,10 +26,11 @@ unit uloaderthread;
   memory leak.
 
   If for any reason the worker produced faster than the main thread can
-  consume, Flush briefly waits with Sleep(1) before overwriting
-  FPendingBatch. In practice this never happens, because image decoding
-  (disk I/O + decompression) is slow compared to adding a few entries to
-  the ListView.
+  consume, Flush waits with Sleep(1) before overwriting FPendingBatch.  In
+  practice this never happens, because image decoding (disk I/O +
+  decompression) is slow compared to adding a few entries to the ListView;
+  the wait is bounded by Terminated so a shutting-down worker drops its
+  batch and exits instead of spinning.
 }
 
 {$mode ObjFPC}{$H+}
@@ -173,7 +174,6 @@ type
     FJobCursor: integer;
     FFinished: integer;
     FWorkers: array of TLoadWorker;
-    procedure WorkerTerminated(Sender: TObject);
     { Next file index to process, or -1 when the job list is exhausted.
       Thread-safe: workers compete on an atomic cursor. }
     function NextJob: integer;
@@ -227,7 +227,6 @@ type
     FWorkers: array of TPagesWorker;
     procedure HandlePage(const AName: string; AImage: TLazIntfImage;
       AIndex: integer; var ACancel: boolean);
-    procedure WorkerTerminated(Sender: TObject);
     { Next job position in FJobs, or -1 when exhausted.  Thread-safe:
       workers compete on an atomic cursor. }
     function NextJob: integer;
@@ -362,10 +361,13 @@ end;
 procedure TThumbThread.Flush;
 begin
   if FBatchCount = 0 then Exit;
-  { Waits until the main thread has consumed the previous batch
-    (in practice never needed because decoding is slow). }
-  while FPendingCount > 0 do
+  { The main thread consumes one batch at a time, so wait until it took the
+    previous one.  The wait is cancellation-aware: a terminating worker drops
+    the accumulated batch (Execute's finally frees it) instead of spinning
+    forever while the main thread is busy or shutting down. }
+  while (FPendingCount > 0) and not Terminated do
     Sleep(1);
+  if FPendingCount > 0 then Exit;
   { Transfers ownership to the main thread. }
   FPendingBatch := FBatch;
   FPendingCount := FBatchCount;
@@ -520,16 +522,19 @@ procedure TLoadWorker.Drained;
 begin
 end;
 
-{ Runs the shared thumbnail logic, then — on a normal exit — synchronously
-  drains the main thread's queue.  CheckSynchronize processes queued
-  methods FIFO, so by the time Drained runs on the main thread every
-  previously queued SyncAddThumbs for this worker has been consumed: the
-  subsequent FreeOnTerminate self-free can no longer discard a pending
-  batch (which would leak its images) nor leave a queued method pointing
-  at a freed object. }
+{ Runs the shared thumbnail logic, counts the worker as finished and — on a
+  normal exit — synchronously drains the main thread's queue.  The count
+  happens BEFORE the drain: the coordinator waits on FFinished, which must
+  not depend on the main thread pumping its message queue (a modal dialog
+  used to stall the pool join).  CheckSynchronize processes queued methods
+  FIFO, so by the time Drained runs every previously queued SyncAddThumbs
+  for this worker has been consumed: the subsequent FreeOnTerminate
+  self-free can no longer discard a pending batch (which would leak its
+  images) nor leave a queued method pointing at a freed object. }
 procedure TLoadWorker.Execute;
 begin
   inherited Execute;
+  InterlockedIncrement(FPool.FFinished);
   if not Terminated then
     Synchronize(@Drained);
 end;
@@ -581,15 +586,6 @@ begin
     Result := -1;
 end;
 
-{ Runs on the worker thread at its end; counts it as finished.  The worker
-  has already drained the main thread's queue by this point (see
-  TLoadWorker.Execute), so the coordinator can finish as soon as every
-  worker is counted. }
-procedure TLoadThread.WorkerTerminated(Sender: TObject);
-begin
-  InterlockedIncrement(FFinished);
-end;
-
 { Iterates over every .cbz and .cbr file in FDir in sorted order,
   distributing the work across WorkerCount concurrent TLoadWorkers, and
   waits until all of them finish (or this pool is terminated).  CBR (RAR)
@@ -623,7 +619,6 @@ begin
     for i := 0 to High(FWorkers) do
     begin
       FWorkers[i] := TLoadWorker.Create(Self);
-      FWorkers[i].OnTerminate := @WorkerTerminated;
       FWorkers[i].ListView := FListView;
       FWorkers[i].Pages := FPages;
       FWorkers[i].Images := FImages;
@@ -680,6 +675,7 @@ end;
 procedure TPagesWorker.Execute;
 begin
   inherited Execute;
+  InterlockedIncrement(FPool.FFinished);
   if not Terminated then
     Synchronize(@Drained);
 end;
@@ -762,15 +758,6 @@ begin
   Result := -1;
 end;
 
-{ Runs on the coordinator thread at its end; counts a worker as finished.
-  The worker has already drained the main thread's queue by this point (see
-  TPagesWorker.Execute), so the coordinator can finish as soon as every
-  worker is counted. }
-procedure TPagesThread.WorkerTerminated(Sender: TObject);
-begin
-  InterlockedIncrement(FFinished);
-end;
-
 function TPagesThread.NextJob: integer;
 begin
   Result := InterlockedIncrement(FJobCursor) - 1;
@@ -823,7 +810,6 @@ begin
     for i := 0 to High(FWorkers) do
     begin
       FWorkers[i] := TPagesWorker.Create(Self);
-      FWorkers[i].OnTerminate := @WorkerTerminated;
       FWorkers[i].ListView := FListView;
       FWorkers[i].Pages := FPages;
       FWorkers[i].Images := FImages;

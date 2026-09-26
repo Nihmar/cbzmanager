@@ -34,9 +34,9 @@ const
   EXIT_ERROR = 1;
   EXIT_USAGE = 2;
 
-{ True when AFirstArg names a headless command or --help/--version.  The
-  program then runs as a CLI instead of starting the GUI. }
-function IsHeadlessCommand(const AFirstArg: string): boolean;
+{ IsHeadlessCommand (and the offscreen-platform setup the headless branch
+  needs) lives in uheadlesscmd: that unit must initialize before Interfaces,
+  which the program's uses order arranges. }
 
 { Run the headless CLI, reading arguments from ParamStr.  Never raises.
   Returns the process exit code (EXIT_OK / EXIT_ERROR / EXIT_USAGE). }
@@ -550,14 +550,6 @@ begin
   end
   else
     Result := CmdMerge(Dir, Flags);
-end;
-
-function IsHeadlessCommand(const AFirstArg: string): boolean;
-begin
-  Result := (AFirstArg = 'validate') or (AFirstArg = 'convert-webp') or
-            (AFirstArg = 'merge') or (AFirstArg = 'cbr-to-cbz') or
-            (AFirstArg = '--help') or (AFirstArg = '-h') or
-            (AFirstArg = 'help') or (AFirstArg = '--version');
 end;
 
 function RunHeadlessFromParams: integer;

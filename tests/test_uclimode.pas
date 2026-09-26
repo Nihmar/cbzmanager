@@ -3,7 +3,7 @@ unit test_uclimode;
 interface
 uses
   fpcunit, testregistry,
-  Classes, SysUtils;
+  Classes, SysUtils, uheadlesscmd;
 
 type
   TClimodeTest = class(TTestCase)

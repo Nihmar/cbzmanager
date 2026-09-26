@@ -55,6 +55,7 @@ Sources in `src/`.
 | `src/uthumbview.pas` | Thumbnail rendering (`TThumbnailStrip`: rebuild a `TImageList` from a decoded cache or from the page model, skipping Gone pages) and the debounced zoom slider (`TZoomController`) |
 | `src/uimgutil.pas` | Image decode/scale/convert utilities; `CenterAnchorScrollPos` (shared zoom-anchor math); `EncodeIntfImage`/`EncodeExtFor` (JPEG q92 / PNG / BMP / WebP writers) |
 | `src/uimageedit.pas` | Pure page-editor operations (no GUI): `ResampleIntfImage` (box filter, both directions), `AdjustColors` (invert/grayscale/sepia/RGB gains/saturation/contrast/brightness/gamma pipeline), `SplitIntfImage` (N parallel cut lines → N+1 pieces) |
+| `src/uheadlesscmd.pas` | Headless-command detection plus the offscreen Qt platform selection needed to reach it without a display |
 | `src/ulog.pas` | Minimal thread-safe logger |
 | `src/uzipeditor.pas` | ZIP operations entirely in RAM: listing, image extraction (TUnZipper + FPImage), entry collection (`CollectZipEntries`), ZIP writing (`WriteZipFromEntries`); `ConvertCBZToWebP` parallel decode/encode via a `TWebPConvertWorker` pool (deterministic output regardless of thread count) |
 | `src/upageeditmodel.pas` | In-memory page editing model: `TPageState`, `TChange` (`ckDeleted`/`ckMoved`/`ckEdited`), `PageInsertAt`, `TSaveChangesThread` (edited/inserted pages are saved from their `Data` stream, which wins over the archive entry) |
@@ -228,11 +229,16 @@ result into the in-memory model — nothing is written until "Save changes".
 ### Headless (CLI) mode
 
 The same binary acts as a CLI when the first argument is a known command
-(`validate`, `convert-webp`, `merge`, `cbr-to-cbz`, `--help`, `--version`) —
-the headless branch in `cbzmanager.lpr` runs before any widgetset
-initialization, so no display is needed (proven by the FPCUnit runner,
-which also never initializes the widgetset). Implementation:
-`src/uclimode.pas` (`RunHeadless`/`IsHeadlessCommand`); tests:
+(`validate`, `convert-webp`, `merge`, `cbr-to-cbz`, `--help`, `--version`).
+The headless branch in `cbzmanager.lpr` runs before any *explicit* widgetset
+initialization, but the LCL widgetset is set up by the `Interfaces` unit
+while the program loads; on a machine with no X/Wayland session Qt aborts
+there (exit 134), so `src/uheadlesscmd.pas` — listed before `Interfaces` in
+the uses clause — selects the offscreen Qt platform for CLI runs during unit
+initialization.  The Lazarus CI smoke test runs the release binary with no
+`DISPLAY`/`QT_QPA_PLATFORM` to catch a regression.  Implementation:
+`src/uclimode.pas` (`RunHeadless`) and `src/uheadlesscmd.pas`
+(`IsHeadlessCommand` + the platform setup); tests:
 `tests/test_uclimode.pas`.
 
 ```bash

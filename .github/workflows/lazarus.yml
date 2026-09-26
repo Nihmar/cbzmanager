@@ -58,8 +58,13 @@ jobs:
       - name: Release build
         run: make release
 
+      # Runs with no DISPLAY and no QT_QPA_PLATFORM on purpose: the CLI must
+      # select the offscreen Qt platform itself (uheadlesscmd), otherwise the
+      # load-time widgetset setup aborts the process (exit 134).
       - name: Headless smoke test
         run: |
           ./bin/release/x86_64-linux/cbzmanager --version
           ./bin/release/x86_64-linux/cbzmanager --help >/dev/null
+          mkdir -p /tmp/empty
+          ./bin/release/x86_64-linux/cbzmanager validate /tmp/empty
           echo "release binary: $(du -h bin/release/x86_64-linux/cbzmanager | cut -f1)"

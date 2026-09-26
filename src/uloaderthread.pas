@@ -522,21 +522,23 @@ procedure TLoadWorker.Drained;
 begin
 end;
 
-{ Runs the shared thumbnail logic, counts the worker as finished and — on a
-  normal exit — synchronously drains the main thread's queue.  The count
-  happens BEFORE the drain: the coordinator waits on FFinished, which must
-  not depend on the main thread pumping its message queue (a modal dialog
-  used to stall the pool join).  CheckSynchronize processes queued methods
-  FIFO, so by the time Drained runs every previously queued SyncAddThumbs
-  for this worker has been consumed: the subsequent FreeOnTerminate
-  self-free can no longer discard a pending batch (which would leak its
-  images) nor leave a queued method pointing at a freed object. }
+{ Runs the shared thumbnail logic, drains the main thread's queue and only
+  then counts the worker as finished.  The order matters: the coordinator
+  waits on FFinished, and OnTerminate (which the main thread uses to build
+  the model from the published lists) must not fire before every queued
+  SyncAddThumbs batch has landed — otherwise the pages extracted at full
+  speed are missing from the model.  CheckSynchronize processes queued
+  methods FIFO, so by the time Drained runs every previously queued
+  SyncAddThumbs for this worker has been consumed: the subsequent
+  FreeOnTerminate self-free can no longer discard a pending batch (which
+  would leak its images) nor leave a queued method pointing at a freed
+  object. }
 procedure TLoadWorker.Execute;
 begin
   inherited Execute;
-  InterlockedIncrement(FPool.FFinished);
   if not Terminated then
     Synchronize(@Drained);
+  InterlockedIncrement(FPool.FFinished);
 end;
 
 { Pulls file names from the pool's job list, decoding the first page of
@@ -675,9 +677,12 @@ end;
 procedure TPagesWorker.Execute;
 begin
   inherited Execute;
-  InterlockedIncrement(FPool.FFinished);
+  { Counted after the drain: the coordinator's OnTerminate builds the page
+    model from the published lists, so it must not fire while this worker
+    still has batches queued (see TLoadWorker.Execute). }
   if not Terminated then
     Synchronize(@Drained);
+  InterlockedIncrement(FPool.FFinished);
 end;
 
 { Claims entry indices from the pool's job list, decoding each page at

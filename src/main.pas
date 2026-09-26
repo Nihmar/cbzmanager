@@ -3112,14 +3112,17 @@ begin
     FPagesThread := nil;
 
     { The thumbnail cache and the list view are filled together by
-      SyncAddThumbs, but a stale batch from a previous session can slip
-      in under extreme timing (rapid file switching).  Never trust the
-      two counts to be equal: clamp to the smaller one and treat a
-      mismatch as a truncated load instead of crashing on Items[i]. }
-    n := Min(FPagePreviews.Count, LVPages.Items.Count);
-    if n <> FPagePreviews.Count then
-      Log('Pages: thumbnail/item count mismatch (%d vs %d) — model truncated',
-        [FPagePreviews.Count, LVPages.Items.Count]);
+      SyncAddThumbs, and the thread's OnTerminate only fires after every
+      worker drained its queued batches, so the two counts must match.  A
+      mismatch is a bug, not a session race: keep every row anyway (a page
+      without a cached thumbnail gets an empty one) instead of dropping
+      pages from the model — a truncated model would silently persist the
+      loss on the next save. }
+    n := LVPages.Items.Count;
+    if FPagePreviews.Count <> n then
+      Log('Pages: thumbnail/item count mismatch (%d vs %d) — keeping all %d ' +
+        'rows, missing thumbnails render empty',
+        [FPagePreviews.Count, n, n]);
     SetLength(FPages, n);
     SetLength(FBaseline, n);
     for i := 0 to n - 1 do
@@ -3138,7 +3141,10 @@ begin
         extension when renumbering. }
       FPages[i].Name := ItemFileName(It);
       FPages[i].OrigName := FPages[i].Name;
-      FPages[i].Image := FPagePreviews[i];
+      if i < FPagePreviews.Count then
+        FPages[i].Image := FPagePreviews[i]
+      else
+        FPages[i].Image := nil;
       FPages[i].Gone := False;
       FPages[i].OrigIndex := i;
       FBaseline[i] := FPages[i];

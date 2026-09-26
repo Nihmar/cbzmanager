@@ -1,4 +1,3 @@
-import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -7,32 +6,13 @@ import 'package:path/path.dart' as p;
 
 import 'package:cbzmanager/l10n/generated/app_localizations.dart';
 
-import '../../engine/engine_provider.dart';
-import '../../engine/zip_ops.dart';
 import '../../jobs/job_controller.dart';
 import '../../jobs/job_monitor.dart';
-import '../../native/cbr_reader.dart';
-import '../../vfs/local_vfs.dart';
-import '../../vfs/smb_vfs.dart';
-import '../settings/settings.dart';
 import '../settings/settings_dialog.dart';
-import '../batch_edit/batch_edit_dialog.dart';
-import '../batch_edit/batch_edit_service.dart';
-import '../cbr/cbr_dialog.dart';
-import '../cbr/cbr_service.dart';
-import '../page_editor/page_edit_screen.dart';
-import '../comicinfo/comicinfo_editor_dialog.dart';
-import '../comicinfo/comicinfo_service.dart';
-import '../convert/convert_dialog.dart';
-import '../convert/convert_service.dart';
-import '../merge/merge_dialog.dart';
-import '../merge/merge_service.dart';
-import '../sources/smb_dialog.dart';
 import '../sources/source_controller.dart';
-import '../validate/validate_results_dialog.dart';
-import '../validate/validate_service.dart';
 import 'archive_item.dart';
 import 'browser_controller.dart';
+import 'browser_operations.dart';
 import 'preview_screen.dart';
 import 'selection_controller.dart';
 import 'thumbnail_service.dart';
@@ -58,13 +38,13 @@ class BrowserScreen extends ConsumerWidget {
     return CallbackShortcuts(
       bindings: <ShortcutActivator, VoidCallback>{
         const SingleActivator(LogicalKeyboardKey.keyO, control: true): () =>
-            _openLocal(context, ref),
+            BrowserOperations.openLocal(context, ref),
         const SingleActivator(
           LogicalKeyboardKey.keyO,
           control: true,
           shift: true,
         ): () =>
-            _openSmb(context, ref),
+            BrowserOperations.openSmb(context, ref),
         const SingleActivator(LogicalKeyboardKey.f5): () {
           final current = ref.read(sourceProvider);
           if (current != null) {
@@ -94,7 +74,7 @@ class BrowserScreen extends ConsumerWidget {
                 : IconButton(
                     tooltip: 'Up',
                     icon: const Icon(Icons.arrow_back),
-                    onPressed: () => _navigate(ref, source!, up),
+                    onPressed: () => navigate(ref, source!, up),
                   ),
             title: Text(
               selecting
@@ -108,30 +88,43 @@ class BrowserScreen extends ConsumerWidget {
                       icon: const Icon(Icons.fact_check_outlined),
                       onPressed: job?.running == true || source == null
                           ? null
-                          : () =>
-                                _validate(context, ref, source, selectedItems),
+                          : () => BrowserOperations.validate(
+                              context,
+                              ref,
+                              source,
+                              selectedItems,
+                            ),
                     ),
                     IconButton(
                       tooltip: 'Convert to WebP',
                       icon: const Icon(Icons.transform),
                       onPressed: job?.running == true || source == null
                           ? null
-                          : () => _convert(context, ref, source, selectedItems),
+                          : () => BrowserOperations.convert(
+                              context,
+                              ref,
+                              source,
+                              selectedItems,
+                            ),
                     ),
                     IconButton(
                       tooltip: 'Batch edit pages',
                       icon: const Icon(Icons.tune),
                       onPressed: job?.running == true || source == null
                           ? null
-                          : () =>
-                                _batchEdit(context, ref, source, selectedItems),
+                          : () => BrowserOperations.batchEdit(
+                              context,
+                              ref,
+                              source,
+                              selectedItems,
+                            ),
                     ),
                     IconButton(
                       tooltip: 'Remove ComicInfo',
                       icon: const Icon(Icons.bookmark_remove_outlined),
                       onPressed: job?.running == true || source == null
                           ? null
-                          : () => _removeComicInfo(
+                          : () => BrowserOperations.removeComicInfo(
                               context,
                               ref,
                               source,
@@ -171,7 +164,12 @@ class BrowserScreen extends ConsumerWidget {
                         icon: const Icon(Icons.merge_type),
                         onPressed: job?.running == true
                             ? null
-                            : () => _merge(context, ref, source, browser.items),
+                            : () => BrowserOperations.merge(
+                                context,
+                                ref,
+                                source,
+                                browser.items,
+                              ),
                       ),
                     if (source != null && browser.items.any((i) => i.isCbr))
                       IconButton(
@@ -179,18 +177,23 @@ class BrowserScreen extends ConsumerWidget {
                         icon: const Icon(Icons.swap_horiz),
                         onPressed: job?.running == true
                             ? null
-                            : () => _convertCbr(context, ref, source, [
-                                for (final i in browser.items)
-                                  if (i.isCbr) i.name,
-                              ]),
+                            : () => BrowserOperations.convertCbr(
+                                context,
+                                ref,
+                                source,
+                                [
+                                  for (final i in browser.items)
+                                    if (i.isCbr) i.name,
+                                ],
+                              ),
                       ),
                     PopupMenuButton<String>(
                       tooltip: 'Open source',
                       onSelected: (value) {
                         if (value == 'local') {
-                          _openLocal(context, ref);
+                          BrowserOperations.openLocal(context, ref);
                         } else {
-                          _openSmb(context, ref);
+                          BrowserOperations.openSmb(context, ref);
                         }
                       },
                       itemBuilder: (context) => [
@@ -221,15 +224,15 @@ class BrowserScreen extends ConsumerWidget {
           ),
           body: source == null
               ? _Welcome(
-                  onLocal: () => _openLocal(context, ref),
-                  onSmb: () => _openSmb(context, ref),
+                  onLocal: () => BrowserOperations.openLocal(context, ref),
+                  onSmb: () => BrowserOperations.openSmb(context, ref),
                 )
               : PopScope(
                   // System back climbs out of a subfolder before leaving the app.
                   canPop: up == null,
                   onPopInvokedWithResult: (didPop, _) {
                     if (didPop || up == null) return;
-                    _navigate(ref, source, up);
+                    navigate(ref, source, up);
                   },
                   child: _BrowserBody(source: source, browser: browser),
                 ),
@@ -237,299 +240,6 @@ class BrowserScreen extends ConsumerWidget {
       ),
     );
   }
-
-  Future<void> _openLocal(BuildContext context, WidgetRef ref) async {
-    final dir = await getDirectoryPath();
-    if (dir == null) return;
-    _apply(
-      ref,
-      ArchiveSource(vfs: const LocalVfs(), root: dir, label: p.basename(dir)),
-    );
-  }
-
-  Future<void> _openSmb(BuildContext context, WidgetRef ref) async {
-    final config = await showSmbConnectDialog(context);
-    if (config == null) return;
-    _apply(
-      ref,
-      ArchiveSource(
-        vfs: SmbVfs(config),
-        root: '',
-        label: 'smb://${config.host}/${config.share}',
-      ),
-    );
-  }
-
-  void _apply(WidgetRef ref, ArchiveSource source) {
-    ref.read(selectionProvider.notifier).clear();
-    ref.read(sourceProvider.notifier).set(source);
-    ref.read(browserProvider.notifier).load(source.vfs, source.root);
-  }
-
-  Future<void> _validate(
-    BuildContext context,
-    WidgetRef ref,
-    ArchiveSource source,
-    List<ArchiveItem> items,
-  ) async {
-    final job = ref.read(jobProvider.notifier);
-    job.start('Validate', message: 'Validating ${items.length} file(s)...');
-    List<ValidateOutcome> outcomes;
-    try {
-      outcomes = await ValidateService(ref.read(cbzEngineProvider))
-          .validateMany(
-            source.vfs,
-            items,
-            onProgress: (done, total, message) =>
-                job.progress(total == 0 ? 0 : done * 100 ~/ total, message),
-            isCancelled: () => job.cancelRequested,
-          );
-    } catch (e) {
-      job.finish();
-      if (context.mounted) _snack(context, 'Validation failed: $e');
-      return;
-    }
-    job.finish();
-    if (context.mounted) await showValidateResultsDialog(context, outcomes);
-  }
-
-  Future<void> _merge(
-    BuildContext context,
-    WidgetRef ref,
-    ArchiveSource source,
-    List<ArchiveItem> items,
-  ) async {
-    final files = <String>[
-      for (final item in items)
-        if (item.name.toLowerCase().endsWith('.cbz')) item.name,
-    ];
-    if (files.isEmpty) {
-      _snack(context, 'No CBZ files to merge');
-      return;
-    }
-
-    final settings = ref.read(settingsProvider);
-    final options = await showMergeDialog(
-      context,
-      files: files,
-      defaultThreads: settings.mergeThreads,
-      defaultBackup: settings.backupByDefault,
-    );
-    if (options == null || !context.mounted) return;
-
-    final job = ref.read(jobProvider.notifier);
-    final dir = _cwd(ref);
-    job.start('Merge', message: 'Planning...');
-    try {
-      final outcome = await const MergeService().merge(
-        source.vfs,
-        dir,
-        options,
-        onProgress: (percent, message) => job.progress(percent, message),
-        isCancelled: () => job.cancelRequested,
-      );
-      job.finish();
-      if (!context.mounted) return;
-      if (outcome.success) {
-        _snack(context, 'Created ${outcome.volumesCreated} volume(s)');
-        await ref.read(browserProvider.notifier).load(source.vfs, dir);
-      } else {
-        _snack(context, outcome.error ?? 'Merge produced no volumes');
-      }
-    } catch (e) {
-      job.finish();
-      if (context.mounted) _snack(context, 'Merge failed: $e');
-    }
-  }
-
-  Future<void> _batchEdit(
-    BuildContext context,
-    WidgetRef ref,
-    ArchiveSource source,
-    List<ArchiveItem> items,
-  ) async {
-    final editable = <ArchiveItem>[
-      for (final item in items)
-        if (!item.isCbr) item,
-    ];
-    if (editable.isEmpty) {
-      _snack(context, 'CBR archives are read-only — convert them first');
-      return;
-    }
-
-    final previewBytes = await _firstPageBytes(source, editable.first);
-    if (!context.mounted) return;
-
-    final params = await showBatchEditDialog(
-      context,
-      fileCount: editable.length,
-      previewBytes: previewBytes,
-      defaultBackup: ref.read(settingsProvider).backupByDefault,
-    );
-    if (params == null || !context.mounted) return;
-
-    final job = ref.read(jobProvider.notifier);
-    job.start('Batch edit', message: 'Editing ${editable.length} file(s)...');
-    try {
-      final outcomes = await const BatchEditService().applyMany(
-        source.vfs,
-        editable,
-        params,
-        threads: ref.read(settingsProvider).batchThreads,
-        onProgress: (percent, message) => job.progress(percent, message),
-        isCancelled: () => job.cancelRequested,
-      );
-      job.finish();
-      if (!context.mounted) return;
-      final ok = outcomes.where((o) => o.success).length;
-      _snack(context, 'Edited $ok of ${outcomes.length} file(s)');
-      await ref.read(browserProvider.notifier).load(source.vfs, _cwd(ref));
-    } catch (e) {
-      job.finish();
-      if (context.mounted) _snack(context, 'Batch edit failed: $e');
-    }
-  }
-
-  Future<Uint8List?> _firstPageBytes(
-    ArchiveSource source,
-    ArchiveItem item,
-  ) async {
-    try {
-      final bytes = await source.vfs.readAll(item.path);
-      final names = sortedImageNamesInZip(bytes);
-      if (names.isEmpty) return null;
-      return readZipEntryByName(bytes, names.first);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  Future<void> _convert(
-    BuildContext context,
-    WidgetRef ref,
-    ArchiveSource source,
-    List<ArchiveItem> items,
-  ) async {
-    final request = await showConvertOptionsDialog(
-      context,
-      fileCount: items.length,
-      defaultThreads: ref.read(settingsProvider).convertThreads,
-      defaultBackup: ref.read(settingsProvider).backupByDefault,
-    );
-    if (request == null || !context.mounted) return;
-
-    final job = ref.read(jobProvider.notifier);
-    job.start(
-      'Convert to WebP',
-      message: 'Converting ${items.length} file(s)...',
-    );
-    try {
-      final outcomes = await const ConvertService().convertMany(
-        source.vfs,
-        items,
-        backup: request.backup,
-        threads: request.threads,
-        onProgress: (done, total, message) =>
-            job.progress(total == 0 ? 0 : done * 100 ~/ total, message),
-        isCancelled: () => job.cancelRequested,
-      );
-      job.finish();
-      if (context.mounted) await showConvertResultsDialog(context, outcomes);
-    } catch (e) {
-      job.finish();
-      if (context.mounted) _snack(context, 'Conversion failed: $e');
-    }
-  }
-
-  Future<void> _convertCbr(
-    BuildContext context,
-    WidgetRef ref,
-    ArchiveSource source,
-    List<String> names,
-  ) async {
-    if (names.isEmpty) {
-      _snack(context, 'No CBR files to convert');
-      return;
-    }
-    if (!CbrReader.isSupported) {
-      _snack(
-        context,
-        'CBR support requires libarchive, which is not available',
-      );
-      return;
-    }
-
-    final request = await showCbrOptionsDialog(
-      context,
-      fileCount: names.length,
-      defaultThreads: ref.read(settingsProvider).cbrThreads,
-    );
-    if (request == null || !context.mounted) return;
-
-    final job = ref.read(jobProvider.notifier);
-    final dir = _cwd(ref);
-    job.start('CBR → CBZ', message: 'Converting ${names.length} file(s)...');
-    try {
-      final outcomes = await const CbrConvertService().convertMany(
-        source.vfs,
-        dir,
-        names,
-        skipExisting: request.skipExisting,
-        deleteSource: request.deleteSource,
-        threads: request.threads,
-        onProgress: (percent, message) => job.progress(percent, message),
-        isCancelled: () => job.cancelRequested,
-      );
-      job.finish();
-      if (!context.mounted) return;
-      await showCbrResultsDialog(context, outcomes);
-      await ref.read(browserProvider.notifier).load(source.vfs, dir);
-    } catch (e) {
-      job.finish();
-      if (context.mounted) _snack(context, 'CBR conversion failed: $e');
-    }
-  }
-
-  Future<void> _removeComicInfo(
-    BuildContext context,
-    WidgetRef ref,
-    ArchiveSource source,
-    List<ArchiveItem> items,
-  ) async {
-    final job = ref.read(jobProvider.notifier);
-    job.start(
-      'Remove ComicInfo',
-      message: 'Scanning ${items.length} file(s)...',
-    );
-    try {
-      final result = await ComicInfoService(ref.read(cbzEngineProvider))
-          .removeMany(
-            source.vfs,
-            items,
-            onProgress: (done, total, message) =>
-                job.progress(total == 0 ? 0 : done * 100 ~/ total, message),
-            isCancelled: () => job.cancelRequested,
-          );
-      job.finish();
-      if (context.mounted) {
-        _snack(
-          context,
-          'ComicInfo removed from ${result.changed} of ${result.scanned} '
-          'file(s), ${result.skipped} already clean'
-          '${result.errors.isEmpty ? '' : ', ${result.errors.length} error(s)'}',
-        );
-      }
-    } catch (e) {
-      job.finish();
-      if (context.mounted) _snack(context, 'Remove failed: $e');
-    }
-  }
-}
-
-void _snack(BuildContext context, String message) {
-  ScaffoldMessenger.of(context)
-    ..clearSnackBars()
-    ..showSnackBar(SnackBar(content: Text(message)));
 }
 
 class _JobBar extends ConsumerWidget {
@@ -685,16 +395,6 @@ class _BrowserBody extends ConsumerWidget {
   }
 }
 
-/// Enters [dir] (the browsing root or a subfolder of it) and clears any
-/// selection, so that a half-made selection never spans two folders.
-void _navigate(WidgetRef ref, ArchiveSource source, String dir) {
-  ref.read(selectionProvider.notifier).clear();
-  ref.read(browserProvider.notifier).load(source.vfs, dir);
-}
-
-/// Directory the single/batch operations of the browser act on.
-String _cwd(WidgetRef ref) => ref.read(browserProvider).path;
-
 /// Trail from the browsing root to the current folder; hidden at the root,
 /// where the app bar already names the source.
 class _Breadcrumbs extends ConsumerWidget {
@@ -729,7 +429,7 @@ class _Breadcrumbs extends ConsumerWidget {
           final crumb = crumbs[index];
           final last = index == crumbs.length - 1;
           return TextButton(
-            onPressed: last ? null : () => _navigate(ref, source, crumb.path),
+            onPressed: last ? null : () => navigate(ref, source, crumb.path),
             child: Text(
               crumb.label,
               maxLines: 1,
@@ -755,7 +455,7 @@ class _FolderTile extends ConsumerWidget {
     return Card(
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: () => _navigate(ref, source, folder.path),
+        onTap: () => navigate(ref, source, folder.path),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -887,56 +587,46 @@ class _ArchiveTile extends ConsumerWidget {
                       onSelected: (value) async {
                         switch (value) {
                           case 'validate':
-                            await _BrowserActions.validate(
+                            await BrowserOperations.validate(
                               context,
                               ref,
                               source,
-                              item,
+                              [item],
                             );
                           case 'convert':
-                            await _BrowserActions.convert(
+                            await BrowserOperations.convert(
                               context,
                               ref,
                               source,
-                              item,
+                              [item],
                             );
                           case 'cbr':
-                            await _BrowserActions.cbrToCbz(
+                            await BrowserOperations.convertCbr(
+                              context,
+                              ref,
+                              source,
+                              [item.name],
+                            );
+                          case 'pages':
+                            await BrowserOperations.editPages(
                               context,
                               ref,
                               source,
                               item,
                             );
-                          case 'pages':
-                            await Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => PageEditScreen(
-                                  vfs: source.vfs,
-                                  item: item,
-                                  backup: ref
-                                      .read(settingsProvider)
-                                      .backupByDefault,
-                                ),
-                              ),
-                            );
-                            if (context.mounted) {
-                              await ref
-                                  .read(browserProvider.notifier)
-                                  .load(source.vfs, _cwd(ref));
-                            }
                           case 'comicinfo':
-                            await _BrowserActions.editComicInfo(
+                            await BrowserOperations.editComicInfo(
                               context,
                               ref,
                               source,
                               item,
                             );
                           case 'remove':
-                            await _BrowserActions.removeComicInfo(
+                            await BrowserOperations.removeComicInfo(
                               context,
                               ref,
                               source,
-                              item,
+                              [item],
                             );
                         }
                       },
@@ -982,152 +672,5 @@ class _ArchiveTile extends ConsumerWidget {
     if (bytes < 1024) return '$bytes B';
     if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(0)} KB';
     return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-  }
-}
-
-/// Shared single-item actions used by the tile overflow menu.
-class _BrowserActions {
-  const _BrowserActions._();
-
-  static Future<void> validate(
-    BuildContext context,
-    WidgetRef ref,
-    ArchiveSource source,
-    ArchiveItem item,
-  ) async {
-    final job = ref.read(jobProvider.notifier);
-    job.start('Validate', message: 'Validating ${item.name}');
-    final outcomes = await ValidateService(ref.read(cbzEngineProvider))
-        .validateMany(
-          source.vfs,
-          [item],
-          onProgress: (done, total, message) =>
-              job.progress(total == 0 ? 0 : done * 100 ~/ total, message),
-          isCancelled: () => job.cancelRequested,
-        );
-    job.finish();
-    if (context.mounted) await showValidateResultsDialog(context, outcomes);
-  }
-
-  static Future<void> convert(
-    BuildContext context,
-    WidgetRef ref,
-    ArchiveSource source,
-    ArchiveItem item,
-  ) async {
-    final request = await showConvertOptionsDialog(
-      context,
-      fileCount: 1,
-      defaultThreads: ref.read(settingsProvider).convertThreads,
-      defaultBackup: ref.read(settingsProvider).backupByDefault,
-    );
-    if (request == null || !context.mounted) return;
-    final job = ref.read(jobProvider.notifier);
-    job.start('Convert to WebP', message: item.name);
-    try {
-      final outcomes = await const ConvertService().convertMany(
-        source.vfs,
-        [item],
-        backup: request.backup,
-        threads: request.threads,
-      );
-      job.finish();
-      if (context.mounted) await showConvertResultsDialog(context, outcomes);
-    } catch (e) {
-      job.finish();
-      if (context.mounted) _snack(context, 'Conversion failed: $e');
-    }
-  }
-
-  static Future<void> cbrToCbz(
-    BuildContext context,
-    WidgetRef ref,
-    ArchiveSource source,
-    ArchiveItem item,
-  ) async {
-    final request = await showCbrOptionsDialog(
-      context,
-      fileCount: 1,
-      defaultThreads: ref.read(settingsProvider).cbrThreads,
-    );
-    if (request == null || !context.mounted) return;
-    final job = ref.read(jobProvider.notifier);
-    job.start('CBR → CBZ', message: item.name);
-    try {
-      final outcomes = await const CbrConvertService().convertMany(
-        source.vfs,
-        _cwd(ref),
-        [item.name],
-        skipExisting: request.skipExisting,
-        deleteSource: request.deleteSource,
-        threads: request.threads,
-      );
-      job.finish();
-      if (context.mounted) await showCbrResultsDialog(context, outcomes);
-    } catch (e) {
-      job.finish();
-      if (context.mounted) _snack(context, 'CBR conversion failed: $e');
-    }
-  }
-
-  static Future<void> editComicInfo(
-    BuildContext context,
-    WidgetRef ref,
-    ArchiveSource source,
-    ArchiveItem item,
-  ) async {
-    final service = ComicInfoService(ref.read(cbzEngineProvider));
-    final job = ref.read(jobProvider.notifier);
-    job.start('ComicInfo', message: 'Reading ${item.name}');
-    final read = await service.read(source.vfs, item);
-    job.finish();
-    if (!context.mounted) return;
-    if (read.error != null) {
-      _snack(context, 'Cannot read ${item.name}: ${read.error}');
-      return;
-    }
-    final edited = await showComicInfoEditor(
-      context,
-      archiveName: item.name,
-      initial: read.info,
-    );
-    if (edited == null || !context.mounted) return;
-    job.start('ComicInfo', message: 'Saving ${item.name}');
-    try {
-      await service.write(source.vfs, item, edited);
-      if (context.mounted) {
-        _snack(context, 'ComicInfo saved for ${item.name}');
-      }
-    } catch (e) {
-      if (context.mounted) _snack(context, 'Save failed: $e');
-    } finally {
-      job.finish();
-    }
-  }
-
-  static Future<void> removeComicInfo(
-    BuildContext context,
-    WidgetRef ref,
-    ArchiveSource source,
-    ArchiveItem item,
-  ) async {
-    final job = ref.read(jobProvider.notifier);
-    job.start('Remove ComicInfo', message: item.name);
-    try {
-      final removed = await ComicInfoService(ref.read(cbzEngineProvider))
-          .remove(source.vfs, item);
-      if (context.mounted) {
-        _snack(
-          context,
-          removed
-              ? 'ComicInfo removed from ${item.name}'
-              : '${item.name} has no ComicInfo.xml',
-        );
-      }
-    } catch (e) {
-      if (context.mounted) _snack(context, 'Remove failed: $e');
-    } finally {
-      job.finish();
-    }
   }
 }

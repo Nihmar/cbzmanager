@@ -136,7 +136,28 @@ class SmbVfs extends Vfs {
   @override
   Future<void> writeAll(String path, List<int> bytes) async {
     final pool = await _ensurePool();
-    await pool.writeFile(_rel(path), Uint8List.fromList(bytes));
+    final rel = _rel(path);
+    final tmp = '$rel.new';
+    try {
+      // Write to a sibling temp file first: `writeFile` opens the
+      // destination with truncate, so a dropped connection mid-write would
+      // destroy the archive.  SMB2/libsmb2 has no atomic replace (rename
+      // fails on an existing target), hence delete-then-rename; a crash
+      // between the two steps leaves the temp file instead of a truncated
+      // original.
+      await pool.writeFile(tmp, Uint8List.fromList(bytes));
+      if (await pool.exists(rel)) {
+        await pool.deleteFile(rel);
+      }
+      await pool.rename(tmp, rel);
+    } catch (_) {
+      try {
+        if (await pool.exists(tmp)) await pool.deleteFile(tmp);
+      } catch (_) {
+        // Best-effort cleanup; the original error is the one to report.
+      }
+      rethrow;
+    }
   }
 
   @override

@@ -177,10 +177,10 @@ begin
         Exit;
       end;
       Val(AArgs[i + 1], Flags.Threads, ErrPos);
-      if (ErrPos <> 0) or (Flags.Threads <= 0) then
+      if (ErrPos <> 0) or (Flags.Threads < 0) then
       begin
         WriteLn(ErrOutput,
-          'Error: --threads expects a positive integer');
+          'Error: --threads expects a non-negative integer (0 = automatic)');
         Exit;
       end;
       Inc(i);

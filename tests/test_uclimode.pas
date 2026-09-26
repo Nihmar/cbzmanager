@@ -114,8 +114,6 @@ begin
     RunHeadless(['convert-webp', FTempDir, '--bogus']));
   AssertEquals('missing --threads value', EXIT_USAGE,
     RunHeadless(['convert-webp', FTempDir, '--threads']));
-  AssertEquals('zero --threads value', EXIT_USAGE,
-    RunHeadless(['convert-webp', FTempDir, '--threads', '0']));
   AssertEquals('negative --threads value', EXIT_USAGE,
     RunHeadless(['convert-webp', FTempDir, '--threads', '-1']));
   AssertEquals('non-numeric --threads value', EXIT_USAGE,
@@ -254,6 +252,10 @@ begin
   finally
     FreeZipEntries(Entries);
   end;
+
+  { 0 = automatic pool size (the same value the Flutter CLI accepts). }
+  Args[3] := '0';
+  AssertEquals('--threads 0 is automatic', EXIT_OK, RunHeadless(Args));
 end;
 
 procedure TClimodeTest.RunHeadless_ConvertWebp_ThreadsFlagBeforeDir;

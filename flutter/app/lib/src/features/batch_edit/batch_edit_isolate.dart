@@ -41,7 +41,12 @@ List<Object?> batchEditArchiveIsolate(
     final ext = extensionOf(entry.name);
     if (!isImageExt(ext)) continue;
     final decoded = img.decodeImage(entry.bytes);
-    if (decoded == null) continue;
+    if (decoded == null) {
+      // Never drop a page silently: the service turns this into a per-file
+      // error and the archive is left untouched (a partial rewrite would
+      // lose the undecodable page).
+      throw StateError('Page ${entry.name} could not be decoded');
+    }
 
     final targetExt = encodeExtFor(ext);
     final w = percent > 0

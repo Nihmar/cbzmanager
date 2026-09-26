@@ -72,4 +72,25 @@ void main() {
     expect(outcomes.single.success, isTrue);
     expect(await vfs.exists('/book_OLD.cbz'), isFalse);
   });
+
+  test('fails the file instead of silently dropping a bad page', () async {
+    final vfs = MemoryVfs();
+    final original = makeZip({
+      'page_001.png': makeSolidPng(20, 20),
+      'page_002.png': <int>[0, 1, 2, 3, 4, 5],
+    });
+    await vfs.writeAll('/book.cbz', original);
+
+    final outcomes = await const BatchEditService().applyMany(
+      vfs,
+      [item('book.cbz')],
+      const BatchEditParams(percent: 50),
+    );
+
+    expect(outcomes.single.success, isFalse);
+    expect(outcomes.single.error, contains('page_002.png'));
+    // The archive must be untouched: no partial rewrite, no backup.
+    expect(await vfs.readAll('/book.cbz'), equals(original));
+    expect(await vfs.exists('/book_OLD.cbz'), isFalse);
+  });
 }

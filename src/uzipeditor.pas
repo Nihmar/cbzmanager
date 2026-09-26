@@ -750,9 +750,6 @@ type
   Checks: TImageChecks;        { per-source-index results }
   Work: array of integer;      { indices of image entries }
   Next: integer;               { next index into Work (under Lock) }
-  Completed: integer;          { finished entries (under Lock) }
-  BaseName: string;            { ExtractFileName(FileName), for messages }
-  OnProgress: TServiceProgressEvent;
   constructor Create;
   destructor Destroy; override;
 end;
@@ -822,17 +819,6 @@ begin
     end
     else
       FPool.Checks[Idx].ErrorMsg := 'Image decode failed';
-
-    EnterCriticalSection(FPool.Lock);
-    try
-      Inc(FPool.Completed);
-      if Assigned(FPool.OnProgress) then
-        FPool.OnProgress((FPool.Completed * 100) div Length(FPool.Work),
-          Format('%s — entry %d/%d (%s)', [FPool.BaseName, Idx + 1,
-            Length(FPool.Entries), FPool.Entries[Idx].Name]));
-    finally
-      LeaveCriticalSection(FPool.Lock);
-    end;
   end;
 end;
 
@@ -881,7 +867,6 @@ begin
     Started := False;
     try
       Pool.Entries := AllEntries;
-      Pool.BaseName := ExtractFileName(FileName);
       for i := 0 to High(AllEntries) do
         if IsImageExt(ExtractFileExt(AllEntries[i].Name)) then
         begin
@@ -927,11 +912,6 @@ begin
             end
             else
               Pool.Checks[Idx].ErrorMsg := 'Image decode failed';
-            Inc(Pool.Completed);
-            if Assigned(Pool.OnProgress) then
-              Pool.OnProgress((Pool.Completed * 100) div Length(Pool.Work),
-                Format('%s — entry %d/%d (%s)', [Pool.BaseName, Idx + 1,
-                  Length(AllEntries), AllEntries[Idx].Name]));
           end;
         end;
       end;

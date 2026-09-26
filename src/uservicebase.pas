@@ -128,6 +128,14 @@ function OnlineCpuCount: integer;
 function CBZFullPath(const ADir, AFileName: string): string;
 
 { ------------------------------------------------------------------------
+  GetFileSize – Size of APath in bytes, or 0 when it cannot be stat'ed.
+
+  Single shared implementation (previously duplicated in the convert and
+  CBR service units).
+  ------------------------------------------------------------------------ }
+function GetFileSize(const APath: string): int64;
+
+{ ------------------------------------------------------------------------
   ReportServiceStart – Emit the initial "AVerb 0/N files" progress message.
 
   No-op when AOnProgress is nil or ATotal is zero.
@@ -205,6 +213,22 @@ implementation
 function CBZFullPath(const ADir, AFileName: string): string;
 begin
   Result := IncludeTrailingPathDelimiter(ADir) + AFileName;
+end;
+
+{ ----------------------------------------------------------------------------
+  GetFileSize
+  ---------------------------------------------------------------------------- }
+function GetFileSize(const APath: string): int64;
+var
+  SR: TSearchRec;
+begin
+  if FindFirst(APath, faAnyFile, SR) = 0 then
+  begin
+    Result := SR.Size;
+    FindClose(SR);
+  end
+  else
+    Result := 0;
 end;
 
 { ----------------------------------------------------------------------------

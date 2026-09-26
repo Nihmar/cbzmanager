@@ -99,19 +99,6 @@ type
       AProgress: TLockedProgress);
   end;
 
-function GetFileSize(const APath: string): int64;
-var
-  SR: TSearchRec;
-begin
-  if FindFirst(APath, faAnyFile, SR) = 0 then
-  begin
-    Result := SR.Size;
-    FindClose(SR);
-  end
-  else
-    Result := 0;
-end;
-
 constructor TCbrConvertPoolState.Create;
 begin
   inherited Create;

@@ -32,6 +32,11 @@ class ImageSearchService {
   /// Maximum Met detail fetches per search (mirrors `MAX_DETAIL_FETCHES`).
   static const int maxDetailFetches = 12;
 
+  /// Per-request timeouts.  The reference sets a 15 s connect / 30–60 s I/O
+  /// timeout; without these a stalled server hung the dialog forever.
+  static const Duration _apiTimeout = Duration(seconds: 30);
+  static const Duration _downloadTimeout = Duration(seconds: 60);
+
   Future<List<ImageResult>> search(
     ImageProvider provider,
     String query, {
@@ -190,25 +195,40 @@ class ImageSearchService {
     }
   }
 
-  /// Downloads image bytes, enforcing the 20 MB cap.
+  /// Downloads image bytes, enforcing the 20 MB cap while streaming.  The
+  /// body is never buffered past the cap (a declared Content-Length larger
+  /// than the cap aborts before reading, and an undeclared/lying length is
+  /// checked chunk by chunk).
   Future<Uint8List> download(String url) async {
-    final response = await _client.get(
-      Uri.parse(url),
-      headers: {'User-Agent': _userAgent},
-    );
+    final request = http.Request('GET', Uri.parse(url))
+      ..headers['User-Agent'] = _userAgent;
+    final response = await _client.send(request).timeout(_downloadTimeout);
     if (response.statusCode != 200) {
       throw Exception('HTTP ${response.statusCode}');
     }
-    final bytes = response.bodyBytes;
-    if (bytes.isEmpty) throw Exception('Empty response');
-    if (bytes.length > _maxDownloadBytes) {
+    final declared = response.contentLength;
+    if (declared != null && declared > _maxDownloadBytes) {
       throw Exception('Image exceeds 20 MB');
     }
+
+    final builder = BytesBuilder();
+    var total = 0;
+    await for (final chunk in response.stream.timeout(_downloadTimeout)) {
+      total += chunk.length;
+      if (total > _maxDownloadBytes) {
+        throw Exception('Image exceeds 20 MB');
+      }
+      builder.add(chunk);
+    }
+    final bytes = builder.toBytes();
+    if (bytes.isEmpty) throw Exception('Empty response');
     return bytes;
   }
 
   Future<String> _getString(Uri uri) async {
-    final response = await _client.get(uri, headers: {'User-Agent': _userAgent});
+    final response = await _client
+        .get(uri, headers: {'User-Agent': _userAgent})
+        .timeout(_apiTimeout);
     if (response.statusCode != 200) {
       throw Exception('HTTP ${response.statusCode}');
     }

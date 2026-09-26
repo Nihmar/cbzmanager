@@ -57,6 +57,16 @@ void main() {
       expect(lastVolumeNumber(files, 'Test'), 12);
     });
 
+    test('lastVolumeNumber parses numbers of any width', () {
+      // Regression: the substring offset was copied from Pascal's 1-based
+      // Copy, so "V100" parsed as "00" and every 3-digit volume was ignored
+      // (a merge then restarted at V100 and overwrote the existing file).
+      expect(isVolumeFile('Test V100.cbz', 'Test'), isTrue);
+      expect(lastVolumeNumber(['Test V099.cbz', 'Test V100.cbz'], 'Test'), 100);
+      expect(lastVolumeNumber(['Test V123.cbz'], 'Test'), 123);
+      expect(lastVolumeNumber(['Test V1000.cbz'], 'Test'), 1000);
+    });
+
     test('collectChapters orders specials after regular chapters', () {
       final chapters = collectChapters([
         'Test - 003.cbz',

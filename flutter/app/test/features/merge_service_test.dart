@@ -236,4 +236,26 @@ void main() {
     expect(await vfs.exists('/Test - 01_OLD_OLD.cbz'), isFalse);
     expect(await vfs.exists('/Test - 01_OLD.cbz'), isTrue);
   });
+
+  test('never overwrites an existing three-digit volume', () async {
+    // Regression: lastVolumeNumber mis-parsed "V100" as 0, so the merge
+    // restarted at V100 and overwrote the pre-existing volume (data loss).
+    final vfs = MemoryVfs();
+    await putChapters(vfs, 2);
+    await putChapter(vfs, 'Test V099.cbz', 1);
+    await putChapter(vfs, 'Test V100.cbz', 5);
+    final existing = await vfs.readAll('/Test V100.cbz');
+
+    final outcome = await const MergeService().merge(
+      vfs,
+      '/',
+      const MergeOptions(seriesName: 'Test', chaptersPerVolume: 2),
+    );
+
+    expect(outcome.success, isTrue);
+    expect(outcome.volumes, ['Test V101.cbz']);
+    expect(await vfs.exists('/Test V099.cbz'), isTrue);
+    expectSameArchive(await vfs.readAll('/Test V100.cbz'), existing);
+    expect(collectZipEntries(await vfs.readAll('/Test V101.cbz')).length, 2);
+  });
 }

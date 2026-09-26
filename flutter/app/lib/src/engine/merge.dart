@@ -232,7 +232,9 @@ int lastVolumeNumber(List<String> files, String seriesName) {
   var result = 0;
   for (final file in files) {
     if (!isVolumeFile(file, seriesName)) continue;
-    final num = int.tryParse(_stem(file).substring(seriesName.length + 3)) ?? 0;
+    // The number starts right after "<SeriesName> V": unlike Pascal's
+    // 1-based Copy, Dart's substring is 0-based, so + 2 (not + 3).
+    final num = int.tryParse(_stem(file).substring(seriesName.length + 2)) ?? 0;
     if (num > result) result = num;
   }
   return result;

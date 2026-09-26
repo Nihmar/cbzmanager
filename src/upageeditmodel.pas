@@ -93,7 +93,11 @@ type
       3. Optionally renumbers remaining pages (001, 002, …).
       4. Writes a replacement CBZ via ReplaceCBZ.
 
-    Progress is reported to the main thread through TThread.Queue.
+    Progress is reported to the main thread through TThread.Synchronize
+    (the same shape as the service threads, for the same reasons: a queued
+    call on a FreeOnTerminate thread can outlive it, and an exception in a
+    queued callback would be re-raised on the main thread instead of being
+    recorded as the save's error).
     ------------------------------------------------------------------------ }
   TSaveChangesThread = class(TThread)
   private
@@ -105,8 +109,8 @@ type
     FOnProgress: TServiceProgressEvent;     // callback for UI progress updates
     FPendingPct: integer;            // latest progress percentage (set by Execute, read by SyncProgress)
     FPendingMsg: string;             // latest progress message   (set by Execute, read by SyncProgress)
-    procedure SyncProgress;          // called on the main thread via TThread.Queue
-    procedure DoProgress(APercent: integer; const AMsg: string);  // posts a progress update to the queue
+    procedure SyncProgress;          // called on the main thread via TThread.Synchronize
+    procedure DoProgress(APercent: integer; const AMsg: string);  // reports progress on the main thread
   protected
     procedure Execute; override;
   public
@@ -122,9 +126,8 @@ type
       OnTerminate handler or after WaitFor. }
     property Result: TSaveChangesResult read FResult;
     { Drops the progress callback.  The owner calls this on the main thread
-      before the callback target is destroyed: a queued SyncProgress that
-      runs afterwards sees FOnProgress = nil and cannot call into a freed
-      form. }
+      before the callback target is destroyed: a later SyncProgress sees
+      FOnProgress = nil and cannot call into a freed form. }
     procedure DetachProgress;
   end;
 
@@ -411,24 +414,29 @@ end;
 { TSaveChangesThread.DoProgress
 
   Called from the worker thread (Execute).  Stores the latest progress values
-  in thread-owned fields and posts a SyncProgress call to the main thread's
-  event queue via TThread.Queue.  If no progress callback was supplied, the
-  Queue call is skipped entirely to avoid unnecessary overhead. }
+  in thread-owned fields and fires SyncProgress on the MAIN thread through
+  Synchronize.  If no progress callback was supplied the call is skipped
+  entirely to avoid the main-thread round-trip.
+
+  Synchronize (not Queue) is deliberate, exactly like TServiceThread.Progress:
+  the thread is FreeOnTerminate, so a queued method could be dispatched after
+  the thread freed itself (the SIGSEGV the service base documents), and an
+  exception raised by the callback is re-raised on the main thread by FPC's
+  queue processing instead of landing in this thread's Execute handler. }
 procedure TSaveChangesThread.DoProgress(APercent: integer; const AMsg: string);
 begin
   FPendingPct := APercent;
   FPendingMsg := AMsg;
-  // Only queue if there is a listener — avoids pointless main-thread wakeups.
   if Assigned(FOnProgress) then
-    TThread.Queue(nil, @SyncProgress);
+    Synchronize(@SyncProgress);
 end;
 
 { TSaveChangesThread.SyncProgress
 
-  Executes on the MAIN thread (invoked by TThread.Queue).  Reads the latest
-  values written by DoProgress and fires the callback.  The guard on
-  FOnProgress is re-checked because the callback could have been cleared
-  between the Queue call and execution. }
+  Executes on the MAIN thread (invoked by Synchronize; the worker blocks
+  until it returns, so the thread object is alive).  Reads the latest values
+  written by DoProgress and fires the callback.  The guard on FOnProgress is
+  re-checked because the callback could have been detached meanwhile. }
 procedure TSaveChangesThread.SyncProgress;
 begin
   if Assigned(FOnProgress) then

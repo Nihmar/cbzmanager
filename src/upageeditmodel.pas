@@ -121,6 +121,11 @@ type
     { Read the result after the thread has terminated.  Call only from the
       OnTerminate handler or after WaitFor. }
     property Result: TSaveChangesResult read FResult;
+    { Drops the progress callback.  The owner calls this on the main thread
+      before the callback target is destroyed: a queued SyncProgress that
+      runs afterwards sees FOnProgress = nil and cannot call into a freed
+      form. }
+    procedure DetachProgress;
   end;
 
 procedure AppendChange(var AChanges: TChanges; AKind: TChangeKind;
@@ -428,6 +433,12 @@ procedure TSaveChangesThread.SyncProgress;
 begin
   if Assigned(FOnProgress) then
     FOnProgress(FPendingPct, FPendingMsg);
+end;
+
+{ TSaveChangesThread.DetachProgress }
+procedure TSaveChangesThread.DetachProgress;
+begin
+  FOnProgress := nil;
 end;
 
 { TSaveChangesThread.Execute

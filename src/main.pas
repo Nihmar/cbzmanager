@@ -355,6 +355,15 @@ type
     FPageFile: string;  // currently open CBZ file path
     FAddFrontSeq: integer;  // unique suffix for inserted frontispiece pages
     FJobMonitor: TfrmJobMonitor;  // non-modal job progress window
+    { Thread currently writing staged page edits, or nil.  It holds raw
+      pointers to FPages[].Data, so the preview must not be cleared and the
+      form must not be closed while it runs (FormCloseQuery / HidePreview /
+      OpenPreview).  Cleared in SaveChangesThreadTerminated (main thread). }
+    FSaveThread: TSaveChangesThread;
+    { Running service threads (validate / convert / merge / …).  Non-owning:
+      the threads self-free (FreeOnTerminate); this list only knows how many
+      operations are in flight so new ones and form close are refused. }
+    FActiveServices: TList;
     { Reusable non-modal floating window showing the selected page enlarged
       (opened with Space).  Owned by the form; hidden, not destroyed, on
       close so a later Space is instant. }
@@ -407,8 +416,21 @@ type
     procedure BeginServiceThread(AThread: TThread; const AStatus: string;
       ATerminate: TNotifyEvent; AToolButton: TToolButton; AMenuItem: TMenuItem);
     { Re-enables the triggering controls and hides the progress indicator.
-      Called at the top of every service OnTerminate handler. }
-    procedure FinishServiceThread(AToolButton: TToolButton; AMenuItem: TMenuItem);
+      Called at the top of every service OnTerminate handler; unregisters
+      AThread from FActiveServices.  AThread may be nil in tests. }
+    procedure FinishServiceThread(AThread: TThread; AToolButton: TToolButton;
+      AMenuItem: TMenuItem);
+    { True while the staged-edit save thread is running. }
+    function SaveInProgress: boolean;
+    { True while a save or a service operation is running: the form refuses to
+      close, and new operations are refused, so no thread can outlive the
+      objects it touches. }
+    function Busy: boolean;
+    { Refuses to close the form while Busy — a close during a save would free
+      FPages[].Data under the save thread, and a close during a service would
+      fire OnTerminate/progress callbacks into a destroyed form.  Assigned to
+      OnCloseQuery in FormCreate. }
+    procedure FormCloseQuery(Sender: TObject; var CanClose: boolean);
     { Guard prologue shared by the service launchers: requires an open folder
       and at least one CBZ file.  Sets a status message and returns False when
       the operation cannot proceed. }
@@ -563,6 +585,9 @@ begin
   FPendingFocus := -1;
   FKeyShiftDown := False;
   FKeyCtrlDown := False;
+  FActiveServices := TList.Create;
+  { Refuse to close while a save/service thread is running: see Busy. }
+  OnCloseQuery := @FormCloseQuery;
   Application.AddOnIdleHandler(@AppIdle);
   SetupILFilesFirstPages;
   SetupILPages;
@@ -581,14 +606,42 @@ end;
 {
   FormDestroy
   -----------
-  Gracefully shuts down any running background threads before the form is
-  destroyed.  Terminate + WaitFor ensures the thread exits its Execute loop
-  cleanly.  The two TLazIntfImageList caches are freed explicitly (they are
-  not owned by the form).
+  Shuts down the background threads before the form is destroyed: their
+  OnTerminate/progress callbacks are detached (so nothing can call into the
+  destroyed form) and they are asked to terminate.  The threads are
+  FreeOnTerminate and are NOT waited on — their completion notification is
+  marshalled through the main thread's message queue, so a blocking WaitFor
+  here would deadlock; FormCloseQuery refuses a normal close while Busy, so
+  this path is only reached when the operation was already allowed to end.
+  The two TLazIntfImageList caches are freed explicitly (they are not owned
+  by the form).
 }
 procedure TfrmMain.FormDestroy(Sender: TObject);
 begin
+  OnCloseQuery := nil;
   Application.RemoveOnIdleHandler(@AppIdle);
+  { Detach callbacks before anything is freed: a running save thread must not
+    call UpdateProgress on a destroyed form (FormCloseQuery already refuses a
+    normal close while Busy, this is the belt-and-braces path).  FreeOnTerminate
+    threads are not waited on here. }
+  if FSaveThread <> nil then
+  begin
+    FSaveThread.OnTerminate := nil;
+    FSaveThread.DetachProgress;
+    FSaveThread.Terminate;
+    FSaveThread := nil;
+  end;
+  if FActiveServices <> nil then
+  begin
+    while FActiveServices.Count > 0 do
+    begin
+      TThread(FActiveServices.Last).OnTerminate := nil;
+      TThread(FActiveServices.Last).Terminate;
+      FActiveServices.Delete(FActiveServices.Count - 1);
+    end;
+    FActiveServices.Free;
+    FActiveServices := nil;
+  end;
   FreeLoadThread;
   FreePagesThread;
   FFirstPages.Free;
@@ -772,6 +825,20 @@ end;
 procedure TfrmMain.BeginServiceThread(AThread: TThread; const AStatus: string;
   ATerminate: TNotifyEvent; AToolButton: TToolButton; AMenuItem: TMenuItem);
 begin
+  { One long operation at a time.  Two services can race on the same files,
+    and a service started while staged edits are being written would read a
+    half-saved archive; releasing the caller's (still suspended) thread here
+    keeps every launcher unchanged. }
+  if Busy then
+  begin
+    AThread.Free;
+    if SaveInProgress then
+      SetStatus('Save in progress — wait for it to finish first')
+    else
+      SetStatus('Another operation is already running');
+    Exit;
+  end;
+  FActiveServices.Add(AThread);
   SetStatus(AStatus);
   StatusProgress.Visible := True;
   if AToolButton <> nil then AToolButton.Enabled := False;
@@ -784,13 +851,39 @@ begin
   FJobMonitor.StartJob(AStatus);
 end;
 
-procedure TfrmMain.FinishServiceThread(AToolButton: TToolButton; AMenuItem: TMenuItem);
+procedure TfrmMain.FinishServiceThread(AThread: TThread; AToolButton: TToolButton;
+  AMenuItem: TMenuItem);
 begin
+  if (FActiveServices <> nil) and (AThread <> nil) then
+    FActiveServices.Remove(AThread);
   StatusProgress.Visible := False;
   if AToolButton <> nil then AToolButton.Enabled := True;
   if AMenuItem <> nil then AMenuItem.Enabled := True;
   if FJobMonitor <> nil then
     FJobMonitor.FinishJob;
+end;
+
+function TfrmMain.SaveInProgress: boolean;
+begin
+  Result := FSaveThread <> nil;
+end;
+
+function TfrmMain.Busy: boolean;
+begin
+  Result := SaveInProgress or ((FActiveServices <> nil) and
+    (FActiveServices.Count > 0));
+end;
+
+procedure TfrmMain.FormCloseQuery(Sender: TObject; var CanClose: boolean);
+begin
+  if Busy then
+  begin
+    CanClose := False;
+    if SaveInProgress then
+      SetStatus('Save in progress — wait for it to finish before closing')
+    else
+      SetStatus('Operation in progress — wait for it to finish before closing');
+  end;
 end;
 
 function TfrmMain.RequireFiles(AAll: boolean; out AFiles: TStringArray): boolean;
@@ -1169,6 +1262,11 @@ procedure TfrmMain.ClearPreview;
 var
   i: integer;
 begin
+  { Backstop: the save thread holds raw pointers to FPages[].Data, freeing
+    them here would be a use-after-free.  Every UI path into ClearPreview is
+    already guarded (HidePreview/OpenPreview/FormCloseQuery); this protects
+    any future caller. }
+  if SaveInProgress then Exit;
   FreePagesThread;
   { New session: any thumbnail batch still queued by an earlier thread
     (preview or directory scan) is stale from here on. }
@@ -1204,6 +1302,11 @@ end;
 }
 procedure TfrmMain.HidePreview;
 begin
+  if SaveInProgress then
+  begin
+    SetStatus('Save in progress — the preview stays open until it finishes');
+    Exit;
+  end;
   ClearPreview;
   PanelSingleFile.Visible := False;
   SplitterPreview.Visible := False;
@@ -1481,7 +1584,7 @@ var
   i: integer;
 begin
   W := TMultiEditWorker(Sender);
-  FinishServiceThread(nil, MnuBatchEdit);
+  FinishServiceThread(W, nil, MnuBatchEdit);
   if ServiceThreadFailed(W, 'Batch edit') then Exit;
 
   Staged := StageMultiEditResults(FPages, FChanges, W.Results, HadSplit,
@@ -1541,6 +1644,11 @@ var
   Sz: integer;
 begin
   if AItem = nil then Exit;
+  if SaveInProgress then
+  begin
+    SetStatus('Save in progress — wait for it to finish');
+    Exit;
+  end;
   ClearPreview;
 
   Sz := Max(THUMB_RENDER_FLOOR, ZoomScroll.Position);
@@ -2095,7 +2203,7 @@ var
   Dlg: TdlgValidate;
 begin
   Thread := Sender as TValidateThread;
-  FinishServiceThread(TbValidate, MnuValidate);
+  FinishServiceThread(Thread, TbValidate, MnuValidate);
   if ServiceThreadFailed(Thread, 'Validation') then Exit;
   Dlg := TdlgValidate.Create(Self);
   Dlg.ShowResults(Thread.Result);
@@ -2158,7 +2266,7 @@ var
 begin
   Thread := Sender as TConvertThread;
   LoadDirectory(FDir);
-  FinishServiceThread(TbConvertWebP, MnuConvertWebP);
+  FinishServiceThread(Thread, TbConvertWebP, MnuConvertWebP);
 
   if ServiceThreadFailed(Thread, 'WebP conversion') then Exit;
   SetStatus(Format('WebP conversion complete: %d files', [Length(Thread.Result)]));
@@ -2232,7 +2340,7 @@ var
 begin
   Thread := Sender as TCbrConvertThread;
   LoadDirectory(FDir);
-  FinishServiceThread(nil, MnuConvertCbr);
+  FinishServiceThread(Thread, nil, MnuConvertCbr);
 
   if ServiceThreadFailed(Thread, 'CBR conversion') then Exit;
   SetStatus(Format('CBR conversion complete: %d files', [Length(Thread.Result)]));
@@ -2322,7 +2430,7 @@ begin
   else
     SetStatus(Format('Merge failed: %s', [Thread.Result.ErrorMsg]));
   LoadDirectory(FDir);
-  FinishServiceThread(TbMerge, MnuMerge);
+  FinishServiceThread(Thread, TbMerge, MnuMerge);
 end;
 
 
@@ -2495,7 +2603,7 @@ var
   Thread: TDeletePagesThread;
 begin
   Thread := Sender as TDeletePagesThread;
-  FinishServiceThread(nil, MnuDeletePages);
+  FinishServiceThread(Thread, nil, MnuDeletePages);
   MnuDeletePages.Enabled := True;
   { Surface a hard crash (unhandled exception escaped from Execute) in the same
     way as a captured per-file error. }
@@ -2942,6 +3050,9 @@ var
   PageExt: string;
 begin
   Thread := Sender as TSaveChangesThread;
+  { The thread object is still alive here (OnTerminate runs before it frees
+    itself); clearing the field re-opens the preview/close paths. }
+  FSaveThread := nil;
   if Thread.Result.Success then
   begin
     { Free the Data streams of inserted pages — no longer needed after save }
@@ -3011,6 +3122,9 @@ var
 begin
   if Length(FChanges) = 0 then Exit;
   if FPageFile = '' then Exit;
+  { Guard the Ctrl+S accelerator: the button is disabled during a save but
+    the key handler calls this method directly. }
+  if FSaveThread <> nil then Exit;
 
   if CbBackup.Checked then
     BackupMsg := ' The original will be backed up as _OLD.cbz.'
@@ -3043,6 +3157,7 @@ begin
   Thread := TSaveChangesThread.Create(FPageFile, Snapshot, FRenumber,
     CbBackup.Checked, @UpdateProgress);
   Thread.OnTerminate := @SaveChangesThreadTerminated;
+  FSaveThread := Thread;
   Thread.Start;
 end;
 

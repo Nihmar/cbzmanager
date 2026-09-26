@@ -43,6 +43,8 @@ type
     procedure TestFilterPages_DeleteNone;
     procedure TestFilterPages_DeleteAll;
     procedure TestConvertWebP_ParallelDeterministic;
+    procedure TestConvertWebP_DropsNonImage_ComicInfoNoPageGap;
+    procedure TestConvertWebP_SkipExistingWebpKeepsBytes;
     procedure TestValidateCBZImages_ParallelDeterministic;
   end;
 
@@ -787,6 +789,99 @@ begin
   AssertEquals('modified flag matches', M1, M2);
   AssertTrue('identical archives by content',
     ZipFilesEqual(FTempDir + 'seq.cbz', FTempDir + 'par.cbz.out', Msg));
+end;
+
+{ Non-image entries are dropped (house policy), and a kept ComicInfo.xml
+  does not consume a page number: the first image stays page_0001 instead
+  of being shifted to page_0002. }
+procedure TZipEditorTest.TestConvertWebP_DropsNonImage_ComicInfoNoPageGap;
+var
+  P1, P2, Txt, Xml: TMemoryStream;
+  E: TZipEntries;
+  N, C: integer;
+  M: boolean;
+begin
+  if not WebPAvailable then Exit;   { degraded env: nothing to convert }
+
+  P1 := CreateMinimalPNGStream;
+  P2 := CreateMinimalPNGStream;
+  Txt := TMemoryStream.Create;
+  Txt.WriteAnsiString('credits');
+  Txt.Position := 0;
+  Xml := TMemoryStream.Create;
+  Xml.WriteAnsiString('<ComicInfo/>');
+  Xml.Position := 0;
+  try
+    CreateCBZ(FTempDir + 'convmeta.cbz', [P1, Txt, Xml, P2],
+      ['p01.png', 'credits.txt', 'ComicInfo.xml', 'p02.png']);
+  finally
+    P1.Free;
+    P2.Free;
+    Txt.Free;
+    Xml.Free;
+  end;
+
+  { Keep ComicInfo, force conversion so both pages are written as webp. }
+  E := ConvertCBZToWebP(FTempDir + 'convmeta.cbz', 75, False, True, False,
+    True, N, C, M, nil, 1);
+  try
+    AssertEquals('non-image entry dropped', 3, N);
+    AssertEquals('first page starts at 0001', 'page_0001.webp', E[0].Name);
+    AssertEquals('ComicInfo kept in place', 'ComicInfo.xml', E[1].Name);
+    AssertEquals('ComicInfo consumes no page number', 'page_0002.webp',
+      E[2].Name);
+    AssertEquals('both images converted', 2, C);
+    AssertTrue('modified flag set', M);
+  finally
+    FreeZipEntries(E);
+  end;
+end;
+
+{ An existing .webp page is left byte-identical when SkipExistingWebP is on
+  (only renumbered), instead of being re-encoded at the current quality. }
+procedure TZipEditorTest.TestConvertWebP_SkipExistingWebpKeepsBytes;
+var
+  Png, Webp: TMemoryStream;
+  Img: TLazIntfImage;
+  E: TZipEntries;
+  N, C: integer;
+  M: boolean;
+begin
+  if not WebPAvailable then Exit;   { degraded env: nothing to convert }
+
+  Png := CreateMinimalPNGStream;
+  try
+    Img := DecodeImage(Png, '.png');
+    if Img = nil then Exit;
+    try
+      Webp := IntfImageToWebP(Img, 40);
+    finally
+      Img.Free;
+    end;
+  finally
+    Png.Free;
+  end;
+  if Webp = nil then Exit;
+  try
+    CreateCBZ(FTempDir + 'skipwebp.cbz', [Webp], ['original.webp']);
+
+    E := ConvertCBZToWebP(FTempDir + 'skipwebp.cbz', 75, False, True, True,
+      True, N, C, M, nil, 1);
+    try
+      AssertEquals('single page', 1, N);
+      AssertEquals('renumbered', 'page_0001.webp', E[0].Name);
+      AssertEquals('not converted', 0, C);
+      AssertEquals('size unchanged', Webp.Size, E[0].Data.Size);
+      Webp.Position := 0;
+      E[0].Data.Position := 0;
+      AssertTrue('bytes unchanged',
+        CompareMem(Webp.Memory, E[0].Data.Memory, Webp.Size));
+    finally
+      FreeZipEntries(E);
+    end;
+  finally
+    Webp.Free;
+  end;
 end;
 
 { Parallel validation must produce identical per-image checks to the

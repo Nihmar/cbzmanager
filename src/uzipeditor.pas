@@ -168,7 +168,12 @@ function MergeIntoVolume(const SourceFiles: TStringArray; const ADir: string;
   Returns True if the file was modified.
   The parameters control the quality and the conversion options.
   SkipExistingWebP: if True, pages already in .webp format are left
-  intact; if False they are decoded and re-encoded at the chosen quality.
+  intact (only renumbered); if False they are decoded and re-encoded at
+  the chosen quality.
+  Non-image entries are dropped (house policy, same as merge and the page
+  filter) and never renamed to page_NNNN.ext; only ComicInfo.xml is
+  preserved, in place and without consuming a page number, when
+  RemoveComicInfo is False.
   AThreads controls decode/encode parallelism: 0 = automatic (CPU count,
   capped at 8), 1 = sequential.  Every worker holds one full-resolution
   image in RAM, so the pool multiplies the peak memory of a single page.
@@ -1041,25 +1046,28 @@ function ConvertCBZToWebP(const FileName: string; Quality: integer;
     Result := FormatPageName(ANum, PAGE_PAD_DEFAULT, AExt);
   end;
 
-  { Keep original entry, applying renumber when requested }
-  procedure KeepOriginal(var Dest: TZipEntries; var Count: integer;
-  const Source: TZipEntryData; const Ext: string);
+  { Keep original entry, applying renumber when requested.  APageNum is the
+    1-based page number to use when RenumberPages is on; OutCount is the
+    independent output-slot counter (kept metadata does not consume a page
+    number). }
+  procedure KeepOriginal(var Dest: TZipEntries; var OutCount: integer;
+  APageNum: integer; const Source: TZipEntryData; const Ext: string);
   var
     NewName: string;
   begin
     if RenumberPages then
     begin
-      NewName := PageName(Count + 1, Ext);
+      NewName := PageName(APageNum, Ext);
       if NewName <> Source.Name then AModified := True;
-      KeepEntry(Dest, Count, NewName, Source);
+      KeepEntry(Dest, OutCount, NewName, Source);
     end
     else
-      KeepEntry(Dest, Count, Source.Name, Source);
+      KeepEntry(Dest, OutCount, Source.Name, Source);
   end;
 
 var
   AllEntries: TZipEntries;
-  i, PageNum, WorkCount, ThreadCount: integer;
+  i, PageNum, OutCount, WorkCount, ThreadCount: integer;
   Ext, BaseName: string;
   WebPData: TMemoryStream;
   Pool: TConvertPoolState;
@@ -1162,11 +1170,14 @@ begin
     { Phase 2 — sequential compaction and naming.  Deterministic: slots are
       read in archive order, so the output is byte-identical regardless of
       the thread count.  Progress for the cheap branches (ComicInfo, skips,
-      non-convertible formats) is reported here; convertible entries were
-      already reported by phase 1, so every entry ticks exactly once. }
+      dropped non-image entries) is reported here; convertible entries were
+      already reported by phase 1, so every entry ticks exactly once.
+      PageNum counts only image pages (a kept ComicInfo.xml does not consume
+      a page number), OutCount counts the result slots. }
     try
       SetLength(Result, Length(AllEntries));
       PageNum := 0;
+      OutCount := 0;
 
       for i := 0 to High(AllEntries) do
       begin
@@ -1179,7 +1190,7 @@ begin
           if RemoveComicInfo then
             AModified := True
           else
-            KeepEntry(Result, PageNum, COMICINFO_XML, AllEntries[i]);
+            KeepEntry(Result, OutCount, COMICINFO_XML, AllEntries[i]);
           if Assigned(AOnProgress) then
             AOnProgress((i * 100) div Length(AllEntries),
               Format('%s — entry %d/%d (%s)',
@@ -1195,7 +1206,8 @@ begin
         begin
           if SkipExistingWebP then
           begin
-            KeepOriginal(Result, PageNum, AllEntries[i], Ext);
+            Inc(PageNum);
+            KeepOriginal(Result, OutCount, PageNum, AllEntries[i], Ext);
             if Assigned(AOnProgress) then
               AOnProgress((i * 100) div Length(AllEntries),
                 Format('%s — entry %d/%d (%s)',
@@ -1205,10 +1217,11 @@ begin
             Continue;
           end;
         end
-        { --- Other non-convertible formats: always keep as-is --- }
+        { --- Non-image entries: dropped (house policy, same as merge and
+              the page filter), never renamed to page_NNNN.txt. --- }
         else if not IsConvertibleExt(Ext) then
         begin
-          KeepOriginal(Result, PageNum, AllEntries[i], Ext);
+          AModified := True;
           if Assigned(AOnProgress) then
             AOnProgress((i * 100) div Length(AllEntries),
               Format('%s — entry %d/%d (%s)',
@@ -1221,28 +1234,29 @@ begin
         { --- Use the phase-1 result --- }
         WebPData := Slots[i].Data;
         Slots[i].Data := nil;
+        Inc(PageNum);
 
         if (WebPData = nil) or (ReplaceOnlyIfSmaller and
           (WebPData.Size >= AllEntries[i].Data.Size)) then
         begin
           WebPData.Free;
-          KeepOriginal(Result, PageNum, AllEntries[i], Ext);
+          KeepOriginal(Result, OutCount, PageNum, AllEntries[i], Ext);
         end
         else
         begin
           AModified := True;
           Inc(AConvertedCount);
           if RenumberPages then
-            AdoptEntry(Result, PageNum, PageName(PageNum + 1, EXT_WEBP), WebPData)
+            AdoptEntry(Result, OutCount, PageName(PageNum, EXT_WEBP), WebPData)
           else
-            AdoptEntry(Result, PageNum, AllEntries[i].Name, WebPData);
+            AdoptEntry(Result, OutCount, AllEntries[i].Name, WebPData);
         end;
         FreeAndNil(AllEntries[i].Data);
       end;
 
       { Trim result to actual used entries }
-      SetLength(Result, PageNum);
-      NewEntryCount := PageNum;
+      SetLength(Result, OutCount);
+      NewEntryCount := OutCount;
     except
       { Free the streams still waiting in their slots: consumed ones were
         either adopted into Result (freed below) or already freed. }

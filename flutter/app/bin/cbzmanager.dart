@@ -17,7 +17,7 @@ import 'package:cbzmanager/src/engine/dart_engine.dart';
 import 'package:cbzmanager/src/vfs/local_vfs.dart';
 import 'package:cbzmanager/src/vfs/vfs.dart';
 
-const String _version = '1.0.0';
+const String _version = '0.1.1';
 const int _exitOk = 0;
 const int _exitError = 1;
 const int _exitUsage = 2;

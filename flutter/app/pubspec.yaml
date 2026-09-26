@@ -2,7 +2,7 @@ name: cbzmanager
 description: "Comic archive manager (CBZ/CBR): browse, validate, convert, merge and edit pages."
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 0.1.1+1
 
 environment:
   sdk: ^3.13.2

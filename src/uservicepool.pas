@@ -45,6 +45,7 @@ type
   TIndexPool = class
   private
     FLock: TRTLCriticalSection;
+    FLockPtr: PRTLCriticalSection;
     FNext: integer;
     FStop: boolean;
     FTotal: integer;
@@ -74,6 +75,8 @@ type
       at once. }
     procedure LockPool;
     procedure UnlockPool;
+    { Address of the critical section, for TLockedProgress. }
+    property Lock: PRTLCriticalSection read FLockPtr;
   end;
 
 implementation
@@ -107,6 +110,7 @@ begin
   FNext := 0;
   FStop := False;
   InitCriticalSection(FLock);
+  FLockPtr := @FLock;
 end;
 
 destructor TIndexPool.Destroy;

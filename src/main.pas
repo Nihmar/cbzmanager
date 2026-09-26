@@ -106,7 +106,8 @@ uses
   ubatchedit,
   uimageedit,
   uservicebase,
-  uselection;
+  uselection,
+  uselectioncontroller;
 
 type
   {
@@ -276,14 +277,6 @@ type
       published: the .lfm streams it by name. }
     procedure LVFilesSelectItem(Sender: TObject; Item: TListItem;
       Selected: boolean);
-    { Re-applies the pending single-item selection on the next message-loop
-      tick, after the Qt6 widgetset's native press/release selection reconcile
-      has run.  See LVFilesMouseDown / LVFilesMouseUp. }
-    procedure ReassertPendingSelection(Data: PtrInt);
-    { Resolves the list item under a client-coordinate point, falling back to a
-      DisplayRect scan when the widgetset's GetItemAt returns nil (vsIcon on
-      Qt6).  Returns nil for empty space. }
-    function ItemAtPoint(ALV: TListView; X, Y: integer): TListItem;
     procedure LVPagesDragDrop(Sender, Source: TObject; X, Y: integer);
     procedure LVPagesDragOver(Sender, Source: TObject; X, Y: integer;
       State: TDragState; var Accept: boolean);
@@ -368,29 +361,10 @@ type
       (opened with Space).  Owned by the form; hidden, not destroyed, on
       close so a later Space is instant. }
     FPageView: TdlgPageView;
-    { Shift+click anchors for Explorer-style multi-select (item index, -1 = none). }
-    FAnchorFiles: integer;
-    FAnchorPages: integer;
-    { Authoritative current selection for each list (item indices).  Maintained
-      by the click handlers so Ctrl+click toggling is deterministic regardless of
-      the order in which the native widgetset applies its own selection changes. }
-    FSelFiles: TIntegerDynArray;
-    FSelPages: TIntegerDynArray;
-    { The exact selection (item indices) and focus item to (re)apply after the
-      native widgetset finishes its own click/release selection reconcile.  The
-      list is stored by index (not a name) because no rebuild happens between the
-      two events, so the indices stay valid.  See LVFilesMouseDown / LVFilesMouseUp
-      / ReassertPendingSelection. }
-    FPendingSel: TIntegerDynArray;
-    FPendingFocus: integer;
-    { Message-loop ticks ReassertPendingSelection may still spend watching the
-      selection, and how many consecutive ticks it has already found it
-      untouched.  A widgetset runs its own click reconcile on whichever tick it
-      pleases, so rather than guess a fixed number of re-applies we watch until
-      the selection has stayed ours, giving up after the cap. }
-    FReassertTicks: integer;
-    FReassertStable: integer;
-    FPendingList: TListView;
+    { Explorer-style selection gestures for each list (Qt6-safe, see
+      uselectioncontroller).  Created in FormCreate, freed in FormDestroy. }
+    FSelectionFiles: TListSelectionController;
+    FSelectionPages: TListSelectionController;
     { Live modifier-key state tracked via OnKeyDown / OnKeyUp so that
       LVFilesMouseDown can detect Shift+Ctrl+click even when the Qt6
       widgetset drops ssShift from the mouse event's Shift parameter
@@ -467,19 +441,9 @@ type
       is read-only and the conversion path is the only way to edit it. }
     function IsReadOnlyPreview: boolean;
     procedure RenderPages;
-    { Rebuild the authoritative FSelFiles / FSelPages and the anchor from
-      the list's live native state (used when the selection changed without
-      going through LVFilesMouseDown: keyboard navigation, Ctrl+A). }
-    procedure SyncAuthoritativeSelection(ALV: TListView);
-    { Store the shift+click anchor for the given list (-1 = none). }
-    procedure SetAnchor(ALV: TListView; AIndex: integer);
-    { Forget the pending re-assert. }
-    procedure ClearPendingSel;
-    { Record the selection to re-apply after the native reconcile and update the
-      authoritative FSelFiles / FSelPages so subsequent Ctrl+click toggles base
-      off our state, not the widgetset's. }
-    procedure SetPendingSel(ALV: TListView; const A: array of integer;
-      AFocus: integer);
+    { Selection controller for a list (LVPages gets the page one, everything
+      else the file one). }
+    function SelectionFor(ALV: TListView): TListSelectionController;
     procedure SetupLVFiles;
     procedure SetupILFilesFirstPages;
     procedure SetupILPages;
@@ -546,17 +510,6 @@ const
   THUMB_RENDER_FLOOR = 16;    // absolute lower bound when rendering thumbs
   ZOOM_STEP = 32;             // width change per zoom-in / zoom-out step
 
-  { Selection re-assert (see ReassertPendingSelection).  In icon view both
-    widgetsets read a shift+click as a rectangular block spanning the visual
-    rows between their own anchor and the click, not as the contiguous range
-    we want, and each runs that reconcile on whichever message-loop tick it
-    likes.  Losing that race is not cosmetic: the file and page operations
-    act on the list view's real selection, so a stale block would be what
-    Delete deletes.  Watch the selection until it has stayed ours for STABLE
-    ticks in a row, and give up after MAX. }
-  REASSERT_STABLE_TICKS = 2;
-  REASSERT_MAX_TICKS = 30;
-
 resourcestring
   { Status-bar messages used from more than one handler. }
   RSOpenFolderFirst = 'Open a folder first';
@@ -580,9 +533,8 @@ begin
   Caption := 'CBZ Manager';
   FFirstPages := TLazIntfImageList.Create(True);
   FPagePreviews := TLazIntfImageList.Create(True);
-  FAnchorFiles := -1;
-  FAnchorPages := -1;
-  FPendingFocus := -1;
+  FSelectionFiles := TListSelectionController.Create(LVFiles);
+  FSelectionPages := TListSelectionController.Create(LVPages);
   FKeyShiftDown := False;
   FKeyCtrlDown := False;
   FActiveServices := TList.Create;
@@ -644,6 +596,8 @@ begin
   end;
   FreeLoadThread;
   FreePagesThread;
+  FSelectionFiles.Free;
+  FSelectionPages.Free;
   FFirstPages.Free;
   FPagePreviews.Free;
 end;
@@ -727,12 +681,12 @@ begin
     if PanelSingleFile.Visible then
     begin
       LVPages.SelectAll;
-      SyncAuthoritativeSelection(LVPages);
+      FSelectionPages.SyncFromNative;
     end
     else
     begin
       LVFiles.SelectAll;
-      SyncAuthoritativeSelection(LVFiles);
+      FSelectionFiles.SyncFromNative;
     end;
     Key := 0;
   end
@@ -966,8 +920,7 @@ begin
   LVPages.BeginUpdate;
   try
     LVPages.Items.Clear;
-    FAnchorPages := -1;
-    FSelPages := nil;
+    FSelectionPages.Reset;
     LVPages.LargeImages := nil;
     ILPages.Clear;
     Sz := Max(THUMB_RENDER_FLOOR, ZoomScroll.Position);
@@ -1203,8 +1156,7 @@ begin
     scan is stale from here on. }
   Inc(FPreviewEpoch);
   LVFiles.Clear;
-  FAnchorFiles := -1;
-  FSelFiles := nil;
+  FSelectionFiles.Reset;
   ILFilesFirstPages.Clear;
   FFirstPages.Clear;
 end;
@@ -1281,12 +1233,10 @@ begin
   FPageFile := '';
   PanelStageBar.Visible := False;
   LVPages.Clear;
-  { The rows are gone: drop the page selection state (FSelPages was missed
-    here historically, leaking stale indices into the next preview) and any
-    reassert still in flight for the old rows. }
-  FAnchorPages := -1;
-  FSelPages := nil;
-  ClearPendingSel;
+  { The rows are gone: drop the page selection state and any reassert still
+    in flight for the old rows, so no stale index leaks into the next
+    preview. }
+  FSelectionPages.ResetAll;
   ILPages.Clear;
   FPagePreviews.Clear;
   LblPreviewFile.Caption := ' ';
@@ -1310,7 +1260,8 @@ begin
   ClearPreview;
   PanelSingleFile.Visible := False;
   SplitterPreview.Visible := False;
-  ClearPendingSel;
+  FSelectionFiles.CancelPending;
+  FSelectionPages.CancelPending;
   { The floating page view shows a page of the closed preview; hide it too. }
   if FPageView <> nil then
     FPageView.Hide;
@@ -1703,354 +1654,48 @@ begin
       click position maps to a different item or to empty space, so the
       completing mouse-up clears or moves the selection).  Remember the item
       and re-assert it on the next message-loop tick, after the native pass
-      has settled.  See ReassertPendingSelection. }
-    SetPendingSel(LVFiles, [It.Index], It.Index);
+      has settled (see uselectioncontroller). }
+    FSelectionFiles.SelectOnly(It.Index)
   end
   else
-    ClearPendingSel;
+    FSelectionFiles.CancelPending;
   OpenPreview(It);
 end;
 
 {
-  SetAnchor / selection helpers
-  -----------------------------
-  SetAnchor stores the shift+click anchor (item index, -1 = none) for the given
-  list.  RangeSel / HasSel / ToggleSel build the desired selection for shift+click
-  and Ctrl+click.  ApplySelection makes exactly the given indices selected (clearing
-  everything else) and focuses the item at AFocus when the selection is a single
-  item.  SetPendingSel records the selection to (re)apply after the native widgetset
-  reconcile and updates the authoritative FSelFiles / FSelPages so subsequent
-  Ctrl+click toggles are deterministic regardless of native ordering.
-
-  We compute the full desired selection ourselves instead of trusting the Qt6
-  widgetset, whose icon-view shift-range (QListWidget_row) and modifier handling
-  fight the index-based model and produce "random" extra selections.  The single
-  deferred apply wins over the native pass because it runs on the next message-loop
-  tick (see LVFilesMouseUp / ReassertPendingSelection).
-
-  RangeSel / HasSel / ToggleSel / UnionSel / SelectionMatches / ApplySelection
-  are imported from the shared uselection unit.
+  Selection controllers
+  ---------------------
+  The Qt6-safe selection gestures (authoritative selection, shift/ctrl
+  handling, deferred re-assert) live in uselectioncontroller; the form only
+  routes the events to the controller that owns the sender list.
 }
-procedure TfrmMain.SetAnchor(ALV: TListView; AIndex: integer);
+function TfrmMain.SelectionFor(ALV: TListView): TListSelectionController;
 begin
-  if ALV = LVFiles then
-    FAnchorFiles := AIndex
+  if ALV = LVPages then
+    Result := FSelectionPages
   else
-    FAnchorPages := AIndex;
+    Result := FSelectionFiles;
 end;
 
-{
-  SyncAuthoritativeSelection
-  --------------------------
-  Rebuilds the authoritative selection (FSelFiles / FSelPages) and the
-  shift anchor from the list's live native state.  Call after any selection
-  change that bypasses LVFilesMouseDown — keyboard navigation (arrows,
-  Shift+arrows, Ctrl+Space, Home/End) and the Ctrl+A handler — so the next
-  Ctrl/shift+click computes from the truth instead of a stale snapshot.
-}
-procedure TfrmMain.SyncAuthoritativeSelection(ALV: TListView);
-var
-  i, n: integer;
-begin
-  n := 0;
-  if ALV = LVFiles then
-  begin
-    SetLength(FSelFiles, ALV.Items.Count);
-    for i := 0 to ALV.Items.Count - 1 do
-      if ALV.Items[i].Selected then
-      begin
-        FSelFiles[n] := i;
-        Inc(n);
-      end;
-    SetLength(FSelFiles, n);
-    if ALV.Selected <> nil then
-      FAnchorFiles := ALV.Selected.Index
-    else
-      FAnchorFiles := -1;
-  end
-  else
-  begin
-    SetLength(FSelPages, ALV.Items.Count);
-    for i := 0 to ALV.Items.Count - 1 do
-      if ALV.Items[i].Selected then
-      begin
-        FSelPages[n] := i;
-        Inc(n);
-      end;
-    SetLength(FSelPages, n);
-    if ALV.Selected <> nil then
-      FAnchorPages := ALV.Selected.Index
-    else
-      FAnchorPages := -1;
-  end;
-end;
-
-{
-  LVFilesSelectItem
-  -----------------
-  Native selection-change hook (wired to both LVFiles and LVPages).  Picks
-  up selection changes the mouse-gesture machinery never sees — keyboard
-  navigation above all — and folds them into the authoritative state.
-  While a reassert is in flight (FPendingList <> nil) the events belong to
-  the native click reconcile or to our own ApplySelection and are ignored.
-  This handler never modifies the selection itself, so it cannot recurse.
-}
 procedure TfrmMain.LVFilesSelectItem(Sender: TObject; Item: TListItem;
   Selected: boolean);
 begin
-  if FPendingList <> nil then Exit;
-  SyncAuthoritativeSelection(TListView(Sender));
+  SelectionFor(TListView(Sender)).SelectItem(Item, Selected);
 end;
 
-procedure TfrmMain.ClearPendingSel;
-begin
-  FPendingList := nil;
-  FPendingSel := nil;
-  FPendingFocus := -1;
-  FReassertStable := 0;
-  FReassertTicks := 0;
-end;
-
-procedure TfrmMain.SetPendingSel(ALV: TListView; const A: array of integer;
-  AFocus: integer);
-var
-  i: integer;
-begin
-  FPendingList := ALV;
-  SetLength(FPendingSel, Length(A));
-  for i := 0 to High(A) do FPendingSel[i] := A[i];
-  FPendingFocus := AFocus;
-  if ALV = LVFiles then
-  begin
-    SetLength(FSelFiles, Length(A));
-    for i := 0 to High(A) do FSelFiles[i] := A[i];
-  end
-  else
-  begin
-    SetLength(FSelPages, Length(A));
-    for i := 0 to High(A) do FSelPages[i] := A[i];
-  end;
-end;
-
-{
-  LVFilesMouseDown
-  ----------------
-  Implements Explorer/Dolphin selection semantics for both thumbnail lists
-  (shared handler wired to LVFiles and LVPages).  Instead of trusting the Qt6
-  widgetset's own modifier handling (which computes icon-view shift ranges from
-  visual rows and keeps its own anchor/current-item that drifts out of sync),
-  we compute the exact desired selection here and re-apply it after the native
-  click/release reconcile via ReassertPendingSelection (scheduled in
-  LVFilesMouseUp).  Behaviour:
-
-  - Left click            : replace selection with the clicked item.
-  - Ctrl+left click       : toggle the clicked item (based on our authoritative
-                            selection, so repeated ctrl toggles are deterministic).
-  - Shift+left click      : select the contiguous anchor..clicked range, replacing
-                            any previous selection (Explorer semantics); the anchor
-                            stays put so repeated shift+clicks extend from it.
-  - Left click on empty   : clear the selection.
-  - Right click           : select the clicked item only if it was not already
-                            selected (the popup menu then acts on it alone); a
-                            right-click on an existing multi-selection keeps it.
-}
 procedure TfrmMain.LVFilesMouseDown(Sender: TObject; Button: TMouseButton;
   Shift: TShiftState; X, Y: integer);
-var
-  ALV: TListView;
-  It: TListItem;
-  Anchor: integer;
-  Cur: TIntegerDynArray;
-  ShiftDown, CtrlDown: boolean;
 begin
-  ALV := TListView(Sender);
-  It := ItemAtPoint(ALV, X, Y);
-
-  { The modifier flags in the event's Shift parameter are not always reliable on
-    Qt6: a Ctrl+Shift+click is sometimes delivered with only ssCtrl set (ssShift
-    dropped), which would misroute it into the Ctrl-toggle branch.  Back the event
-    flags with the live keyboard state so Shift/Ctrl are detected regardless. }
-  ShiftDown := FKeyShiftDown or (ssShift in Shift) or (GetKeyState(VK_SHIFT) < 0);
-  CtrlDown := FKeyCtrlDown or (ssCtrl in Shift) or (GetKeyState(VK_CONTROL) < 0);
-
-  { Right-click on an unselected item makes that item the sole selection so
-    the context menu acts on it alone; right-clicking an already-selected
-    item keeps the existing multi-selection intact — and must NOT cancel a
-    pending reassert from a preceding left-click. }
-  if Button = mbRight then
-  begin
-    if (It <> nil) and not It.Selected then
-    begin
-      if not (ssDouble in Shift) then
-        ClearPendingSel;
-      SetPendingSel(ALV, [It.Index], It.Index);
-    end;
-    Exit;
-  end;
-
-  if Button <> mbLeft then Exit;
-
-  { Any new left-click gesture cancels a pending re-assert, except the second
-    press of a double-click (which carries ssDouble) so the first click's
-    pending selection survives into the completed double-click. }
-  if not (ssDouble in Shift) then
-    ClearPendingSel;
-
-  if It = nil then
-  begin
-    { Click on empty space: clear the selection and drop the anchor. }
-    SetPendingSel(ALV, [], -1);
-    SetAnchor(ALV, -1);
-    Exit;
-  end;
-
-  if ShiftDown then
-  begin
-    { Shift+click (with or without Ctrl) selects the contiguous range from the
-      anchor to the clicked item, replacing any previous selection — Explorer
-      semantics.  The anchor is left in place so repeated shift+clicks extend
-      from the same base. }
-    if ALV = LVFiles then
-      Anchor := FAnchorFiles
-    else
-      Anchor := FAnchorPages;
-    if Anchor < 0 then
-    begin
-      { No explicit anchor yet: extend from the currently focused item (Explorer
-        keeps the focus as the shift base), falling back to the clicked item. }
-      if ALV.Selected <> nil then Anchor := ALV.Selected.Index else Anchor := It.Index;
-    end;
-    if CtrlDown then
-    begin
-      { Ctrl+Shift+click: add the anchor..clicked range to the existing selection
-        (extend) instead of replacing it, matching Explorer. }
-      if ALV = LVFiles then
-        Cur := FSelFiles
-      else
-        Cur := FSelPages;
-      SetPendingSel(ALV, UnionSel(Cur, RangeSel(Anchor, It.Index)), It.Index);
-    end
-    else
-      SetPendingSel(ALV, RangeSel(Anchor, It.Index), It.Index);
-  end
-  else if CtrlDown then
-  begin
-    { Ctrl+click toggles the clicked item, based on the authoritative selection
-      we last applied (the native widgetset may have toggled it first, so we must
-      not read the native state here). }
-    if ALV = LVFiles then
-      Cur := FSelFiles
-    else
-      Cur := FSelPages;
-    SetPendingSel(ALV, ToggleSel(Cur, It.Index), It.Index);
-    SetAnchor(ALV, It.Index);
-  end
-  else
-  begin
-    { Plain click replaces the selection with the clicked item. }
-    SetPendingSel(ALV, [It.Index], It.Index);
-    SetAnchor(ALV, It.Index);
-  end;
+  { The live modifier flags are tracked by the form (Qt6 sometimes drops
+    ssShift from the event) and passed to the controller. }
+  SelectionFor(TListView(Sender)).MouseDown(Button, Shift, X, Y,
+    FKeyShiftDown, FKeyCtrlDown);
 end;
 
-{
-  ReassertPendingSelection
-  -------------------------
-  Re-applies the exact selection remembered by LVFilesMouseDown / LVFilesDblClick.
-  It is deferred (via Application.QueueAsyncCall) to the next message-loop tick so
-  it runs AFTER the Qt6 widgetset's native press/release selection reconcile, which
-  otherwise toggles or clears the items we forced in OnMouseDown.  Because we
-  recompute the whole desired set ourselves, native Ctrl/Shift behaviour is always
-  overridden with our authoritative result.
-
-  We apply by item index (not name): no list rebuild happens between the click and
-  this call, so the indices are still valid, and the click that opened the preview
-  only changes the view size, not the item set.
-
-  Called with Data = 0 (unused).
-}
-procedure TfrmMain.ReassertPendingSelection(Data: PtrInt);
-var
-  LV: TListView;
-begin
-  if (FPendingList = nil) or (FPendingList.Items.Count = 0) then
-  begin
-    ClearPendingSel;
-    Exit;
-  end;
-  LV := FPendingList;
-
-  { Only touch the list when it actually differs: re-applying an already
-    correct selection fires selection-change events for nothing. }
-  if SelectionMatches(LV, FPendingSel) then
-    Inc(FReassertStable)
-  else
-  begin
-    ApplySelection(LV, FPendingSel, FPendingFocus);
-    FReassertStable := 0;
-  end;
-
-  if FReassertTicks > 0 then
-    Dec(FReassertTicks);
-  { Done once the selection has survived untouched for a couple of ticks.
-    The cap is only a backstop against a widgetset that insists on undoing
-    us every single tick; without it this would spin forever. }
-  if (FReassertStable >= REASSERT_STABLE_TICKS) or (FReassertTicks <= 0) then
-    ClearPendingSel
-  else
-    Application.QueueAsyncCall(@ReassertPendingSelection, 0);
-end;
-
-{
-  ItemAtPoint
-  -----------
-  Resolves the list item under a client-coordinate point.  Tries the widgetset
-  GetItemAt first; if that returns nil (vsIcon on Qt6 can miss the label /
-  sub-item area) it scans the items' bounding rectangles.  Returns nil for
-  empty space.  Used by LVFilesMouseDown / LVFilesDblClick so a click always
-  resolves to its item and arms the pending re-assert reliably.
-}
-function TfrmMain.ItemAtPoint(ALV: TListView; X, Y: integer): TListItem;
-var
-  i: integer;
-  R: TRect;
-  Pt: TPoint;
-begin
-  Result := ALV.GetItemAt(X, Y);
-  if Result <> nil then Exit;
-  Pt := Point(X, Y);
-  for i := 0 to ALV.Items.Count - 1 do
-  begin
-    R := ALV.Items[i].DisplayRect(drBounds);
-    if PtInRect(R, Pt) then
-      Exit(ALV.Items[i]);
-  end;
-  Result := nil;
-end;
-
-{
-  LVFilesMouseUp
-  --------------
-  Schedules a deferred re-assert of the selection computed in LVFilesMouseDown
-  (any plain / Ctrl / Shift / empty-space click, plus the double-click path).
-
-  On the Qt6 widgetset the press/release is delivered to the LCL *and* to Qt's
-  native item-view handling, which re-applies its own selection once the LCL
-  handlers have returned.  A synchronous apply in OnMouseUp would still be undone
-  by that native release-time pass, so we defer to ReassertPendingSelection on
-  the next message-loop tick, which arrives after the native pass.
-}
 procedure TfrmMain.LVFilesMouseUp(Sender: TObject; Button: TMouseButton;
   Shift: TShiftState; X, Y: integer);
 begin
-  if FPendingList = nil then Exit;
-  { Watch the selection until it stays ours rather than re-applying a fixed
-    number of times: each widgetset picks its own tick to reconcile the click,
-    so a fixed count tuned against one of them loses the race on the other —
-    and it did, on both.  See ReassertPendingSelection. }
-  FReassertTicks := REASSERT_MAX_TICKS;
-  FReassertStable := 0;
-  Application.QueueAsyncCall(@ReassertPendingSelection, 0);
+  SelectionFor(TListView(Sender)).MouseUp;
 end;
 
 {
@@ -3397,9 +3042,7 @@ begin
     it arrived.  Gestures across batches are best-effort: drop the
     row-based state (the native highlight stays) so post-load gestures
     start from a clean slate instead of a stale one. }
-  ClearPendingSel;
-  FAnchorFiles := -1;
-  FSelFiles := nil;
+  FSelectionFiles.ResetAll;
 end;
 
 {
@@ -3411,9 +3054,7 @@ end;
 }
 procedure TfrmMain.PagesBatchAdded(Sender: TObject);
 begin
-  ClearPendingSel;
-  FAnchorPages := -1;
-  FSelPages := nil;
+  FSelectionPages.ResetAll;
 end;
 
 {

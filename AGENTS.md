@@ -44,19 +44,24 @@ Sources in `src/`.
 | File | Role |
 |------|------|
 | `cbzmanager.lpr` | Program entrypoint |
-| `src/main.pas` + `src/main.lfm` | Main form (`TfrmMain`) |
+| `src/main.pas` + `src/main.lfm` | Main form (`TfrmMain`); delegates the grid selection gestures to `uselectioncontroller` and the thumbnail/zoom rendering to `uthumbview` |
 | `src/uzipeditor.pas` | ZIP operations entirely in RAM: listing, image extraction (TUnZipper + FPImage), entry collection (`CollectZipEntries`), ZIP writing (`WriteZipFromEntries`); `ConvertCBZToWebP` parallel decode/encode via a `TWebPConvertWorker` pool (deterministic output regardless of thread count) |
 | `src/uzipcore.pas` | Low-level ZIP entry handling: `TZipEntries`, `FormatPageName`, `StripComicInfo`, `FindComicInfoIndex` |
+| `src/udynlib.pas` | Lazy, thread-safe dynamic-library loader (`TDynLib`) shared by `uwebp` and `uarchive` |
 | `src/uwebp.pas` | WebP decoder via libwebp.so (dynamic loading) |
 | `src/uarchive.pas` | CBR (RAR) reader via libarchive (dynamic loading, uwebp pattern): `TCbrReader`, `CbrSupported` |
 | `src/uloaderthread.pas` | Background thumbnail loading threads (CBZ and CBR); directory load via `OnlineCpuCount` pool (capped at 4); single-archive preview (`TPagesThread`) decodes+scales pages on a worker pool (`AThreads`, default auto capped at 4) or sequential streaming |
 | `src/upreviewloader.pas` | Background loaders for preview panes: `TPreviewLoader` (sequence builder), `TSingleImageLoader` (page-view dialog, single full-res entry) |
+| `src/uthumbview.pas` | Thumbnail rendering (`TThumbnailStrip`: rebuild a `TImageList` from a decoded cache or from the page model, skipping Gone pages) and the debounced zoom slider (`TZoomController`) |
 | `src/uimgutil.pas` | Image decode/scale/convert utilities; `CenterAnchorScrollPos` (shared zoom-anchor math); `EncodeIntfImage`/`EncodeExtFor` (JPEG q92 / PNG / BMP / WebP writers) |
 | `src/uimageedit.pas` | Pure page-editor operations (no GUI): `ResampleIntfImage` (box filter, both directions), `AdjustColors` (invert/grayscale/sepia/RGB gains/saturation/contrast/brightness/gamma pipeline), `SplitIntfImage` (N parallel cut lines → N+1 pieces) |
 | `src/ulog.pas` | Minimal thread-safe logger |
 | `src/uzipeditor.pas` | ZIP operations entirely in RAM: listing, image extraction (TUnZipper + FPImage), entry collection (`CollectZipEntries`), ZIP writing (`WriteZipFromEntries`); `ConvertCBZToWebP` parallel decode/encode via a `TWebPConvertWorker` pool (deterministic output regardless of thread count) |
 | `src/upageeditmodel.pas` | In-memory page editing model: `TPageState`, `TChange` (`ckDeleted`/`ckMoved`/`ckEdited`), `PageInsertAt`, `TSaveChangesThread` (edited/inserted pages are saved from their `Data` stream, which wins over the archive entry) |
+| `src/uselectioncontroller.pas` | Qt6-safe Explorer-style selection gestures for one list view (`TListSelectionController`: authoritative selection, shift/ctrl maths, deferred re-assert) |
+| `src/uselection.pas` | Pure selection-set helpers (`RangeSel`/`ToggleSel`/`UnionSel`/`HasSel`/`SelectionMatches`/`ApplySelection`) |
 | `src/uservicebase.pas` | Shared service types, progress callbacks (`TLockedProgress`), `OnlineCpuCount` + `MAX_*_THREADS` caps (8 for WebP/validate, 4 for CBR/merge/batch-edit), `BackupFile`, `ReplaceCBZ`, `CollectCBZFiles`/`CollectCBRFiles` |
+| `src/uservicepool.pas` | Shared worker-pool base (`TIndexPool`/`TIndexPoolWorker`: claim counter, stop flag, spawn/join with cancellation, worker ownership) used by the validate/convert/cbr/merge/delete-pages pools |
 | `src/uthreadservice.pas` | Background thread wrappers for validate/convert/merge/comicinfo/cbr services (merge/delete-pages carry a `Threads` pool size, default auto) |
 | `src/uservicevalidate.pas` | `TValidateService` — Validate + ValidateDeep (`AThreads` per-file decode pool) |
 | `src/userviceconvert.pas` | `TConvertService` — batch WebP conversion |
@@ -251,7 +256,7 @@ cbzmanager cbr-to-cbz <dir> [--delete] [--threads N]  # convert CBR archives; sk
 
 ## Tests
 
-27 `test_*.pas` files in `tests/` (26 test units + the shared `test_helpers.pas`) plus `testrunner.pp`. Run with `make test`.
+29 `test_*.pas` files in `tests/` (28 test units + the shared `test_helpers.pas`) plus `testrunner.pp`. Run with `make test`.
 | Test file | Coverage |
 |-----------|----------|
 | `tests/testrunner.pp` | Test runner |
@@ -272,7 +277,9 @@ cbzmanager cbr-to-cbz <dir> [--delete] [--threads N]  # convert CBR archives; sk
 | `tests/test_uimgsrc.pas` | Offline tests for `uimgsrc`: Openverse/Wikimedia JSON parsing, URL provider, ext guessing |
 | `tests/test_uthreadservice.pas` | Service-thread progress plumbing (Synchronize-based dispatch; regression for the WebP-conversion crash) + delete-pages pool determinism (threads 1 vs 4 → identical archives) |
 | `tests/test_mainform.pas` | Main-form streaming smoke test: every handler named in `main.lfm` exists after `TfrmMain.Create` (regression for the `OnSelectItem` crash) |
-| `tests/test_uloaderthread.pas` | Thumbnail loader/coordinator behaviour (cancellation, batch ownership) |
+| `tests/test_uloaderthread.pas` | Thumbnail loader/coordinator behaviour (cancellation, batch ownership, an end-to-end `TPagesThread` run asserting every page is published before the coordinator is Finished, and that a terminating worker leaves `Flush` promptly) |
+| `tests/test_uselectioncontroller.pas` | Selection gestures: plain/Ctrl/Shift/Ctrl+Shift/empty clicks, native-focus sync, `SelectOnly`, `ResetAll` |
+| `tests/test_uthumbview.pas` | Thumbnail strips (clamp, prepare, cache/model loads, Gone skipping) and the zoom controller (range order, clamped steps, debounce + render floor, wheel) |
 | `tests/test_udlgcbr.pas`, `tests/test_udlgvalidate.pas`, `tests/test_udlgvalidateopts.pas`, `tests/test_udlgcomicinfoeditor.pas`, `tests/test_udlgmerge.pas`, `tests/test_udlgpageeditor.pas`, `tests/test_udlgwebp.pas` | Dialog `.lfm` streaming / options round-trips |
 | `tests/test_userviceconvert.pas` | Batch WebP conversion service (threads=1 vs 4 → identical archives by content) |
 | `tests/test_uservicecbr.pas` | Batch CBR→CBZ service (threads=1 vs 4 → identical archives by content, skip-existing, delete-source) |

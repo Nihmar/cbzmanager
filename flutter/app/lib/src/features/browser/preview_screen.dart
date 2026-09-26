@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../vfs/vfs.dart';
 import 'archive_item.dart';
+import 'thumbnail_isolate.dart';
 import 'thumbnail_service.dart';
 
 /// Immersive page reader: swipe through pages, pinch/double-tap to zoom, with a
@@ -21,7 +22,16 @@ class PreviewScreen extends ConsumerStatefulWidget {
 
 class _PreviewScreenState extends ConsumerState<PreviewScreen> {
   final _controller = PageController();
+
+  /// Archive bytes: ZIP pages are read on demand, so the archive is kept.
+  /// Null for a CBR, whose pages live in [_cbrBuffer] instead.
   Uint8List? _bytes;
+
+  /// CBR pages decompressed once (RAR has no random access), packed into one
+  /// buffer; page i is the zero-copy view between offsets[i] and [i + 1].
+  Uint8List? _cbrBuffer;
+  List<int>? _cbrOffsets;
+
   int _pageCount = 0;
   int _current = 0;
   bool _loading = true;
@@ -44,12 +54,29 @@ class _PreviewScreenState extends ConsumerState<PreviewScreen> {
   Future<void> _load() async {
     try {
       final bytes = await widget.vfs.readAll(widget.item.path);
-      final count = await ref
-          .read(thumbnailServiceProvider)
-          .pageCount(bytes, widget.item.name);
+      final int count;
+      Uint8List? cbrBuffer;
+      List<int>? cbrOffsets;
+      if (widget.item.isCbr) {
+        // One decompression for the whole archive, then every page and
+        // thumbnail is served from it (previously each thumbnail call
+        // re-decompressed the entire RAR).
+        final pages = await cbrPagesInIsolate(bytes);
+        cbrBuffer = pages.buffer;
+        cbrOffsets = pages.offsets;
+        count = cbrOffsets.length - 1;
+      } else {
+        count = await ref
+            .read(thumbnailServiceProvider)
+            .pageCount(bytes, widget.item.name);
+      }
       if (!mounted) return;
       setState(() {
-        _bytes = bytes;
+        // For a CBR the compressed archive is not needed once the pages are
+        // extracted: dropping it keeps peak memory at one archive's worth.
+        _bytes = widget.item.isCbr ? null : bytes;
+        _cbrBuffer = cbrBuffer;
+        _cbrOffsets = cbrOffsets;
         _pageCount = count;
         _loading = false;
       });
@@ -109,9 +136,7 @@ class _PreviewScreenState extends ConsumerState<PreviewScreen> {
         ],
       ),
       body: _buildBody(),
-      bottomNavigationBar: _pageCount > 1 && _bytes != null
-          ? _buildRail(context)
-          : null,
+      bottomNavigationBar: _pageCount > 1 ? _buildRail(context) : null,
     );
   }
 
@@ -144,24 +169,43 @@ class _PreviewScreenState extends ConsumerState<PreviewScreen> {
       );
     }
 
-    final service = ref.read(thumbnailServiceProvider);
     return PageView.builder(
       controller: _controller,
       itemCount: _pageCount,
       onPageChanged: (i) => setState(() => _current = i),
-      itemBuilder: (context, index) => _PageView(
-        future: service.pageThumbnail(
-          '$_keyBase:main',
-          _bytes!,
-          widget.item.name,
-          index,
-        ),
-      ),
+      itemBuilder: (context, index) =>
+          _PageView(future: _pageImage(index, rail: false)),
+    );
+  }
+
+  /// Thumbnail future for page [index]; [rail] selects the small size.  A CBR
+  /// page comes from the one-shot buffer, a ZIP page is read on demand; both
+  /// go through the service's cache so scrolling does not re-decode.
+  Future<Uint8List?> _pageImage(int index, {required bool rail}) {
+    final maxWidth = rail ? 96 : 1200;
+    final maxHeight = rail ? 128 : 1600;
+    final service = ref.read(thumbnailServiceProvider);
+    final buffer = _cbrBuffer;
+    final offsets = _cbrOffsets;
+    if (buffer != null && offsets != null) {
+      return service.bytesThumbnail(
+        '$_keyBase:${rail ? 'rail' : 'main'}:$index',
+        Uint8List.sublistView(buffer, offsets[index], offsets[index + 1]),
+        maxWidth: maxWidth,
+        maxHeight: maxHeight,
+      );
+    }
+    return service.pageThumbnail(
+      '$_keyBase:${rail ? 'rail' : 'main'}',
+      _bytes!,
+      widget.item.name,
+      index,
+      maxWidth: maxWidth,
+      maxHeight: maxHeight,
     );
   }
 
   Widget _buildRail(BuildContext context) {
-    final service = ref.read(thumbnailServiceProvider);
     return Container(
       height: 92,
       color: Colors.black.withValues(alpha: 0.6),
@@ -188,14 +232,7 @@ class _PreviewScreenState extends ConsumerState<PreviewScreen> {
               ),
               clipBehavior: Clip.antiAlias,
               child: FutureBuilder<Uint8List?>(
-                future: service.pageThumbnail(
-                  '$_keyBase:rail',
-                  _bytes!,
-                  widget.item.name,
-                  index,
-                  maxWidth: 96,
-                  maxHeight: 128,
-                ),
+                future: _pageImage(index, rail: true),
                 builder: (context, snapshot) {
                   final bytes = snapshot.data;
                   if (bytes == null) {

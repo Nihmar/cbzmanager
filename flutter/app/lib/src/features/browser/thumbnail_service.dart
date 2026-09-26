@@ -79,6 +79,23 @@ class ThumbnailService {
     );
   }
 
+  /// Thumbnail of raw page bytes (a page already extracted from its archive,
+  /// e.g. the CBR preview buffer).  Memoized like [pageThumbnail], so a rail
+  /// rebuild does not decode again.
+  Future<Uint8List?> bytesThumbnail(
+    String key,
+    Uint8List imageBytes, {
+    int maxWidth = 1200,
+    int maxHeight = 1600,
+  }) {
+    return _cached(
+      'bytes:$key:$maxWidth:$maxHeight',
+      () => _decodePool.withResource(
+        () => decodeBytesThumbnailInIsolate(imageBytes, maxWidth, maxHeight),
+      ),
+    );
+  }
+
   Future<Uint8List?> _cached(
     String key,
     Future<Uint8List?> Function() compute,

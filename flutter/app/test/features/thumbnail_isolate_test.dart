@@ -40,4 +40,46 @@ void main() {
     expect(countImagePages(bytes, 'book.cbr'), 1);
     expect(decodeFirstPageThumbnail(bytes, 'book.cbr', 64, 64), isNotNull);
   });
+
+  // The preview reader used to call collectEntries once per thumbnail; the
+  // whole archive is now decompressed once into a packed buffer.
+  test('cbrPages packs the image pages once, sorted by name', () {
+    if (!CbrReader.isSupported) {
+      markTestSkipped('libarchive is not available on this host');
+      return;
+    }
+    final small = makeSolidPng(4, 4);
+    final large = makeSolidPng(8, 8);
+    final bytes = makeZip({
+      'page_002.png': large, // stored first, must sort second
+      'ComicInfo.xml': '<x/>'.codeUnits,
+      'page_001.png': small,
+    });
+
+    final pages = cbrPages(bytes);
+    expect(pages.offsets, [0, small.length, small.length + large.length]);
+    expect(
+      Uint8List.sublistView(pages.buffer, 0, small.length),
+      small,
+      reason: 'page_001 first by name',
+    );
+    expect(
+      Uint8List.sublistView(pages.buffer, small.length),
+      large,
+      reason: 'page_002 second by name; ComicInfo.xml excluded',
+    );
+  });
+
+  test('cbrPagesInIsolate transfers the packed pages', () async {
+    if (!CbrReader.isSupported) {
+      markTestSkipped('libarchive is not available on this host');
+      return;
+    }
+    final page = makeSolidPng(4, 4);
+    final bytes = makeZip({'page_001.png': page});
+
+    final pages = await cbrPagesInIsolate(bytes);
+    expect(pages.offsets, [0, page.length]);
+    expect(pages.buffer, page);
+  });
 }

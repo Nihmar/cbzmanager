@@ -85,6 +85,31 @@ Uint8List? decodePageThumbnail(
 int countImagePages(Uint8List bytes, String archiveName) =>
     _imageNames(bytes, archiveName).length;
 
+/// Every image page of a CBR, decompressed once and packed into a single
+/// buffer plus page offsets (sorted by name, like the reader's page order):
+/// `page i` is `Uint8List.sublistView(buffer, offsets[i], offsets[i + 1])`.
+/// RAR has no random access, so this is the only way to serve every page and
+/// thumbnail without re-decompressing the archive per page.
+({Uint8List buffer, List<int> offsets}) cbrPages(Uint8List bytes) {
+  final images =
+      CbrReader.collectEntries(bytes)
+          .where((e) => isImageExt(_ext(e.name)))
+          .toList()
+        ..sort((a, b) => compareStr(a.name, b.name));
+  final builder = BytesBuilder(copy: false);
+  final offsets = <int>[0];
+  for (final entry in images) {
+    builder.add(entry.bytes);
+    offsets.add(offsets.last + entry.bytes.length);
+  }
+  return (buffer: builder.toBytes(), offsets: offsets);
+}
+
+/// Runs [cbrPages] in a background isolate.
+Future<({Uint8List buffer, List<int> offsets})> cbrPagesInIsolate(
+  Uint8List bytes,
+) => Isolate.run(() => cbrPages(bytes));
+
 /// Whether the archive contains a ComicInfo.xml entry.
 bool hasComicInfo(Uint8List bytes, String archiveName) {
   if (_isCbr(archiveName)) {

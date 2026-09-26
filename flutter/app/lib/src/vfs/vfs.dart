@@ -54,6 +54,10 @@ class VfsStat {
 /// interchangeable. Implementations must never leak platform handles to
 /// callers.
 abstract class Vfs {
+  /// Allows concrete implementations with `const` constructors (e.g.
+  /// `LocalVfs`).
+  const Vfs();
+
   /// Scheme identifier: `file`, `memory`, `content`, `smb`, ...
   String get scheme;
 
@@ -73,4 +77,9 @@ abstract class Vfs {
   Future<void> delete(String path);
 
   Future<void> mkdir(String path);
+
+  /// Releases any underlying resources (connections, worker pools).  The
+  /// default is a no-op; implementations that own resources override it.
+  /// Called by [ArchiveSource] owners when a source is replaced.
+  Future<void> close() async {}
 }

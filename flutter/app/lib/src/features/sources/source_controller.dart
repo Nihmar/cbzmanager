@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../vfs/vfs.dart';
@@ -23,7 +25,16 @@ class SourceController extends Notifier<ArchiveSource?> {
   @override
   ArchiveSource? build() => null;
 
-  void set(ArchiveSource? source) => state = source;
+  /// Replaces the browsing source, releasing the previous one's resources
+  /// (SMB worker pools) before it is dropped.  Fire-and-forget: closing a pool
+  /// must not block the UI.
+  void set(ArchiveSource? source) {
+    final previous = state;
+    state = source;
+    if (previous != null && !identical(previous.vfs, source?.vfs)) {
+      unawaited(previous.vfs.close());
+    }
+  }
 }
 
 final sourceProvider = NotifierProvider<SourceController, ArchiveSource?>(

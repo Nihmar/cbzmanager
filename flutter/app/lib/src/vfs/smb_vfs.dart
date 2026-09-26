@@ -6,8 +6,8 @@ import 'vfs.dart';
 
 /// Connection parameters for an SMB2/3 share.
 ///
-/// Passwords are supplied by the caller (in the app they come from
-/// `flutter_secure_storage`) and are never written to settings.
+/// Passwords are supplied by the caller and kept in memory only: the app does
+/// not persist them (the connect dialog asks every time).
 class SmbConfig {
   const SmbConfig({
     required this.host,
@@ -33,20 +33,25 @@ class SmbConfig {
 ///
 /// Paths are share-relative; a leading `/` is accepted and stripped. The pool
 /// is opened lazily on first use and reused for the lifetime of the instance;
-/// call [disconnect] when done.
-class SmbVfs implements Vfs {
+/// [close] (or [disconnect]) releases it and is called when the browsing
+/// source is replaced.
+class SmbVfs extends Vfs {
   SmbVfs(this.config);
 
   final SmbConfig config;
-  Smb2Pool? _pool;
+
+  /// Pending/live pool.  Stored as a Future so concurrent callers await the
+  /// same connection instead of racing two `Smb2Pool.connect` calls (the
+  /// second used to overwrite the first, leaking its worker isolates).
+  Future<Smb2Pool>? _poolFuture;
 
   @override
   String get scheme => 'smb';
 
-  Future<Smb2Pool> _ensurePool() async {
-    final existing = _pool;
+  Future<Smb2Pool> _ensurePool() {
+    final existing = _poolFuture;
     if (existing != null) return existing;
-    final pool = await Smb2Pool.connect(
+    final future = Smb2Pool.connect(
       host: config.host,
       share: config.share,
       user: config.user,
@@ -54,16 +59,26 @@ class SmbVfs implements Vfs {
       domain: config.domain,
       workers: config.workers,
     );
-    _pool = pool;
-    return pool;
+    _poolFuture = future;
+    return future;
   }
 
-  /// Closes the worker pool. Safe to call more than once.
+  /// Closes the worker pool. Safe to call more than once.  A connect that is
+  /// still in flight is awaited first, so the pool is closed either way.
   Future<void> disconnect() async {
-    final pool = _pool;
-    _pool = null;
-    await pool?.disconnect();
+    final future = _poolFuture;
+    _poolFuture = null;
+    if (future == null) return;
+    try {
+      final pool = await future;
+      await pool.disconnect();
+    } catch (_) {
+      // The connect itself failed: nothing to release.
+    }
   }
+
+  @override
+  Future<void> close() => disconnect();
 
   static String _rel(String path) {
     var p = path.replaceAll('\\', '/');

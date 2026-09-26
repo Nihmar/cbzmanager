@@ -3,7 +3,7 @@ import 'dart:typed_data';
 import 'vfs.dart';
 
 /// In-memory [Vfs], used by tests and for staging results before publishing.
-class MemoryVfs implements Vfs {
+class MemoryVfs extends Vfs {
   final Map<String, Uint8List> _files = <String, Uint8List>{};
   final Set<String> _dirs = <String>{'/'};
 

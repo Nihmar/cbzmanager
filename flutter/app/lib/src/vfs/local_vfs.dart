@@ -6,7 +6,7 @@ import 'package:path/path.dart' as p;
 import 'vfs.dart';
 
 /// Local-filesystem [Vfs] backed by `dart:io`.
-class LocalVfs implements Vfs {
+class LocalVfs extends Vfs {
   const LocalVfs();
 
   @override

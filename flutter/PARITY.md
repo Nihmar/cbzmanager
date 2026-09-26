@@ -1,10 +1,15 @@
-# Flutter port — Parity map and checklist
+# Flutter port — parity map and checklist
 
-Maps each Lazarus/FPC unit to its Flutter target and tracks parity.
+Maps each Lazarus/FPC unit to its actual Flutter target and tracks parity.
 Status legend: **Done** · **Partial** · **Deferred** · **N/A**.
 
 _Done_ = implemented at feature level; _Partial_ = core behaviour present with a
 documented simplification; _Deferred_ = not ported (see `PLAN.md`).
+
+Paths are relative to `flutter/app/`. Everything under `lib/src/` is the real
+tree; the previous version of this file listed paths that never existed
+(`engine/convert_webp`, `ui/zoom_controller`, `app/app_logger.dart`,
+`features/browser/loader`, `app/app_shell.dart`, …) — do not resurrect them.
 
 ---
 
@@ -12,59 +17,61 @@ documented simplification; _Deferred_ = not ported (see `PLAN.md`).
 
 | Lazarus unit | Responsibility | Flutter target | Status |
 |---|---|---|---|
-| `src/uzipcore.pas` | `TZipEntries`, `FormatPageName`, `StripComicInfo`, `FindComicInfoIndex` | `engine/` ZIP entry model + naming | Done |
-| `src/uzipeditor.pas` | ZIP listing/extraction/write, `CollectZipEntries`, `WriteZipFromEntries`, `ConvertCBZToWebP`, CBR walking | `engine/zip_ops`, `engine/convert_webp` | Done |
-| `src/uwebp.pas` | WebP decoder via libwebp (dynamic) | `image` package (pure Dart); optional libwebp FFI | Done |
-| `src/uarchive.pas` | CBR reader via libarchive (dynamic) | `engine/cbr_reader` + libarchive dynamic load | Done |
-| `src/uimgutil.pas` | decode/scale/convert, `CenterAnchorScrollPos`, `EncodeIntfImage`/`EncodeExtFor` | `engine/image_util`, `ui/zoom_controller` | Done |
-| `src/uimageedit.pas` | `ResampleIntfImage`, `AdjustColors`, `SplitIntfImage` | `engine/image_edit` | Done |
-| `src/upageeditmodel.pas` | `TPageState`, `TChange`, `PageInsertAt`, `TSaveChangesThread` | `features/page_editor/model` | Done |
-| `src/ucomicinfo.pas` | parse/generate ComicInfo.xml | `engine/comicinfo` | Done |
-| `src/ubatchedit.pas` | batch pipeline + worker pool | `features/batch_edit/engine` | Done |
-| `src/uimgsrc.pas` | image search/download (MangaDex/Openverse/Wikimedia/Open Library/Art Institute/Met/Cleveland/Wellcome/NASA/URL) | `features/image_search/client` | Done |
-| `src/ulog.pas` | thread-safe logger | `app/app_logger.dart` | Done |
+| `src/uzipcore.pas` | `TZipEntries`, `FormatPageName`, `StripComicInfo`, `FindComicInfoIndex` | `lib/src/engine/zip_ops.dart`, `format.dart` | Done |
+| `src/uzipeditor.pas` | ZIP listing/extraction/write, `CollectZipEntries`, WebP conversion, CBR walking | `lib/src/engine/zip_ops.dart`, `dart_engine.dart`, `cbr_convert.dart` | Done |
+| `src/uwebp.pas` | WebP decoder/encoder via libwebp (dynamic) | `package:image` (pure Dart); no libwebp FFI yet | Done (pure Dart) |
+| `src/uarchive.pas` | CBR reader via libarchive (dynamic) | `lib/src/native/libarchive.dart`, `lib/src/native/cbr_reader.dart` | Done |
+| `src/uimgutil.pas` | decode/scale/convert, `EncodeIntfImage`/`EncodeExtFor` | `lib/src/engine/image_edit.dart` (`encodeImage`), `format.dart` (`encodeExtFor`) | Done |
+| `src/uimageedit.pas` | `ResampleIntfImage`, `AdjustColors`, `SplitIntfImage` | `lib/src/engine/image_edit.dart` | Done |
+| `src/upageeditmodel.pas` | `TPageState`, `TChange`, `PageInsertAt`, save thread | `lib/src/engine/page_model.dart`, `lib/src/features/page_editor/page_edit_service.dart` | Done (save is synchronous per file) |
+| `src/ucomicinfo.pas` | parse/generate ComicInfo.xml | `lib/src/engine/comicinfo.dart` | Done |
+| `src/ubatchedit.pas` | batch pipeline + worker pool | `lib/src/features/batch_edit/batch_edit_isolate.dart`, `batch_edit_service.dart` | Partial (pool is per-file isolates; no per-page pool) |
+| `src/uimgsrc.pas` | image search/download (MangaDex/Openverse/Wikimedia/Open Library/Art Institute/Met/Cleveland/Wellcome/NASA/URL) | `lib/src/engine/image_search.dart` (parsers), `lib/src/features/image_search/image_search_service.dart` (HTTP) | Done (download caps during streaming; requests time out) |
+| `src/ulog.pas` | thread-safe logger | none — failures surface in per-file results / snackbars | N/A |
 
 ## 2. Services
 
 | Lazarus unit | Responsibility | Flutter target | Status |
 |---|---|---|---|
-| `src/uservicebase.pas` | shared types, `TLockedProgress`, `OnlineCpuCount`, caps, `BackupFile`, `ReplaceCBZ`, file collection | `jobs/`, `vfs/workspace`, `engine/threads` | Done |
-| `src/uthreadservice.pas` | background thread wrappers (merge/delete-pages/...) | `jobs/job_controller` | Done |
-| `src/uservicevalidate.pas` | `TValidateService`, deep validation, per-file pool | `features/validate/engine` | Done |
-| `src/userviceconvert.pas` | batch WebP conversion | `features/convert_webp/engine` | Done |
-| `src/uservicemerge.pas` | chapter→volume merge, CPV, batching | `features/merge/engine` | Done |
-| `src/uservicecbr.pas` | batch CBR→CBZ | `features/cbr/engine` | Done |
-| `src/uservicecomicinfo.pas` | scan/remove ComicInfo | `features/comicinfo/engine` | Done |
-| `src/uloaderthread.pas` | directory + single-archive thumbnail pools | `features/browser/loader` | Done |
-| `src/upreviewloader.pas` | preview loaders (sequence + single image) | `features/browser/preview_loader` | Done |
-| `src/uselection.pas` | selection-set helpers | `ui/selection.dart` | Done |
+| `src/uservicebase.pas` | shared types, progress, caps, `BackupFile`, `ReplaceCBZ`, file collection | `lib/src/vfs/workspace.dart` (backup/publish), `lib/src/util/cpu.dart`, per-service caps | Partial (`ReplaceCBZ` is `LocalVfs.writeAll` tmp+rename; SMB writes directly) |
+| `src/uthreadservice.pas` | background thread wrappers | `lib/src/jobs/job_controller.dart` + isolate wrappers | Done (isolates, not threads) |
+| `src/uservicevalidate.pas` | deep validation, per-file pool | `lib/src/features/validate/validate_service.dart`, `validate_isolate.dart` | Done (per file; per-page decode parallel not wired) |
+| `src/userviceconvert.pas` | batch WebP conversion | `lib/src/features/convert/convert_service.dart`, `convert_isolate.dart` | Done |
+| `src/uservicemerge.pas` | chapter→volume merge, CPV, batching | `lib/src/engine/merge.dart` (planning), `lib/src/features/merge/merge_service.dart`, `merge_isolate.dart` | Done |
+| `src/uservicecbr.pas` | batch CBR→CBZ | `lib/src/features/cbr/cbr_service.dart`, `cbr_isolate.dart` | Done |
+| `src/uservicecomicinfo.pas` | scan/remove ComicInfo | `lib/src/features/comicinfo/comicinfo_service.dart`, `comicinfo_isolate.dart` | Done |
+| `src/uloaderthread.pas` | directory + single-archive thumbnail pools | `lib/src/features/browser/thumbnail_service.dart`, `thumbnail_isolate.dart` (per-file isolates, bounded pools) | Partial (no sorted batch publication; UI order comes from sorting the listing) |
+| `src/upreviewloader.pas` | preview loaders | `lib/src/features/browser/preview_screen.dart` (`ThumbnailService.pageThumbnail`) | Partial |
+| `src/uselection.pas` | selection-set helpers | `lib/src/features/browser/selection_controller.dart` | Done (selection is by path, not index) |
+| — (GUI-only) | delete pages by range across files | not ported in Flutter; the page editor deletes single pages | Deferred |
 
 ## 3. UI / dialogs
 
 | Lazarus unit | Flutter target | Status |
 |---|---|---|
-| `src/main.pas` / `main.lfm` | `app/app_shell.dart` (two-pane + adaptive) | Done |
-| `src/udlgbase.pas` | `ui/components/app_dialog.dart` | Done |
-| `src/udlgrows.pas` | `features/page_editor/delete_rows_dialog.dart` | Partial (delete is in the page editor) |
-| `src/udlgvalidate.pas` / `udlgvalidateopts.pas` | `features/validate/` screens | Done |
-| `src/udlgcomicinfo.pas` / `udlgcomicinfoeditor.pas` | `features/comicinfo/` screens | Done |
-| `src/udlgwebp.pas` | `features/convert_webp/dialog.dart` | Done |
-| `src/udlgcbr.pas` | `features/cbr/dialog.dart` | Done |
-| `src/udlgmerge.pas` | `features/merge/dialog.dart` | Done |
-| `src/udlgseqbuilder.pas` | `features/merge/sequence_builder.dart` | Partial (chapter list, not a zoomable grid) |
-| `src/udlgpageview.pas` | `features/browser/page_view.dart` | Partial (preview has zoom; no floating window) |
-| `src/udlgpageeditor.pas` | `features/page_editor/editor.dart` | Partial (drag&drop reorder + draggable cut lines; no zoomable grid) |
-| `src/udlgaddimage.pas` | `features/image_search/dialog.dart` | Done |
-| `src/udlgbatchedit.pas` | `features/batch_edit/dialog.dart` | Done |
-| `src/udlgconvertresults.pas` | `features/*/results_dialog.dart` | Done |
-| `src/ufrmjobmonitor.pas` | `jobs/job_monitor.dart` (window/bottom sheet) | Done |
-| `src/usettings.pas` | `features/settings/store.dart` | Done |
+| `src/main.pas` / `main.lfm` | `lib/src/main.dart` + `lib/src/features/browser/browser_screen.dart` (single screen, bottom job bar) | Done |
+| `src/udlgbase.pas` | inline `AlertDialog`s | N/A |
+| `src/udlgrows.pas` | page editor delete/selection | Partial |
+| `src/udlgvalidate.pas` / `udlgvalidateopts.pas` | `lib/src/features/validate/validate_results_dialog.dart` (threads live in Settings) | Partial |
+| `src/udlgcomicinfo.pas` / `udlgcomicinfoeditor.pas` | `lib/src/features/comicinfo/comicinfo_editor_dialog.dart` | Done (remove is a toolbar action) |
+| `src/udlgwebp.pas` | `lib/src/features/convert/convert_dialog.dart` | Done |
+| `src/udlgcbr.pas` | `lib/src/features/cbr/cbr_dialog.dart` | Done |
+| `src/udlgmerge.pas` | `lib/src/features/merge/merge_dialog.dart` | Done |
+| `src/udlgseqbuilder.pas` | `lib/src/features/merge/sequence_builder_dialog.dart` | Partial (chapter list, not a zoomable grid) |
+| `src/udlgpageview.pas` | `lib/src/features/browser/preview_screen.dart` | Partial (in-app reader; no floating window) |
+| `src/udlgpageeditor.pas` | `lib/src/features/page_editor/page_edit_screen.dart`, `page_editor_dialog.dart` | Partial (delete/move/renumber + resize/colours/split; no zoomable grid) |
+| `src/udlgaddimage.pas` | `lib/src/features/image_search/add_image_dialog.dart` | Done |
+| `src/udlgbatchedit.pas` | `lib/src/features/batch_edit/batch_edit_dialog.dart` | Done |
+| `src/udlgconvertresults.pas` | `lib/src/features/convert/convert_dialog.dart` + results widgets | Done |
+| `src/ufrmjobmonitor.pas` | `lib/src/jobs/job_monitor.dart` (bottom bar) | Done |
+| `src/usettings.pas` | `lib/src/features/settings/settings.dart`, `settings_dialog.dart` | Done (settings feed the operation dialogs) |
+| `src/udlgpageview`/`main` SMB | `lib/src/features/sources/source_controller.dart`, `smb_dialog.dart` | Done (Flutter-only feature) |
 
 ## 4. Entrypoints
 
 | Lazarus | Flutter target | Status |
 |---|---|---|
-| `cbzmanager.lpr` (GUI) | `app/lib/main.dart` | Done |
+| `cbzmanager.lpr` (GUI) | `lib/main.dart` | Done |
 | `src/uclimode.pas` (headless CLI) | `bin/cbzmanager.dart` | Partial (validate/convert-webp/merge/cbr-to-cbz; no comicinfo) |
 | `man/cbzmanager.1` | `bin/cbzmanager.dart --help` | Partial |
 
@@ -72,26 +79,27 @@ documented simplification; _Deferred_ = not ported (see `PLAN.md`).
 
 Cross-cutting rules that must be verified before release.
 
-- [ ] In-RAM only: no page extraction to disk for any operation.
-- [ ] Byte-wise sort order for page names (`compareStr`, not locale).
-- [ ] Non-image entries dropped by convert/merge (house policy).
-- [ ] `format('%s V%.3d.cbz')` volume naming; numbering continues after existing volumes.
-- [ ] CPV auto = `(lowest_chapter - 1) / num_volumes` (real division), default 7.
-- [ ] "Only if smaller" for WebP conversion; q75.
-- [ ] `_OLD.cbz` backup vs delete semantics (CBR source kept unless delete-source).
-- [ ] Renumber survivors as `page_NNNN.*`.
-- [ ] Merge rollback deletes every volume written in the run (partial included).
-- [ ] Empty batches produce no volume.
-- [ ] Deterministic output for any thread count (threads 1 vs N byte-identical).
-- [ ] Caps: WebP/validate ≤ 8, CBR/merge/batch-edit ≤ 4; `0` = auto.
-- [ ] CBR previews read-only; missing libarchive degrades gracefully.
-- [ ] File-level errors never abort a batch (validate/convert/cbr/delete-pages).
-- [ ] ComicInfo filtered on the way through convert/merge.
-- [ ] Editor writes bytes that win over the archive entry; split renumbers all pages.
-- [ ] GIF/TIFF output maps to PNG; JPEG q92, WebP q75, PNG/BMP lossless.
-- [ ] Sorting/selection semantics: plain click replaces, Ctrl toggles, Shift extends, empty click clears.
+- [x] In-RAM only: no page extraction to disk for any operation.
+- [x] Byte-wise sort order for page names (`compareStr`, not locale).
+- [x] Non-image entries dropped by merge; convert keeps ComicInfo unless `removeComicInfo`.
+- [x] `format('%s V%.3d.cbz')` volume naming; numbering continues after existing volumes.
+- [x] CPV auto = `(lowest_chapter - 1) / num_volumes` (real division), default 7.
+- [x] "Only if smaller" for WebP conversion; q75.
+- [x] `_OLD.cbz` backup vs delete semantics (CBR source kept unless delete-source).
+- [x] Renumber survivors as `page_NNNN.*`.
+- [x] Merge rollback deletes every volume written in the run (partial included) and never a pre-existing file.
+- [x] Empty batches produce no volume.
+- [x] Deterministic output for any thread count (threads 1 vs N byte-identical).
+- [x] Caps: WebP/validate ≤ 8, CBR/merge/batch-edit ≤ 4; `0` = auto.
+- [x] CBR previews read-only; missing libarchive degrades gracefully.
+- [x] File-level errors never abort a batch (validate/convert/cbr/merge/batch-edit).
+- [x] ComicInfo filtered on the way through convert (flag honoured); merge filters it.
+- [x] Editor writes bytes that win over the archive entry; split renumbers all pages.
+- [x] GIF/TIFF output maps to PNG; JPEG q92, WebP q75, PNG/BMP lossless.
 
 ## 6. Reference documents
 
-- `AGENTS.md` — behaviour, divergences, architecture of the reference.
-- `porting/cbz_manager/` — Python reference implementation (local).
+- `flutter/README.md`, `flutter/PLAN.md`, `flutter/TARGET.md` — design notes.
+- `AGENTS.md` at the repo root — **untracked** (`.gitignore`): it exists only in
+  developer working copies, so it is not a reliable reference for a fresh clone.
+- The Python reference (`porting/cbz_manager/`) is untracked as well.

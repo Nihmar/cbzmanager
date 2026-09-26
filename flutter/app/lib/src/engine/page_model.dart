@@ -167,14 +167,26 @@ Uint8List buildEditedArchive(
   required bool renumber,
 }) {
   final consumed = List<bool>.filled(originalEntries.length, false);
+  // Index entries by lower-case name so each page lookup is O(1) instead of a
+  // linear rescan (O(n²) on a long book).  The per-name cursor keeps the
+  // linear scan's semantics: the first entry with that name not yet claimed.
+  final byName = <String, List<int>>{};
+  for (var i = 0; i < originalEntries.length; i++) {
+    byName
+        .putIfAbsent(originalEntries[i].name.toLowerCase(), () => <int>[])
+        .add(i);
+  }
+  final cursor = <String, int>{};
   int findOriginal(String name) {
     final lower = name.toLowerCase();
-    for (var i = 0; i < originalEntries.length; i++) {
-      if (!consumed[i] && originalEntries[i].name.toLowerCase() == lower) {
-        return i;
-      }
+    final candidates = byName[lower];
+    if (candidates == null) return -1;
+    var at = cursor[lower] ?? 0;
+    while (at < candidates.length && consumed[candidates[at]]) {
+      at++;
     }
-    return -1;
+    cursor[lower] = at;
+    return at < candidates.length ? candidates[at] : -1;
   }
 
   // Deleted pages still claim their original entry so it is not re-added.

@@ -92,7 +92,9 @@ type
   TWebPDecodeBGRA = function(Data: pbyte; data_size: PtrUInt;
     Width, Height: PInteger): pbyte; cdecl;
   { Signature of WebPFree: frees a pointer allocated by libwebp.
-    Absent before libwebp 0.5 — in that case we use FreeMemory. }
+    Required: without it the decoded buffer would leak (the pre-0.5
+    FreeMemory fallback the old comment mentioned was never implemented and
+    would be unsafe across allocators anyway). }
   TWebPFree = procedure(ptr: Pointer); cdecl;
   { Signature of WebPEncodeBGRA: encodes BGRA pixels as WebP.
     Returns the size in bytes of the allocated output buffer.
@@ -150,7 +152,8 @@ begin
     Pointer(_WebPFree) := GetProcedureAddress(hLib, 'WebPFree');
     Pointer(_WebPEncodeBGRA) := GetProcedureAddress(hLib, 'WebPEncodeBGRA');
 
-    if not (Assigned(_WebPGetInfo) and Assigned(_WebPDecodeBGRA)) then
+    if not (Assigned(_WebPGetInfo) and Assigned(_WebPDecodeBGRA) and
+            Assigned(_WebPFree)) then
     begin
       Log('InitLib: %s loaded but missing the decode functions', [LibName]);
       UnloadLibrary(hLib);
@@ -241,11 +244,16 @@ begin
         (RawImg.Data + PtrUInt(y) * RawImg.Description.BytesPerLine)^,
         SrcStride);
 
-    { True: TLazIntfImage becomes the owner of RawImg.Data }
-    Result := TLazIntfImage.Create(RawImg, True);
+    { True: TLazIntfImage becomes the owner of RawImg.Data.  If it raises,
+      ownership was not taken and the raw buffer must be freed here. }
+    try
+      Result := TLazIntfImage.Create(RawImg, True);
+    except
+      RawImg.FreeData;
+      raise;
+    end;
   finally
-    if Assigned(_WebPFree) then
-      _WebPFree(Buf);
+    _WebPFree(Buf);
   end;
 end;
 
@@ -318,12 +326,13 @@ begin
     begin
       Result := TMemoryStream.Create;
       Result.Write(OutPtr^, OutSize);
-      { Frees the buffer allocated by libwebp. }
-      if Assigned(_WebPFree) then
-        _WebPFree(OutPtr);
     end
     else
       Log('WebP: encode failed (%dx%d, q=%d)', [W, H, Quality]);
+    { Free the buffer whenever libwebp allocated one — also when the encoder
+      reported a zero size. }
+    if OutPtr <> nil then
+      _WebPFree(OutPtr);
   finally
     FreeMem(Buf);
   end;

@@ -1,0 +1,694 @@
+{
+  "@@locale": "en",
+  "appTitle": "CBZ Manager",
+  "welcomeTitle": "Open a comics folder",
+  "welcomeSubtitle": "Choose a local folder or connect to an SMB share.",
+  "localFolder": "Local folder",
+  "smbShare": "SMB share",
+  "noArchives": "No CBZ/CBR files in this folder",
+  "refresh": "Refresh",
+  "select": "Select",
+  "selectAll": "Select all",
+  "up": "Up",
+  "cancelSelection": "Cancel selection",
+  "selectedCount": "{count} selected",
+  "@selectedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "openSource": "Open source",
+  "openLocalFolder": "Open local folder",
+  "connectSmbShare": "Connect to SMB share",
+  "actions": "Actions",
+  "details": "Details",
+  "cancel": "Cancel",
+  "save": "Save",
+  "close": "Close",
+  "apply": "Apply",
+  "clear": "Clear",
+  "undo": "Undo",
+  "search": "Search",
+  "backup": "Backup",
+  "delete": "Delete",
+  "validate": "Validate",
+  "convertWebp": "Convert to WebP",
+  "convert": "Convert",
+  "removeComicInfo": "Remove ComicInfo",
+  "mergeChapters": "Merge chapters",
+  "convertCbr": "Convert CBR to CBZ",
+  "batchEdit": "Batch edit",
+  "batchEditPages": "Batch edit pages",
+  "convertCbz": "Convert to CBZ",
+  "editPages": "Edit pages…",
+  "editComicInfo": "Edit ComicInfo…",
+  "editPage": "Edit page",
+  "addImageInternet": "Add image from internet",
+  "deleteSelected": "Delete selected",
+  "moveEarlier": "Move earlier",
+  "moveLater": "Move later",
+  "renumberPages": "Renumber pages",
+  "revertChanges": "Revert changes",
+  "saveChanges": "Save changes",
+  "revert": "Revert",
+  "settings": "Settings",
+  "jobValidate": "Validate",
+  "jobMerge": "Merge",
+  "jobCbrToCbz": "CBR → CBZ",
+  "jobComicInfo": "ComicInfo",
+  "planning": "Planning…",
+  "starting": "Starting…",
+  "noJobRunning": "No job running",
+  "validatingFiles": "Validating {count} file(s)…",
+  "@validatingFiles": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "validationFailed": "Validation failed: {error}",
+  "@validationFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "noCbzToMerge": "No CBZ files to merge",
+  "createdVolumes": "Created {count} volume(s)",
+  "@createdVolumes": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "mergeProducedNoVolumes": "Merge produced no volumes",
+  "mergeFailed": "Merge failed: {error}",
+  "@mergeFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "cbrReadOnlyConvertFirst": "CBR archives are read-only — convert them first",
+  "editingFiles": "Editing {count} file(s)…",
+  "@editingFiles": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "editedFiles": "Edited {ok} of {total} file(s)",
+  "@editedFiles": {
+    "placeholders": {
+      "ok": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "batchEditFailed": "Batch edit failed: {error}",
+  "@batchEditFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "convertingFiles": "Converting {count} file(s)…",
+  "@convertingFiles": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "conversionFailed": "Conversion failed: {error}",
+  "@conversionFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "noCbrToConvert": "No CBR files to convert",
+  "cbrSupportMissing": "CBR support requires libarchive, which is not available",
+  "cbrConversionFailed": "CBR conversion failed: {error}",
+  "@cbrConversionFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "scanningFiles": "Scanning {count} file(s)…",
+  "@scanningFiles": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "comicInfoRemoved": "ComicInfo removed from {changed} of {scanned} file(s), {skipped} already clean",
+  "@comicInfoRemoved": {
+    "placeholders": {
+      "changed": {
+        "type": "int"
+      },
+      "scanned": {
+        "type": "int"
+      },
+      "skipped": {
+        "type": "int"
+      }
+    }
+  },
+  "comicInfoRemovedWithErrors": "ComicInfo removed from {changed} of {scanned} file(s), {skipped} already clean, {errors} error(s)",
+  "@comicInfoRemovedWithErrors": {
+    "placeholders": {
+      "changed": {
+        "type": "int"
+      },
+      "scanned": {
+        "type": "int"
+      },
+      "skipped": {
+        "type": "int"
+      },
+      "errors": {
+        "type": "int"
+      }
+    }
+  },
+  "removeFailed": "Remove failed: {error}",
+  "@removeFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "readingName": "Reading {name}",
+  "@readingName": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "cannotReadName": "Cannot read {name}: {error}",
+  "@cannotReadName": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "savingName": "Saving {name}",
+  "@savingName": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "comicInfoSaved": "ComicInfo saved for {name}",
+  "@comicInfoSaved": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "saveFailed": "Save failed: {error}",
+  "@saveFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "readOnly": "read-only",
+  "noPages": "No pages",
+  "convertSummary": "{count} file(s) — WebP conversion at quality {quality}.",
+  "@convertSummary": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "quality": {
+        "type": "int"
+      }
+    }
+  },
+  "convertQuality": "Quality",
+  "convertOnlyIfSmaller": "Keep the original when WebP is not smaller",
+  "convertSkipExistingWebp": "Leave existing WebP pages untouched",
+  "convertKeepComicInfo": "Keep ComicInfo.xml",
+  "originals": "Originals",
+  "originalsRenamed": "Originals are renamed to <name>_OLD.cbz.",
+  "originalsOverwritten": "Originals are overwritten with no backup.",
+  "parallelFiles": "Parallel files (0 = auto)",
+  "autoThreadsCapped8": "Automatic uses one worker per CPU core, capped at 8.",
+  "conversionResults": "Conversion results",
+  "allFilesConverted": "All files converted.",
+  "convertedCount": "{count} converted",
+  "@convertedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "keptPages": "{count} page(s) kept",
+  "@keptPages": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "failedCount": "{count} failed",
+  "@failedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "pagesToWebp": "{count} page(s) to WebP",
+  "@pagesToWebp": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "savedSize": "{size} saved",
+  "@savedSize": {
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "cbrSummary": "{count} CBR archive(s). ComicInfo.xml and non-image entries are dropped, images renumbered page_NNNN.*.",
+  "@cbrSummary": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "skipExistingTargets": "Skip existing .cbz targets",
+  "deleteCbrSource": "Delete the .cbr source after conversion",
+  "autoThreadsCapped4": "Automatic uses one worker per CPU core, capped at 4.",
+  "cbrResults": "CBR → CBZ results",
+  "allDone": "All done.",
+  "skippedCount": "{count} skipped",
+  "@skippedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "pagesCount": "{count} page(s)",
+  "@pagesCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "batchEditTitle": "Batch edit — {count} file(s)",
+  "@batchEditTitle": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "resizePercent": "Resize %",
+  "splitPages": "Split pages",
+  "splitStatus": "{lines} line(s) → {pieces} pieces",
+  "@splitStatus": {
+    "placeholders": {
+      "lines": {
+        "type": "int"
+      },
+      "pieces": {
+        "type": "int"
+      }
+    }
+  },
+  "off": "Off",
+  "rows": "Rows",
+  "columns": "Columns",
+  "lines": "Lines",
+  "backupOriginals": "Backup originals (_OLD.cbz)",
+  "grayscale": "Grayscale",
+  "sepia": "Sepia",
+  "invert": "Invert",
+  "brightness": "Brightness",
+  "contrast": "Contrast",
+  "saturation": "Saturation",
+  "gamma": "Gamma",
+  "rGain": "R gain",
+  "gGain": "G gain",
+  "bGain": "B gain",
+  "mergeTitle": "Merge chapters into volumes",
+  "seriesLabel": "Series: {name}",
+  "@seriesLabel": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "chapterFrom": "Chapter from",
+  "chapterTo": "Chapter to (empty = all)",
+  "autoCpv": "Automatic chapters per volume",
+  "calculatedCpv": "Calculated: {cpv}",
+  "@calculatedCpv": {
+    "placeholders": {
+      "cpv": {
+        "type": "String"
+      }
+    }
+  },
+  "noExistingVolumesDefault": "No existing volumes — default {cpv}",
+  "@noExistingVolumesDefault": {
+    "placeholders": {
+      "cpv": {
+        "type": "int"
+      }
+    }
+  },
+  "chaptersPerVolume": "Chapters per volume",
+  "forceRemaining": "Force remaining chapters into last volume",
+  "generateComicInfoPerVolume": "Generate ComicInfo.xml per volume",
+  "parallelVolumes": "Parallel volumes (0 = auto)",
+  "customSequence": "Custom sequence…",
+  "sequenceValue": "Sequence: {list}",
+  "@sequenceValue": {
+    "placeholders": {
+      "list": {
+        "type": "String"
+      }
+    }
+  },
+  "preview": "Preview",
+  "nothingToMerge": "Nothing to merge.",
+  "volumesWillBeCreated": "{count} volume(s) will be created",
+  "@volumesWillBeCreated": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "volumeAndChapters": "{name} — {count} chapter(s)",
+  "@volumeAndChapters": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "merge": "Merge",
+  "customSequenceTitle": "Custom sequence",
+  "sequenceSummary": "{chapters} chapters, {assigned} assigned, {remaining} to go",
+  "@sequenceSummary": {
+    "placeholders": {
+      "chapters": {
+        "type": "int"
+      },
+      "assigned": {
+        "type": "int"
+      },
+      "remaining": {
+        "type": "int"
+      }
+    }
+  },
+  "nextVolume": "Next vol.",
+  "addVolume": "Add volume",
+  "useSequence": "Use sequence",
+  "comicInfoTitle": "ComicInfo — {name}",
+  "@comicInfoTitle": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "seriesField": "Series",
+  "numberField": "Number",
+  "volumeField": "Volume",
+  "titleField": "Title",
+  "countField": "Count",
+  "writerField": "Writer",
+  "pencillerField": "Penciller",
+  "publisherField": "Publisher",
+  "genreField": "Genre",
+  "yearField": "Year",
+  "monthField": "Month",
+  "dayField": "Day",
+  "pageCountField": "Page count",
+  "communityRatingField": "Community rating",
+  "languageIsoField": "Language ISO",
+  "mangaField": "Manga",
+  "ageRatingField": "Age rating",
+  "webField": "Web",
+  "summaryField": "Summary",
+  "editPageTitle": "Edit page",
+  "cannotDecodePage": "Cannot decode {name}.",
+  "@cannotDecodePage": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "editPageName": "Edit {name}",
+  "@editPageName": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "size": "Size",
+  "width": "Width",
+  "height": "Height",
+  "keepAspectRatio": "Keep aspect ratio",
+  "splitPage": "Split page",
+  "piecesCount": "{count} pieces",
+  "@piecesCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "linesCount": "{count} line(s)",
+  "@linesCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "cutHint": "Tap the preview to add a cut, drag to move it, long-press to remove.",
+  "outputLine": "Output: {ext} ({pages})",
+  "@outputLine": {
+    "placeholders": {
+      "ext": {
+        "type": "String"
+      },
+      "pages": {
+        "type": "String"
+      }
+    }
+  },
+  "onePage": "1 page",
+  "manyPages": "{count} pages",
+  "@manyPages": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "changesSaved": "Changes saved",
+  "pageNumberLabel": "Page {number}",
+  "@pageNumberLabel": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "pendingChanges": "{count} pending change(s)",
+  "@pendingChanges": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "validationResults": "Validation results",
+  "validCount": "{count} valid",
+  "@validCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "failedWithErrors": "{count} with errors",
+  "@failedWithErrors": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "allArchivesValid": "All archives are valid.",
+  "pageErrors": "{count} page error(s)",
+  "@pageErrors": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "copyReport": "Copy report",
+  "reportHeader": "Validation report — {count} file(s): {valid} ok, {failed} failed",
+  "@reportHeader": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "valid": {
+        "type": "int"
+      },
+      "failed": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsTitle": "Settings",
+  "appearance": "Appearance",
+  "system": "System",
+  "light": "Light",
+  "dark": "Dark",
+  "language": "Language",
+  "english": "English",
+  "italian": "Italiano",
+  "defaultThreads": "Default threads (0 = auto)",
+  "convertLabel": "Convert",
+  "mergeLabel": "Merge",
+  "cbrLabel": "CBR",
+  "keepBackupsByDefault": "Keep _OLD backups by default",
+  "addImageTitle": "Add image from internet",
+  "source": "Source",
+  "searchHint": "Search (or paste an image URL)",
+  "noResultsYet": "No results yet",
+  "downloadFailed": "Download failed: {error}",
+  "@downloadFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "providerAll": "All sources",
+  "providerMangaDex": "MangaDex (manga volumes)",
+  "providerOpenverse": "Openverse",
+  "providerWikimedia": "Wikimedia Commons",
+  "providerOpenLibrary": "Open Library",
+  "providerArtInstitute": "Art Institute of Chicago",
+  "providerMet": "The Met",
+  "providerCleveland": "Cleveland Museum of Art",
+  "providerWellcome": "Wellcome Collection",
+  "providerNasa": "NASA Images",
+  "providerUrl": "Paste a URL",
+  "errNoImages": "No images found",
+  "errImageDecode": "Image could not be decoded",
+  "errNotZip": "Not a valid ZIP archive",
+  "errNotEnoughChapters": "Not enough chapters for a full volume",
+  "errNoMatchingChapters": "No matching chapter files found",
+  "errMergeCancelled": "Merge cancelled",
+  "errMergeRollback": "Error during merge — created volumes have been removed",
+  "errTargetExists": "Target exists — skipped",
+  "errUnreadableCbr": "Unable to read CBR archive",
+  "errEmptyResponse": "Empty response",
+  "errImageTooLarge": "Image exceeds 20 MB",
+  "errFailedToWrite": "Failed to write",
+  "errCouldNotDecodePage": "Page {name} could not be decoded",
+  "@errCouldNotDecodePage": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "errInvalid": "Invalid",
+  "cancelling": "Cancelling…",
+  "cancellationRequested": "Cancellation requested",
+  "progressEdited": "Edited {done}/{total}",
+  "@progressEdited": {
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "progressConverted": "Converted {done}/{total}",
+  "@progressConverted": {
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "progressBuildingVolumes": "Building volumes ({done}/{total})",
+  "@progressBuildingVolumes": {
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "host": "Host",
+  "share": "Share",
+  "userOptional": "User (optional)",
+  "passwordOptional": "Password (optional)",
+  "required": "Required",
+  "connect": "Connect"
+}

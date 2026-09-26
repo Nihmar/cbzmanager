@@ -9,6 +9,7 @@ uses
   {$IFDEF HASAMIGA}
   athreads,
   {$ENDIF}
+  uheadlesscmd, // sets the offscreen Qt platform for CLI runs, before LCL
   Interfaces, // this includes the LCL widgetset
   Forms,
   main,

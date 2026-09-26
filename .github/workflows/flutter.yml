@@ -1,0 +1,172 @@
+name: flutter
+
+on:
+  push:
+    paths:
+      - 'flutter/**'
+      - '.github/workflows/flutter.yml'
+  pull_request:
+    paths:
+      - 'flutter/**'
+      - '.github/workflows/flutter.yml'
+
+defaults:
+  run:
+    working-directory: flutter/app
+
+jobs:
+  analyze-test:
+    name: Analyze & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Dependencies
+        run: flutter pub get
+
+      - name: Format
+        run: dart format --output=none --set-exit-if-changed lib bin test
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test --reporter expanded
+
+  smb-live:
+    name: SMB live tests
+    runs-on: ubuntu-latest
+    needs: analyze-test
+    services:
+      samba:
+        # Pinned digest of dperson/samba:latest (validated locally against the
+        # same image; the test recipe below reproduces it).
+        image: dperson/samba@sha256:66088b78a19810dd1457a8f39340e95e663c728083efa5fe7dc0d40b2478e869
+        ports:
+          - '445:445'
+        env:
+          USER: 'test;testpass'
+          # name;path;browse;readonly;guest;users;writelist
+          SHARE: 'books;/books;yes;no;no;test;test'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang cmake ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev libarchive-dev libwebp-dev
+
+      - name: Dependencies
+        run: flutter pub get
+
+      # dart_smb2's libsmb2.so is downloaded by the package's CMake during a
+      # Linux build (it is not in the pub.dev tarball) and copied into the
+      # bundle; flutter_tester finds it through LD_LIBRARY_PATH.
+      - name: Build Linux (fetches libsmb2 for the test runner)
+        run: flutter build linux --release
+
+      - name: Live SMB round-trip
+        run: |
+          CBZ_SMB_TEST=1 \
+          CBZ_SMB_HOST=127.0.0.1 \
+          CBZ_SMB_SHARE=books \
+          CBZ_SMB_USER=test \
+          CBZ_SMB_PASSWORD=testpass \
+          LD_LIBRARY_PATH="$PWD/build/linux/x64/release/bundle/lib" \
+          flutter test test/smb/smb_vfs_test.dart
+
+  build-linux:
+    name: Build (Linux)
+    runs-on: ubuntu-latest
+    needs: analyze-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang cmake ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev libarchive-dev libwebp-dev
+
+      - name: Dependencies
+        run: flutter pub get
+
+      - name: Build release bundle
+        run: flutter build linux --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cbzmanager-linux
+          path: flutter/app/build/linux/x64/release/bundle
+
+  build-android:
+    name: Build (Android)
+    runs-on: ubuntu-latest
+    needs: analyze-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Dependencies
+        run: flutter pub get
+
+      # The runner image ships the Android SDK with the licences accepted;
+      # android-actions/setup-android@v3 fails on current images
+      # ("Wrong version in preinstalled sdkmanager").  Build directly.
+      - name: Build debug APK
+        run: flutter build apk --debug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cbzmanager-android-debug
+          path: flutter/app/build/app/outputs/flutter-apk/app-debug.apk
+
+  build-windows:
+    name: Build (Windows)
+    runs-on: windows-latest
+    needs: analyze-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Dependencies
+        run: flutter pub get
+
+      - name: Build release
+        run: flutter build windows --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cbzmanager-windows
+          path: flutter/app/build/windows/x64/runner/Release

@@ -168,7 +168,12 @@ function MergeIntoVolume(const SourceFiles: TStringArray; const ADir: string;
   Returns True if the file was modified.
   The parameters control the quality and the conversion options.
   SkipExistingWebP: if True, pages already in .webp format are left
-  intact; if False they are decoded and re-encoded at the chosen quality.
+  intact (only renumbered); if False they are decoded and re-encoded at
+  the chosen quality.
+  Non-image entries are dropped (house policy, same as merge and the page
+  filter) and never renamed to page_NNNN.ext; only ComicInfo.xml is
+  preserved, in place and without consuming a page number, when
+  RemoveComicInfo is False.
   AThreads controls decode/encode parallelism: 0 = automatic (CPU count,
   capped at 8), 1 = sequential.  Every worker holds one full-resolution
   image in RAM, so the pool multiplies the peak memory of a single page.
@@ -200,7 +205,8 @@ uses
   uImgUtil,
   uWebP,
   uLog,
-  uarchive;
+  uarchive,
+  uservicepool;
 
 type
   { One conversion slot per source entry, filled by a pool worker and read
@@ -214,35 +220,34 @@ type
   end;
   TConvertSlots = array of TConvertSlot;
 
-  { Shared state of a WebP conversion pool: the job list, the slots, the
-    claim counter and the progress callback.  All mutable fields are
-    guarded by Lock; the pool owner creates it and frees it after join. }
-  TConvertPoolState = class
-    Lock: TRTLCriticalSection;
+  { Shared state of a WebP conversion pool: the job list, the slots and the
+    progress callback.  The claim counter lives in TIndexPool; each worker
+    writes only Slots[Idx] for the Idx it claimed, so slot writes need no
+    lock.  The first worker exception is recorded in Error and stops further
+    claiming: the file fails as a whole, mirroring the sequential path. }
+  TConvertPoolState = class(TIndexPool)
+  public
     Entries: TZipEntries;        { read-only source data }
     Slots: TConvertSlots;        { one writer per index }
     Work: array of integer;      { indices of convertible entries }
-    Next: integer;               { next index into Work (under Lock) }
     Completed: integer;          { finished jobs (under Lock) }
     Quality: integer;
     BaseName: string;            { ExtractFileName(FileName), for messages }
     OnProgress: TServiceProgressEvent;
     Error: string;               { first worker exception (under Lock) }
-    constructor Create;
-    destructor Destroy; override;
+    function CreateWorker: TIndexPoolWorker; override;
   end;
 
-  { Pool worker: claims convertible entry indices under the shared lock and
-    decodes + WebP-encodes each one into its own slot.  DecodeImage and
-    IntfImageToWebP are stateless per call, so workers never share mutable
-    state except the pool fields above.  Progress is reported per finished
-    job, serialized by the lock (a callback may itself block, e.g. the
-    service thread's Synchronize). }
-  TWebPConvertWorker = class(TThread)
+  { Pool worker: decodes + WebP-encodes claimed convertible entries into
+    their own slots.  DecodeImage and IntfImageToWebP are stateless per
+    call, so workers never share mutable state except the pool fields above.
+    Progress is reported per finished job, serialized by the lock (a
+    callback may itself block, e.g. the service thread's Synchronize). }
+  TWebPConvertWorker = class(TIndexPoolWorker)
   private
     FPool: TConvertPoolState;
   protected
-    procedure Execute; override;
+    procedure ProcessIndex(Pos: integer); override;
   public
     constructor Create(APool: TConvertPoolState);
   end;
@@ -739,101 +744,64 @@ begin
   end;
 end;
 
-{ Shared state of a validation pool: the source entries, per-source-index
-  check slots and the claim counter.  Mutable fields are guarded by Lock;
+{ Shared state of a validation pool: the source entries, the work list and
+  the per-source-index check slots.  The claim counter lives in TIndexPool;
   each worker writes only Checks[Idx] with the Idx it claimed, so slot
   writes need no lock. }
 type
-  TValidatePoolState = class
-  Lock: TRTLCriticalSection;
-  Entries: TZipEntries;        { read-only source data }
-  Checks: TImageChecks;        { per-source-index results }
-  Work: array of integer;      { indices of image entries }
-  Next: integer;               { next index into Work (under Lock) }
-  Completed: integer;          { finished entries (under Lock) }
-  BaseName: string;            { ExtractFileName(FileName), for messages }
-  OnProgress: TServiceProgressEvent;
-  constructor Create;
-  destructor Destroy; override;
-end;
+  TValidatePoolState = class(TIndexPool)
+  public
+    Entries: TZipEntries;        { read-only source data }
+    Checks: TImageChecks;        { per-source-index results }
+    Work: array of integer;      { indices of image entries }
+    function CreateWorker: TIndexPoolWorker; override;
+  end;
 
-{ Pool worker: claims the next image-entry index under the lock, decodes
-  it and writes the TImageCheck into its own slot.  DecodeImage is
-  stateless per call and never raises (failures become Valid=False
-  checks), so workers share nothing but the pool fields. }
-TValidateWorker = class(TThread)
+{ Pool worker: decodes the claimed work position and writes the TImageCheck
+  into its own slot.  DecodeImage is stateless per call and never raises
+  (failures become Valid=False checks), so workers share nothing but the
+  pool fields. }
+TValidateWorker = class(TIndexPoolWorker)
 private
   FPool: TValidatePoolState;
 protected
-  procedure Execute; override;
+  procedure ProcessIndex(Pos: integer); override;
 public
   constructor Create(APool: TValidatePoolState);
 end;
 
-constructor TValidatePoolState.Create;
+function TValidatePoolState.CreateWorker: TIndexPoolWorker;
 begin
-  inherited Create;
-  InitCriticalSection(Lock);
-end;
-
-destructor TValidatePoolState.Destroy;
-begin
-  DoneCriticalSection(Lock);
-  inherited Destroy;
+  Result := TValidateWorker.Create(Self);
 end;
 
 constructor TValidateWorker.Create(APool: TValidatePoolState);
 begin
-  { Created suspended: the caller Start()s every worker before joining. }
-  inherited Create(True);
+  inherited Create(APool);
   FPool := APool;
 end;
 
-{ TValidateWorker.Execute
+{ TValidateWorker.ProcessIndex
 
-  Claims the next image-entry index under the pool lock, decodes the entry
-  (DecodeImage never raises — a failed decode is a Valid=False check) and
-  writes the result into its own slot.  Progress is reported per finished
-  entry, serialized by the lock, monotonic via the completed counter. }
-procedure TValidateWorker.Execute;
+  Decodes one claimed work position (DecodeImage never raises — a failed
+  decode is a Valid=False check) and writes the result into its own slot. }
+procedure TValidateWorker.ProcessIndex(Pos: integer);
 var
   Idx: integer;
   Img: TLazIntfImage;
 begin
-  while True do
+  Idx := FPool.Work[Pos];
+  FPool.Checks[Idx].EntryName := FPool.Entries[Idx].Name;
+  Img := DecodeImage(FPool.Entries[Idx].Data,
+    ExtractFileExt(FPool.Entries[Idx].Name));
+  FPool.Checks[Idx].Valid := Img <> nil;
+  if Img <> nil then
   begin
-    EnterCriticalSection(FPool.Lock);
-    try
-      if FPool.Next >= Length(FPool.Work) then Exit;
-      Idx := FPool.Work[FPool.Next];
-      Inc(FPool.Next);
-    finally
-      LeaveCriticalSection(FPool.Lock);
-    end;
-
-    FPool.Checks[Idx].EntryName := FPool.Entries[Idx].Name;
-    Img := DecodeImage(FPool.Entries[Idx].Data,
-      ExtractFileExt(FPool.Entries[Idx].Name));
-    FPool.Checks[Idx].Valid := Img <> nil;
-    if Img <> nil then
-    begin
-      FPool.Checks[Idx].ErrorMsg := '';
-      Img.Free;
-    end
-    else
-      FPool.Checks[Idx].ErrorMsg := 'Image decode failed';
-
-    EnterCriticalSection(FPool.Lock);
-    try
-      Inc(FPool.Completed);
-      if Assigned(FPool.OnProgress) then
-        FPool.OnProgress((FPool.Completed * 100) div Length(FPool.Work),
-          Format('%s — entry %d/%d (%s)', [FPool.BaseName, Idx + 1,
-            Length(FPool.Entries), FPool.Entries[Idx].Name]));
-    finally
-      LeaveCriticalSection(FPool.Lock);
-    end;
-  end;
+    FPool.Checks[Idx].ErrorMsg := '';
+    Img.Free;
+  end
+  else
+    FPool.Checks[Idx].ErrorMsg := 'Image decode failed';
 end;
 
 function ValidateCBZImages(const FileName: string;
@@ -844,8 +812,7 @@ var
   Img: TLazIntfImage;
   Pool: TValidatePoolState;
   Checks: TImageChecks;
-  Workers: array of TValidateWorker;
-  Started: boolean;
+  Work: array of integer;
 begin
   ImageResults := nil;
   Result := 0;
@@ -876,46 +843,37 @@ begin
     end;
 
     { Phase 1 — decode every image entry into its slot, in parallel. }
-    Pool := TValidatePoolState.Create;
-    Workers := nil;
-    Started := False;
+    Work := nil;
+    for i := 0 to High(AllEntries) do
+      if IsImageExt(ExtractFileExt(AllEntries[i].Name)) then
+      begin
+        SetLength(Work, Length(Work) + 1);
+        Work[High(Work)] := i;
+      end;
+
+    Pool := TValidatePoolState.Create(Length(Work));
     try
       Pool.Entries := AllEntries;
-      Pool.BaseName := ExtractFileName(FileName);
-      for i := 0 to High(AllEntries) do
-        if IsImageExt(ExtractFileExt(AllEntries[i].Name)) then
-        begin
-          SetLength(Pool.Work, Length(Pool.Work) + 1);
-          Pool.Work[High(Pool.Work)] := i;
-        end;
-
+      Pool.Work := Work;
       { Allocate the slots up front — phase 2 indexes them by source entry
         even when no entry is an image. }
       SetLength(Pool.Checks, Length(AllEntries));
-      if Length(Pool.Work) > 0 then
+      if Length(Work) > 0 then
       begin
         ThreadCount := AThreads;
         if ThreadCount <= 0 then
           ThreadCount := Min(OnlineCpuCount, MAX_WEBP_CONVERT_THREADS);
-        ThreadCount := Min(ThreadCount, Length(Pool.Work));
+        ThreadCount := Min(ThreadCount, Length(Work));
 
         if ThreadCount > 1 then
-        begin
-          SetLength(Workers, ThreadCount);
-          for i := 0 to ThreadCount - 1 do
-            Workers[i] := TValidateWorker.Create(Pool);
-          Started := True;
-          for i := 0 to ThreadCount - 1 do
-            Workers[i].Start;
-        end
+          Pool.Run(ThreadCount)
         else
         begin
-          { Single entry (or explicitly sequential): claim and decode
-            inline — same slot semantics as the pool path. }
-          while Pool.Next < Length(Pool.Work) do
+          { Single entry (or explicitly sequential): decode inline — same
+            slot semantics as the pool path. }
+          for i := 0 to High(Work) do
           begin
-            Idx := Pool.Work[Pool.Next];
-            Inc(Pool.Next);
+            Idx := Work[i];
             Pool.Checks[Idx].EntryName := AllEntries[Idx].Name;
             Img := DecodeImage(AllEntries[Idx].Data,
               ExtractFileExt(AllEntries[Idx].Name));
@@ -927,23 +885,10 @@ begin
             end
             else
               Pool.Checks[Idx].ErrorMsg := 'Image decode failed';
-            Inc(Pool.Completed);
-            if Assigned(Pool.OnProgress) then
-              Pool.OnProgress((Pool.Completed * 100) div Length(Pool.Work),
-                Format('%s — entry %d/%d (%s)', [Pool.BaseName, Idx + 1,
-                  Length(AllEntries), AllEntries[Idx].Name]));
           end;
         end;
       end;
     finally
-      { Join and free the workers here — also covers a mid-spawn failure,
-        where only the created (started) workers must be waited for. }
-      if Started then
-        for i := 0 to High(Workers) do
-          Workers[i].WaitFor;
-      for i := 0 to High(Workers) do
-        if Workers[i] <> nil then
-          Workers[i].Free;
       { Keep a refcounted reference to the check slots: phase 2 reads them
         after the pool object itself is freed. }
       Checks := Pool.Checks;
@@ -1009,84 +954,64 @@ begin
   end;
 end;
 
-constructor TConvertPoolState.Create;
+function TConvertPoolState.CreateWorker: TIndexPoolWorker;
 begin
-  inherited Create;
-  InitCriticalSection(Lock);
-end;
-
-destructor TConvertPoolState.Destroy;
-begin
-  DoneCriticalSection(Lock);
-  inherited Destroy;
+  Result := TWebPConvertWorker.Create(Self);
 end;
 
 constructor TWebPConvertWorker.Create(APool: TConvertPoolState);
 begin
-  { Created suspended: the caller Start()s every worker before joining. }
-  inherited Create(True);
+  inherited Create(APool);
   FPool := APool;
 end;
 
-{ TWebPConvertWorker.Execute
+{ TWebPConvertWorker.ProcessIndex
 
-  Claims the next convertible entry index under the pool lock, then
-  decodes + WebP-encodes it into its own slot (each index is claimed
-  exactly once, so the slot write needs no lock).  Progress is reported
-  per finished job, serialized by the lock — the callback may itself
-  block (e.g. TServiceThread.Progress uses a blocking Synchronize), so it
-  must never be entered concurrently.  The reported percentage derives
-  from the completed-job counter, which makes the sequence monotonic even
-  though jobs finish out of order.
+  Decodes + WebP-encodes the claimed work position into its own slot (each
+  index is claimed exactly once, so the slot write needs no lock).  Progress
+  is reported per finished job, serialized by the pool lock — the callback
+  may itself block (e.g. TServiceThread.Progress uses a blocking
+  Synchronize), so it must never be entered concurrently.  The reported
+  percentage derives from the completed-job counter, which makes the
+  sequence monotonic even though jobs finish out of order.
 
-  When any job raises, the first error is recorded and every worker stops
+  When the job raises, the first error is recorded and every worker stops
   claiming new work: the file fails as a whole, mirroring the sequential
   path's exception propagation. }
-procedure TWebPConvertWorker.Execute;
+procedure TWebPConvertWorker.ProcessIndex(Pos: integer);
 var
   Idx: integer;
   Stream: TMemoryStream;
 begin
-  while True do
-  begin
-    EnterCriticalSection(FPool.Lock);
-    try
-      if FPool.Error <> '' then Exit;
-      if FPool.Next >= Length(FPool.Work) then Exit;
-      Idx := FPool.Work[FPool.Next];
-      Inc(FPool.Next);
-    finally
-      LeaveCriticalSection(FPool.Lock);
-    end;
-
-    try
-      Stream := EncodeEntryAsWebP(FPool.Entries[Idx],
-        ExtractFileExt(FPool.Entries[Idx].Name), FPool.Quality);
-      FPool.Slots[Idx].Data := Stream;
-    except
-      on E: Exception do
-      begin
-        EnterCriticalSection(FPool.Lock);
-        try
-          if FPool.Error = '' then
-            FPool.Error := Format('%s: %s', [FPool.Entries[Idx].Name, E.Message]);
-        finally
-          LeaveCriticalSection(FPool.Lock);
-        end;
-        Exit;
+  Idx := FPool.Work[Pos];
+  try
+    Stream := EncodeEntryAsWebP(FPool.Entries[Idx],
+      ExtractFileExt(FPool.Entries[Idx].Name), FPool.Quality);
+    FPool.Slots[Idx].Data := Stream;
+  except
+    on E: Exception do
+    begin
+      FPool.LockPool;
+      try
+        if FPool.Error = '' then
+          FPool.Error := Format('%s: %s', [FPool.Entries[Idx].Name, E.Message]);
+      finally
+        FPool.UnlockPool;
       end;
+      FPool.RequestStop;
+      Exit;
     end;
+  end;
 
-    EnterCriticalSection(FPool.Lock);
-    try
-      Inc(FPool.Completed);
-      if Assigned(FPool.OnProgress) then
-        FPool.OnProgress((FPool.Completed * 100) div Length(FPool.Work),
-          Format('%s — entry %d/%d (%s)', [FPool.BaseName, Idx + 1,
-            Length(FPool.Entries), FPool.Entries[Idx].Name]));
-    finally
-      LeaveCriticalSection(FPool.Lock);
-    end;
+  FPool.LockPool;
+  try
+    Inc(FPool.Completed);
+    if Assigned(FPool.OnProgress) then
+      FPool.OnProgress((FPool.Completed * 100) div Length(FPool.Work),
+        Format('%s — entry %d/%d (%s)', [FPool.BaseName, Idx + 1,
+          Length(FPool.Entries), FPool.Entries[Idx].Name]));
+  finally
+    FPool.UnlockPool;
   end;
 end;
 
@@ -1121,31 +1046,34 @@ function ConvertCBZToWebP(const FileName: string; Quality: integer;
     Result := FormatPageName(ANum, PAGE_PAD_DEFAULT, AExt);
   end;
 
-  { Keep original entry, applying renumber when requested }
-  procedure KeepOriginal(var Dest: TZipEntries; var Count: integer;
-  const Source: TZipEntryData; const Ext: string);
+  { Keep original entry, applying renumber when requested.  APageNum is the
+    1-based page number to use when RenumberPages is on; OutCount is the
+    independent output-slot counter (kept metadata does not consume a page
+    number). }
+  procedure KeepOriginal(var Dest: TZipEntries; var OutCount: integer;
+  APageNum: integer; const Source: TZipEntryData; const Ext: string);
   var
     NewName: string;
   begin
     if RenumberPages then
     begin
-      NewName := PageName(Count + 1, Ext);
+      NewName := PageName(APageNum, Ext);
       if NewName <> Source.Name then AModified := True;
-      KeepEntry(Dest, Count, NewName, Source);
+      KeepEntry(Dest, OutCount, NewName, Source);
     end
     else
-      KeepEntry(Dest, Count, Source.Name, Source);
+      KeepEntry(Dest, OutCount, Source.Name, Source);
   end;
 
 var
   AllEntries: TZipEntries;
-  i, PageNum, WorkCount, ThreadCount: integer;
+  i, PageNum, OutCount, WorkCount, ThreadCount: integer;
   Ext, BaseName: string;
   WebPData: TMemoryStream;
   Pool: TConvertPoolState;
   Slots: TConvertSlots;
-  Workers: array of TWebPConvertWorker;
-  Started: boolean;
+  Work: array of integer;
+  Pos: integer;
 begin
   Result := nil;
   NewEntryCount := 0;
@@ -1158,35 +1086,34 @@ begin
     { Phase 1 — decode + WebP-encode every convertible entry into its slot.
       Convertible means: a known raster format, or an existing .webp that
       must be re-encoded because SkipExistingWebP is off. }
-    Pool := TConvertPoolState.Create;
-    Workers := nil;
-    Started := False;
+    Work := nil;
+    for i := 0 to High(AllEntries) do
+    begin
+      Ext := ExtractFileExt(AllEntries[i].Name);
+      if SameText(Ext, EXT_WEBP) then
+      begin
+        if not SkipExistingWebP then
+        begin
+          SetLength(Work, Length(Work) + 1);
+          Work[High(Work)] := i;
+        end;
+      end
+      else if IsConvertibleExt(Ext) then
+      begin
+        SetLength(Work, Length(Work) + 1);
+        Work[High(Work)] := i;
+      end;
+    end;
+
+    Pool := TConvertPoolState.Create(Length(Work));
     try
       Pool.Entries := AllEntries;
       Pool.Quality := Quality;
       Pool.OnProgress := AOnProgress;
       Pool.BaseName := ExtractFileName(FileName);
       BaseName := Pool.BaseName;
-      Slots := nil;
-      for i := 0 to High(AllEntries) do
-      begin
-        Ext := ExtractFileExt(AllEntries[i].Name);
-        if SameText(Ext, EXT_WEBP) then
-        begin
-          if not SkipExistingWebP then
-          begin
-            SetLength(Pool.Work, Length(Pool.Work) + 1);
-            Pool.Work[High(Pool.Work)] := i;
-          end;
-        end
-        else if IsConvertibleExt(Ext) then
-        begin
-          SetLength(Pool.Work, Length(Pool.Work) + 1);
-          Pool.Work[High(Pool.Work)] := i;
-        end;
-      end;
-
-      WorkCount := Length(Pool.Work);
+      Pool.Work := Work;
+      WorkCount := Length(Work);
       if WorkCount > 0 then
       begin
         SetLength(Pool.Slots, Length(AllEntries));
@@ -1196,31 +1123,25 @@ begin
         ThreadCount := Min(ThreadCount, WorkCount);
 
         if ThreadCount > 1 then
-        begin
-          SetLength(Workers, ThreadCount);
-          for i := 0 to ThreadCount - 1 do
-            Workers[i] := TWebPConvertWorker.Create(Pool);
-          Started := True;
-          for i := 0 to ThreadCount - 1 do
-            Workers[i].Start;
-        end
+          Pool.Run(ThreadCount)
         else
         begin
-          { Single job (or explicitly sequential): claim and encode inline.
-            Same slot semantics and progress shape as the pool path, no
-            thread creation. }
-          while Pool.Next < Length(Pool.Work) do
+          { Single job (or explicitly sequential): encode inline.  Same slot
+            semantics and progress shape as the pool path, no thread
+            creation. }
+          for Pos := 0 to High(Work) do
           begin
-            i := Pool.Work[Pool.Next];
-            Inc(Pool.Next);
+            i := Work[Pos];
             try
               Pool.Slots[i].Data := EncodeEntryAsWebP(AllEntries[i],
                 ExtractFileExt(AllEntries[i].Name), Quality);
             except
               on E: Exception do
+              begin
                 Pool.Error := Format('%s: %s', [AllEntries[i].Name, E.Message]);
+                Break;
+              end;
             end;
-            if Pool.Error <> '' then Break;
             Inc(Pool.Completed);
             if Assigned(AOnProgress) then
               AOnProgress((Pool.Completed * 100) div WorkCount,
@@ -1240,14 +1161,6 @@ begin
         raise Exception.Create(Pool.Error);
       end;
     finally
-      { Join and free the workers here — also covers a mid-spawn failure,
-        where only the created (started) workers must be waited for. }
-      if Started then
-        for i := 0 to High(Workers) do
-          Workers[i].WaitFor;
-      for i := 0 to High(Workers) do
-        if Workers[i] <> nil then
-          Workers[i].Free;
       { Keep a refcounted reference to the slot array: phase 2 reads the
         encoded streams after the pool object itself is freed. }
       Slots := Pool.Slots;
@@ -1257,11 +1170,14 @@ begin
     { Phase 2 — sequential compaction and naming.  Deterministic: slots are
       read in archive order, so the output is byte-identical regardless of
       the thread count.  Progress for the cheap branches (ComicInfo, skips,
-      non-convertible formats) is reported here; convertible entries were
-      already reported by phase 1, so every entry ticks exactly once. }
+      dropped non-image entries) is reported here; convertible entries were
+      already reported by phase 1, so every entry ticks exactly once.
+      PageNum counts only image pages (a kept ComicInfo.xml does not consume
+      a page number), OutCount counts the result slots. }
     try
       SetLength(Result, Length(AllEntries));
       PageNum := 0;
+      OutCount := 0;
 
       for i := 0 to High(AllEntries) do
       begin
@@ -1274,7 +1190,7 @@ begin
           if RemoveComicInfo then
             AModified := True
           else
-            KeepEntry(Result, PageNum, COMICINFO_XML, AllEntries[i]);
+            KeepEntry(Result, OutCount, COMICINFO_XML, AllEntries[i]);
           if Assigned(AOnProgress) then
             AOnProgress((i * 100) div Length(AllEntries),
               Format('%s — entry %d/%d (%s)',
@@ -1290,7 +1206,8 @@ begin
         begin
           if SkipExistingWebP then
           begin
-            KeepOriginal(Result, PageNum, AllEntries[i], Ext);
+            Inc(PageNum);
+            KeepOriginal(Result, OutCount, PageNum, AllEntries[i], Ext);
             if Assigned(AOnProgress) then
               AOnProgress((i * 100) div Length(AllEntries),
                 Format('%s — entry %d/%d (%s)',
@@ -1300,10 +1217,11 @@ begin
             Continue;
           end;
         end
-        { --- Other non-convertible formats: always keep as-is --- }
+        { --- Non-image entries: dropped (house policy, same as merge and
+              the page filter), never renamed to page_NNNN.txt. --- }
         else if not IsConvertibleExt(Ext) then
         begin
-          KeepOriginal(Result, PageNum, AllEntries[i], Ext);
+          AModified := True;
           if Assigned(AOnProgress) then
             AOnProgress((i * 100) div Length(AllEntries),
               Format('%s — entry %d/%d (%s)',
@@ -1316,28 +1234,29 @@ begin
         { --- Use the phase-1 result --- }
         WebPData := Slots[i].Data;
         Slots[i].Data := nil;
+        Inc(PageNum);
 
         if (WebPData = nil) or (ReplaceOnlyIfSmaller and
           (WebPData.Size >= AllEntries[i].Data.Size)) then
         begin
           WebPData.Free;
-          KeepOriginal(Result, PageNum, AllEntries[i], Ext);
+          KeepOriginal(Result, OutCount, PageNum, AllEntries[i], Ext);
         end
         else
         begin
           AModified := True;
           Inc(AConvertedCount);
           if RenumberPages then
-            AdoptEntry(Result, PageNum, PageName(PageNum + 1, EXT_WEBP), WebPData)
+            AdoptEntry(Result, OutCount, PageName(PageNum, EXT_WEBP), WebPData)
           else
-            AdoptEntry(Result, PageNum, AllEntries[i].Name, WebPData);
+            AdoptEntry(Result, OutCount, AllEntries[i].Name, WebPData);
         end;
         FreeAndNil(AllEntries[i].Data);
       end;
 
       { Trim result to actual used entries }
-      SetLength(Result, PageNum);
-      NewEntryCount := PageNum;
+      SetLength(Result, OutCount);
+      NewEntryCount := OutCount;
     except
       { Free the streams still waiting in their slots: consumed ones were
         either adopted into Result (freed below) or already freed. }

@@ -197,7 +197,7 @@ type
 implementation
 
 uses
-  Math, StrUtils, ucomicinfo;
+  Math, StrUtils, ucomicinfo, uservicepool;
 
 { Extracts the chapter-number portion of a filename as a raw string,
   preserving leading zeros and any formatting.
@@ -706,110 +706,91 @@ end;
 
 type
   { Shared state of a merge pool: the pre-planned batches, the per-batch
-    Wrote flags and the claim counter.  Mutable fields are guarded by
-    Lock; each worker writes only Wrote[Idx] with the Idx it claimed, so
-    slot writes need no lock.  The first worker exception is recorded in
+    Wrote flags and the progress state.  The claim counter lives in
+    TIndexPool; each worker writes only Wrote[Idx] with the Idx it claimed,
+    so slot writes need no lock.  The first worker exception is recorded in
     Error and stops further claiming; the caller rolls back every volume
     written in this run, mirroring the sequential path. }
-  TMergePoolState = class
-    Lock: TRTLCriticalSection;
+  TMergePoolState = class(TIndexPool)
+  public
     Batches: TMergeBatchArray;
     Dir: string;
     GenerateComicInfo: boolean;
     SeriesName: string;
     Wrote: array of boolean;
-    Next: integer;             { next batch index (under Lock) }
     Completed: integer;        { finished batches (under Lock) }
-    Total: integer;
     OnProgress: TServiceProgressEvent;
     Error: string;             { first worker exception (under Lock) }
-    constructor Create;
-    destructor Destroy; override;
+    { Shared translator for within-file progress (may be nil). }
+    Progress: TLockedProgress;
+    function CreateWorker: TIndexPoolWorker; override;
   end;
 
-  { Pool worker: claims the next batch index under the lock, builds that
-    volume (the per-volume logic never shares mutable state — each call
-    owns its TUnZipper/TZipper instances), then reports progress —
-    serialized, monotonic via the completed counter. }
-  TMergeVolumeWorker = class(TThread)
+  { Pool worker: builds the claimed volume (the per-volume logic never
+    shares mutable state — each call owns its TUnZipper/TZipper
+    instances), then reports progress — serialized by the pool lock,
+    monotonic via the completed counter. }
+  TMergeVolumeWorker = class(TIndexPoolWorker)
   private
     FPool: TMergePoolState;
     FProgress: TLockedProgress;
   protected
-    procedure Execute; override;
+    procedure ProcessIndex(Idx: integer); override;
   public
     constructor Create(APool: TMergePoolState;
       AProgress: TLockedProgress);
   end;
 
-constructor TMergePoolState.Create;
+function TMergePoolState.CreateWorker: TIndexPoolWorker;
 begin
-  inherited Create;
-  InitCriticalSection(Lock);
-end;
-
-destructor TMergePoolState.Destroy;
-begin
-  DoneCriticalSection(Lock);
-  inherited Destroy;
+  Result := TMergeVolumeWorker.Create(Self, Progress);
 end;
 
 constructor TMergeVolumeWorker.Create(APool: TMergePoolState;
   AProgress: TLockedProgress);
 begin
-  { Created suspended: the caller Start()s every worker before joining. }
-  inherited Create(True);
+  inherited Create(APool);
   FPool := APool;
   FProgress := AProgress;
 end;
 
-procedure TMergeVolumeWorker.Execute;
+procedure TMergeVolumeWorker.ProcessIndex(Idx: integer);
 var
-  Idx: integer;
   W: boolean;
 begin
-  while True do
-  begin
-    EnterCriticalSection(FPool.Lock);
-    try
-      if (FPool.Error <> '') or (FPool.Next >= Length(FPool.Batches)) then Exit;
-      Idx := FPool.Next;
-      Inc(FPool.Next);
-    finally
-      LeaveCriticalSection(FPool.Lock);
-    end;
-
-    W := False;
-    try
-      BuildOneVolume(FPool.Batches[Idx], FPool.Dir,
-        FPool.GenerateComicInfo, FPool.SeriesName, @FProgress.Translate, W);
+  W := False;
+  try
+    BuildOneVolume(FPool.Batches[Idx], FPool.Dir,
+      FPool.GenerateComicInfo, FPool.SeriesName, @FProgress.Translate, W);
+    FPool.Wrote[Idx] := W;
+  except
+    on E: Exception do
+    begin
+      { W is True when the write itself failed (partial file on disk),
+        so the caller still rolls it back. }
       FPool.Wrote[Idx] := W;
-    except
-      on E: Exception do
-      begin
-        { W is True when the write itself failed (partial file on disk),
-          so the caller still rolls it back. }
-        FPool.Wrote[Idx] := W;
-        EnterCriticalSection(FPool.Lock);
-        try
-          if FPool.Error = '' then
-            FPool.Error := E.Message;
-        finally
-          LeaveCriticalSection(FPool.Lock);
-        end;
-        Exit;
+      FPool.LockPool;
+      try
+        if FPool.Error = '' then
+          FPool.Error := E.Message;
+      finally
+        FPool.UnlockPool;
       end;
+      { Stop every worker from claiming further batches, like the old
+        Error <> '' check at the top of the claim loop. }
+      FPool.RequestStop;
+      Exit;
     end;
+  end;
 
-    EnterCriticalSection(FPool.Lock);
-    try
-      Inc(FPool.Completed);
-      if Assigned(FPool.OnProgress) then
-        FPool.OnProgress((FPool.Completed * 100) div FPool.Total,
-          Format('Writing volume %d/%d', [FPool.Completed, FPool.Total]));
-    finally
-      LeaveCriticalSection(FPool.Lock);
-    end;
+  FPool.LockPool;
+  try
+    Inc(FPool.Completed);
+    if Assigned(FPool.OnProgress) then
+      FPool.OnProgress((FPool.Completed * 100) div FPool.Total,
+        Format('Writing volume %d/%d', [FPool.Completed, FPool.Total]));
+  finally
+    FPool.UnlockPool;
   end;
 end;
 
@@ -832,8 +813,6 @@ var
   W: boolean;
   Pool: TMergePoolState;
   Locked: TLockedProgress;
-  Workers: array of TMergeVolumeWorker;
-  Started: boolean;
 begin
   Result.Success := False;
   Result.VolumesCreated := 0;
@@ -994,45 +973,25 @@ begin
       { Parallel: a pool of volume workers claims pre-planned batches and
         writes each volume into its own preassigned file, so the output is
         byte-identical for any thread count. }
-      Pool := TMergePoolState.Create;
+      Pool := TMergePoolState.Create(Length(Batches));
       Locked := TLockedProgress.Create;
-      Workers := nil;
-      Started := False;
       try
         Pool.Batches := Batches;
         Pool.Dir := ADir;
         Pool.GenerateComicInfo := Options.GenerateComicInfo;
         Pool.SeriesName := SeriesName;
         Pool.Wrote := Wrote;
-        Pool.Total := Length(Batches);
         Pool.OnProgress := AOnProgress;
-        Locked.Lock := @Pool.Lock;
+        Locked.Lock := Pool.Lock;
         Locked.Inner := AOnProgress;
-        SetLength(Workers, ThreadCount);
-        try
-          for i := 0 to ThreadCount - 1 do
-            Workers[i] := TMergeVolumeWorker.Create(Pool, Locked);
-          Started := True;
-          for i := 0 to ThreadCount - 1 do
-            Workers[i].Start;
-          for i := 0 to High(Workers) do
-            Workers[i].WaitFor;
-          { Pool.Wrote shares its array reference with Wrote, so the worker
-            results are already visible — no copy-back needed.  A worker
-            failure fails the whole run, exactly like the sequential path's
-            exception propagation (rolled back below). }
-          if Pool.Error <> '' then
-            raise Exception.Create(Pool.Error);
-        finally
-          { Join and free the workers here — also covers a mid-spawn failure,
-            where only the created (started) workers must be waited for. }
-          if Started then
-            for i := 0 to High(Workers) do
-              Workers[i].WaitFor;
-          for i := 0 to High(Workers) do
-            if Workers[i] <> nil then
-              Workers[i].Free;
-        end;
+        Pool.Progress := Locked;
+        Pool.Run(ThreadCount);
+        { Pool.Wrote shares its array reference with Wrote, so the worker
+          results are already visible — no copy-back needed.  A worker
+          failure fails the whole run, exactly like the sequential path's
+          exception propagation (rolled back below). }
+        if Pool.Error <> '' then
+          raise Exception.Create(Pool.Error);
       finally
         Pool.Free;
         Locked.Free;

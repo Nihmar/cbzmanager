@@ -66,7 +66,7 @@ unit main;
   Thumbnails are stored at CacheW×CacheH (320×400) resolution in
   TLazIntfImageList instances (FFirstPages for the file list, FPagePreviews
   for the page list).  The zoom slider (ZoomScroll) rebuilds the TImageList
-  icons on-the-fly via RebuildThumbs.  A debounce timer (TimerDebounceZoom)
+  icons on-the-fly via the thumbnail strips.  A debounce timer
   prevents rapid rebuilds while the user drags the slider.
 
   Keyboard shortcuts
@@ -106,7 +106,9 @@ uses
   ubatchedit,
   uimageedit,
   uservicebase,
-  uselection;
+  uselection,
+  uselectioncontroller,
+  uthumbview;
 
 type
   {
@@ -276,14 +278,6 @@ type
       published: the .lfm streams it by name. }
     procedure LVFilesSelectItem(Sender: TObject; Item: TListItem;
       Selected: boolean);
-    { Re-applies the pending single-item selection on the next message-loop
-      tick, after the Qt6 widgetset's native press/release selection reconcile
-      has run.  See LVFilesMouseDown / LVFilesMouseUp. }
-    procedure ReassertPendingSelection(Data: PtrInt);
-    { Resolves the list item under a client-coordinate point, falling back to a
-      DisplayRect scan when the widgetset's GetItemAt returns nil (vsIcon on
-      Qt6).  Returns nil for empty space. }
-    function ItemAtPoint(ALV: TListView; X, Y: integer): TListItem;
     procedure LVPagesDragDrop(Sender, Source: TObject; X, Y: integer);
     procedure LVPagesDragOver(Sender, Source: TObject; X, Y: integer;
       State: TDragState; var Accept: boolean);
@@ -347,6 +341,12 @@ type
     FFirstPages: TLazIntfImageList;
     { Full-resolution cached images for the page-preview pane (all pages of one .cbz). }
     FPagePreviews: TLazIntfImageList;
+    { Thumbnail rendering and zoom, extracted from this unit: one strip per
+      list view plus the debounced slider controller.  Created in FormCreate,
+      freed in FormDestroy. }
+    FThumbFiles: TThumbnailStrip;
+    FThumbPages: TThumbnailStrip;
+    FZoom: TZoomController;
     { In-memory editing model }
     FPages: TPageStates;
     FBaseline: TPageStates;
@@ -355,33 +355,23 @@ type
     FPageFile: string;  // currently open CBZ file path
     FAddFrontSeq: integer;  // unique suffix for inserted frontispiece pages
     FJobMonitor: TfrmJobMonitor;  // non-modal job progress window
+    { Thread currently writing staged page edits, or nil.  It holds raw
+      pointers to FPages[].Data, so the preview must not be cleared and the
+      form must not be closed while it runs (FormCloseQuery / HidePreview /
+      OpenPreview).  Cleared in SaveChangesThreadTerminated (main thread). }
+    FSaveThread: TSaveChangesThread;
+    { Running service threads (validate / convert / merge / …).  Non-owning:
+      the threads self-free (FreeOnTerminate); this list only knows how many
+      operations are in flight so new ones and form close are refused. }
+    FActiveServices: TList;
     { Reusable non-modal floating window showing the selected page enlarged
       (opened with Space).  Owned by the form; hidden, not destroyed, on
       close so a later Space is instant. }
     FPageView: TdlgPageView;
-    { Shift+click anchors for Explorer-style multi-select (item index, -1 = none). }
-    FAnchorFiles: integer;
-    FAnchorPages: integer;
-    { Authoritative current selection for each list (item indices).  Maintained
-      by the click handlers so Ctrl+click toggling is deterministic regardless of
-      the order in which the native widgetset applies its own selection changes. }
-    FSelFiles: TIntegerDynArray;
-    FSelPages: TIntegerDynArray;
-    { The exact selection (item indices) and focus item to (re)apply after the
-      native widgetset finishes its own click/release selection reconcile.  The
-      list is stored by index (not a name) because no rebuild happens between the
-      two events, so the indices stay valid.  See LVFilesMouseDown / LVFilesMouseUp
-      / ReassertPendingSelection. }
-    FPendingSel: TIntegerDynArray;
-    FPendingFocus: integer;
-    { Message-loop ticks ReassertPendingSelection may still spend watching the
-      selection, and how many consecutive ticks it has already found it
-      untouched.  A widgetset runs its own click reconcile on whichever tick it
-      pleases, so rather than guess a fixed number of re-applies we watch until
-      the selection has stayed ours, giving up after the cap. }
-    FReassertTicks: integer;
-    FReassertStable: integer;
-    FPendingList: TListView;
+    { Explorer-style selection gestures for each list (Qt6-safe, see
+      uselectioncontroller).  Created in FormCreate, freed in FormDestroy. }
+    FSelectionFiles: TListSelectionController;
+    FSelectionPages: TListSelectionController;
     { Live modifier-key state tracked via OnKeyDown / OnKeyUp so that
       LVFilesMouseDown can detect Shift+Ctrl+click even when the Qt6
       widgetset drops ssShift from the mouse event's Shift parameter
@@ -407,8 +397,21 @@ type
     procedure BeginServiceThread(AThread: TThread; const AStatus: string;
       ATerminate: TNotifyEvent; AToolButton: TToolButton; AMenuItem: TMenuItem);
     { Re-enables the triggering controls and hides the progress indicator.
-      Called at the top of every service OnTerminate handler. }
-    procedure FinishServiceThread(AToolButton: TToolButton; AMenuItem: TMenuItem);
+      Called at the top of every service OnTerminate handler; unregisters
+      AThread from FActiveServices.  AThread may be nil in tests. }
+    procedure FinishServiceThread(AThread: TThread; AToolButton: TToolButton;
+      AMenuItem: TMenuItem);
+    { True while the staged-edit save thread is running. }
+    function SaveInProgress: boolean;
+    { True while a save or a service operation is running: the form refuses to
+      close, and new operations are refused, so no thread can outlive the
+      objects it touches. }
+    function Busy: boolean;
+    { Refuses to close the form while Busy — a close during a save would free
+      FPages[].Data under the save thread, and a close during a service would
+      fire OnTerminate/progress callbacks into a destroyed form.  Assigned to
+      OnCloseQuery in FormCreate. }
+    procedure FormCloseQuery(Sender: TObject; var CanClose: boolean);
     { Guard prologue shared by the service launchers: requires an open folder
       and at least one CBZ file.  Sets a status message and returns False when
       the operation cannot proceed. }
@@ -436,34 +439,16 @@ type
       page with the first piece and inserts the remaining pieces after it,
       then renumbers all visible pages.  Owns (and consumes) the result. }
     procedure ApplyPageEdit(Idx: integer; const AResult: TPageEditResult);
-    { Rebuilds ILPages at ASize from the in-memory FPages model (visible
-      pages only), keeping the thumbnails aligned with the page rows.  Used
-      by the zoom debounce timer — the FPagePreviews cache is no longer
-      index-aligned with FPages after edits/splits. }
-    procedure RebuildPagesThumbs(ASize: integer);
     { True while the open preview is a .cbr (RAR) archive: the page model
       is read-only and the conversion path is the only way to edit it. }
     function IsReadOnlyPreview: boolean;
     procedure RenderPages;
-    { Rebuild the authoritative FSelFiles / FSelPages and the anchor from
-      the list's live native state (used when the selection changed without
-      going through LVFilesMouseDown: keyboard navigation, Ctrl+A). }
-    procedure SyncAuthoritativeSelection(ALV: TListView);
-    { Store the shift+click anchor for the given list (-1 = none). }
-    procedure SetAnchor(ALV: TListView; AIndex: integer);
-    { Forget the pending re-assert. }
-    procedure ClearPendingSel;
-    { Record the selection to re-apply after the native reconcile and update the
-      authoritative FSelFiles / FSelPages so subsequent Ctrl+click toggles base
-      off our state, not the widgetset's. }
-    procedure SetPendingSel(ALV: TListView; const A: array of integer;
-      AFocus: integer);
+    { Selection controller for a list (LVPages gets the page one, everything
+      else the file one). }
+    function SelectionFor(ALV: TListView): TListSelectionController;
     procedure SetupLVFiles;
-    procedure SetupILFilesFirstPages;
-    procedure SetupILPages;
-    procedure SetupZoomScroll;
-    procedure RebuildThumbs(ALV: TListView; AIL: TImageList;
-      APages: TLazIntfImageList; ASize: integer);
+    { Zoom debounce elapsed: rebuild both thumbnail strips at ASize. }
+    procedure ZoomApplied(ASize: integer);
     { Collect file names from LvFiles. When AAll=True returns every file;
       otherwise returns selected files, or all files if none selected.
       Only files whose extension matches AExt are returned (default .cbz):
@@ -516,25 +501,6 @@ uses
 
   {$R *.lfm}
 
-const
-  { Zoom / thumbnail sizing.  The zoom slider value is the thumbnail width in
-    pixels; height is derived via ThumbHeight (uimgutil / PAGE_ASPECT_RATIO). }
-  THUMB_DEFAULT_SIZE = 128;   // initial thumbnail width and default zoom
-  THUMB_MIN_SIZE = 48;        // smallest width the zoom slider allows
-  THUMB_RENDER_FLOOR = 16;    // absolute lower bound when rendering thumbs
-  ZOOM_STEP = 32;             // width change per zoom-in / zoom-out step
-
-  { Selection re-assert (see ReassertPendingSelection).  In icon view both
-    widgetsets read a shift+click as a rectangular block spanning the visual
-    rows between their own anchor and the click, not as the contiguous range
-    we want, and each runs that reconcile on whichever message-loop tick it
-    likes.  Losing that race is not cosmetic: the file and page operations
-    act on the list view's real selection, so a stale block would be what
-    Delete deletes.  Watch the selection until it has stayed ours for STABLE
-    ticks in a row, and give up after MAX. }
-  REASSERT_STABLE_TICKS = 2;
-  REASSERT_MAX_TICKS = 30;
-
 resourcestring
   { Status-bar messages used from more than one handler. }
   RSOpenFolderFirst = 'Open a folder first';
@@ -558,16 +524,20 @@ begin
   Caption := 'CBZ Manager';
   FFirstPages := TLazIntfImageList.Create(True);
   FPagePreviews := TLazIntfImageList.Create(True);
-  FAnchorFiles := -1;
-  FAnchorPages := -1;
-  FPendingFocus := -1;
+  FSelectionFiles := TListSelectionController.Create(LVFiles);
+  FSelectionPages := TListSelectionController.Create(LVPages);
   FKeyShiftDown := False;
   FKeyCtrlDown := False;
+  FActiveServices := TList.Create;
+  { Refuse to close while a save/service thread is running: see Busy. }
+  OnCloseQuery := @FormCloseQuery;
   Application.AddOnIdleHandler(@AppIdle);
-  SetupILFilesFirstPages;
-  SetupILPages;
+  FThumbFiles := TThumbnailStrip.Create(LVFiles, ILFilesFirstPages);
+  FThumbPages := TThumbnailStrip.Create(LVPages, ILPages);
+  FZoom := TZoomController.Create(ZoomScroll, LblZoomVal, TimerDebounceZoom,
+    @ZoomApplied);
+  FZoom.Setup(CacheW, THUMB_DEFAULT_SIZE);
   SetupLVFiles;
-  SetupZoomScroll;
   HidePreview;
   SetFolderOpsEnabled(False);
   SetStatus(RSReady);
@@ -581,16 +551,49 @@ end;
 {
   FormDestroy
   -----------
-  Gracefully shuts down any running background threads before the form is
-  destroyed.  Terminate + WaitFor ensures the thread exits its Execute loop
-  cleanly.  The two TLazIntfImageList caches are freed explicitly (they are
-  not owned by the form).
+  Shuts down the background threads before the form is destroyed: their
+  OnTerminate/progress callbacks are detached (so nothing can call into the
+  destroyed form) and they are asked to terminate.  The threads are
+  FreeOnTerminate and are NOT waited on — their completion notification is
+  marshalled through the main thread's message queue, so a blocking WaitFor
+  here would deadlock; FormCloseQuery refuses a normal close while Busy, so
+  this path is only reached when the operation was already allowed to end.
+  The two TLazIntfImageList caches are freed explicitly (they are not owned
+  by the form).
 }
 procedure TfrmMain.FormDestroy(Sender: TObject);
 begin
+  OnCloseQuery := nil;
   Application.RemoveOnIdleHandler(@AppIdle);
+  { Detach callbacks before anything is freed: a running save thread must not
+    call UpdateProgress on a destroyed form (FormCloseQuery already refuses a
+    normal close while Busy, this is the belt-and-braces path).  FreeOnTerminate
+    threads are not waited on here. }
+  if FSaveThread <> nil then
+  begin
+    FSaveThread.OnTerminate := nil;
+    FSaveThread.DetachProgress;
+    FSaveThread.Terminate;
+    FSaveThread := nil;
+  end;
+  if FActiveServices <> nil then
+  begin
+    while FActiveServices.Count > 0 do
+    begin
+      TThread(FActiveServices.Last).OnTerminate := nil;
+      TThread(FActiveServices.Last).Terminate;
+      FActiveServices.Delete(FActiveServices.Count - 1);
+    end;
+    FActiveServices.Free;
+    FActiveServices := nil;
+  end;
   FreeLoadThread;
   FreePagesThread;
+  FSelectionFiles.Free;
+  FSelectionPages.Free;
+  FThumbFiles.Free;
+  FThumbPages.Free;
+  FZoom.Free;
   FFirstPages.Free;
   FPagePreviews.Free;
 end;
@@ -674,12 +677,12 @@ begin
     if PanelSingleFile.Visible then
     begin
       LVPages.SelectAll;
-      SyncAuthoritativeSelection(LVPages);
+      FSelectionPages.SyncFromNative;
     end
     else
     begin
       LVFiles.SelectAll;
-      SyncAuthoritativeSelection(LVFiles);
+      FSelectionFiles.SyncFromNative;
     end;
     Key := 0;
   end
@@ -772,6 +775,20 @@ end;
 procedure TfrmMain.BeginServiceThread(AThread: TThread; const AStatus: string;
   ATerminate: TNotifyEvent; AToolButton: TToolButton; AMenuItem: TMenuItem);
 begin
+  { One long operation at a time.  Two services can race on the same files,
+    and a service started while staged edits are being written would read a
+    half-saved archive; releasing the caller's (still suspended) thread here
+    keeps every launcher unchanged. }
+  if Busy then
+  begin
+    AThread.Free;
+    if SaveInProgress then
+      SetStatus('Save in progress — wait for it to finish first')
+    else
+      SetStatus('Another operation is already running');
+    Exit;
+  end;
+  FActiveServices.Add(AThread);
   SetStatus(AStatus);
   StatusProgress.Visible := True;
   if AToolButton <> nil then AToolButton.Enabled := False;
@@ -784,13 +801,39 @@ begin
   FJobMonitor.StartJob(AStatus);
 end;
 
-procedure TfrmMain.FinishServiceThread(AToolButton: TToolButton; AMenuItem: TMenuItem);
+procedure TfrmMain.FinishServiceThread(AThread: TThread; AToolButton: TToolButton;
+  AMenuItem: TMenuItem);
 begin
+  if (FActiveServices <> nil) and (AThread <> nil) then
+    FActiveServices.Remove(AThread);
   StatusProgress.Visible := False;
   if AToolButton <> nil then AToolButton.Enabled := True;
   if AMenuItem <> nil then AMenuItem.Enabled := True;
   if FJobMonitor <> nil then
     FJobMonitor.FinishJob;
+end;
+
+function TfrmMain.SaveInProgress: boolean;
+begin
+  Result := FSaveThread <> nil;
+end;
+
+function TfrmMain.Busy: boolean;
+begin
+  Result := SaveInProgress or ((FActiveServices <> nil) and
+    (FActiveServices.Count > 0));
+end;
+
+procedure TfrmMain.FormCloseQuery(Sender: TObject; var CanClose: boolean);
+begin
+  if Busy then
+  begin
+    CanClose := False;
+    if SaveInProgress then
+      SetStatus('Save in progress — wait for it to finish before closing')
+    else
+      SetStatus('Operation in progress — wait for it to finish before closing');
+  end;
 end;
 
 function TfrmMain.RequireFiles(AAll: boolean; out AFiles: TStringArray): boolean;
@@ -819,41 +862,6 @@ begin
 end;
 
 {
-  RebuildThumbs
-  -------------
-  Re-creates thumbnails for a given TListView + TImageList pair at the
-  requested size.  Used by the zoom debounce timer.
-
-  The procedure:
-  1. Detaches LargeImages from the ListView (otherwise the image list refuses
-     to clear while it is assigned).
-  2. Clears and resizes the TImageList.
-  3. Iterates the TLazIntfImageList, calls MakeThumb to produce a TBitmap at
-     the target size, adds it to the TImageList, then frees the bitmap.
-  4. Reattaches LargeImages.
-
-  BeginUpdate / EndUpdate suppress per-item repaints for performance.
-}
-procedure TfrmMain.RebuildThumbs(ALV: TListView; AIL: TImageList;
-  APages: TLazIntfImageList; ASize: integer);
-var
-  i: integer;
-begin
-  ALV.BeginUpdate;
-  try
-    ALV.LargeImages := nil;
-    AIL.Clear;
-    AIL.Width := ASize;
-    AIL.Height := ThumbHeight(ASize);
-    for i := 0 to APages.Count - 1 do
-      AppendThumb(AIL, APages[i]);
-    ALV.LargeImages := AIL;
-  finally
-    ALV.EndUpdate;
-  end;
-end;
-
-{
   RenderPages
   -----------
   Rebuilds the LVPages content from the in-memory FPages array, skipping
@@ -866,20 +874,14 @@ end;
 }
 procedure TfrmMain.RenderPages;
 var
-  i: integer;
+  i, ImageIdx: integer;
   It: TListItem;
-  Sz: integer;
 begin
   LVPages.BeginUpdate;
   try
     LVPages.Items.Clear;
-    FAnchorPages := -1;
-    FSelPages := nil;
-    LVPages.LargeImages := nil;
-    ILPages.Clear;
-    Sz := Max(THUMB_RENDER_FLOOR, ZoomScroll.Position);
-    ILPages.Width := Sz;
-    ILPages.Height := ThumbHeight(Sz);
+    FSelectionPages.Reset;
+    ImageIdx := 0;
     for i := 0 to High(FPages) do
     begin
       if FPages[i].Gone then Continue;
@@ -892,9 +894,14 @@ begin
         compacted view (Gone entries are skipped), so row index <> FPages
         index; consumers must map through Data, never assume they are equal. }
       It.Data := Pointer(PtrInt(i));
-      It.ImageIndex := AppendThumb(ILPages, FPages[i].Image);
+      { The strip renders the visible pages in the same order, so the n-th
+        visible row owns image n. }
+      It.ImageIndex := ImageIdx;
+      Inc(ImageIdx);
     end;
-    LVPages.LargeImages := ILPages;
+    { Renders from the model, not from FPagePreviews: after edits/splits the
+      cache is no longer index-aligned with FPages. }
+    FThumbPages.LoadFromModel(FPages, FZoom.RenderedSize);
   finally
     LVPages.EndUpdate;
   end;
@@ -911,25 +918,6 @@ begin
   LVPages.ReadOnly := True;
   LVPages.ViewStyle := vsIcon;
   LVPages.LargeImages := ILPages;
-end;
-
-procedure TfrmMain.SetupILFilesFirstPages;
-begin
-  ILFilesFirstPages.Width := THUMB_DEFAULT_SIZE;
-  ILFilesFirstPages.Height := ThumbHeight(THUMB_DEFAULT_SIZE);
-end;
-
-procedure TfrmMain.SetupILPages;
-begin
-  ILPages.Width := THUMB_DEFAULT_SIZE;
-  ILPages.Height := ThumbHeight(THUMB_DEFAULT_SIZE);
-end;
-
-procedure TfrmMain.SetupZoomScroll;
-begin
-  ZoomScroll.Min := THUMB_MIN_SIZE;
-  ZoomScroll.Max := CacheW;
-  ZoomScroll.Position := THUMB_DEFAULT_SIZE;
 end;
 
 {
@@ -1019,50 +1007,12 @@ end;
   ----------------------
   Debounce timer tick handler.  When the user drags the zoom slider we
   restart the timer on every Change event; only when the slider stops moving
-  for ~300 ms does the timer fire and rebuild both thumbnail sets at the new
-  size.  This avoids dozens of expensive RebuildThumbs calls during a drag.
+  for ~300 ms does the timer fire and rebuild both thumbnail strips at the
+  new size.  This avoids dozens of expensive rebuilds during a drag.
 }
 procedure TfrmMain.TimerDebounceZoomTimer(Sender: TObject);
-var
-  Sz: integer;
 begin
-  TimerDebounceZoom.Enabled := False;
-  Sz := Max(THUMB_RENDER_FLOOR, ZoomScroll.Position);
-  RebuildThumbs(LVFiles, ILFilesFirstPages, FFirstPages, Sz);
-  if PanelSingleFile.Visible then
-    RebuildPagesThumbs(Sz);
-  LblZoomVal.Caption := IntToStr(ZoomScroll.Position);
-end;
-
-{
-  RebuildPagesThumbs
-  ------------------
-  Zoom-time rebuild of the page-preview thumbnails, rendered from the
-  in-memory FPages model (visible, non-Gone pages) instead of the
-  FPagePreviews cache: after edits and splits the cache is no longer
-  index-aligned with the page list, so rendering from it would show stale
-  or shifted thumbnails.
-}
-procedure TfrmMain.RebuildPagesThumbs(ASize: integer);
-var
-  i: integer;
-begin
-  if FPages = nil then Exit;
-  LVPages.BeginUpdate;
-  try
-    LVPages.LargeImages := nil;
-    ILPages.Clear;
-    ILPages.Width := ASize;
-    ILPages.Height := ThumbHeight(ASize);
-    for i := 0 to High(FPages) do
-    begin
-      if FPages[i].Gone then Continue;
-      AppendThumb(ILPages, FPages[i].Image);
-    end;
-    LVPages.LargeImages := ILPages;
-  finally
-    LVPages.EndUpdate;
-  end;
+  FZoom.OnTimer;
 end;
 
 {
@@ -1074,9 +1024,18 @@ end;
 }
 procedure TfrmMain.ZoomScrollChange(Sender: TObject);
 begin
-  TimerDebounceZoom.Enabled := False;
-  TimerDebounceZoom.Enabled := True;
-  LblZoomVal.Caption := IntToStr(ZoomScroll.Position);
+  FZoom.OnTrackChange;
+end;
+
+{ TfrmMain.ZoomApplied
+
+  Debounce elapsed: the strips re-render at the new width.  The file grid
+  always rebuilds; the page strip only when the preview pane is open. }
+procedure TfrmMain.ZoomApplied(ASize: integer);
+begin
+  FThumbFiles.LoadFromCache(FFirstPages, ASize);
+  if PanelSingleFile.Visible then
+    FThumbPages.LoadFromModel(FPages, ASize);
 end;
 
 {
@@ -1088,10 +1047,7 @@ end;
 procedure TfrmMain.ZoomScrollMouseWheel(Sender: TObject; Shift: TShiftState;
   WheelDelta: integer; MousePos: TPoint; var Handled: boolean);
 begin
-  if WheelDelta > 0 then
-    ZoomScroll.Position := ZoomScroll.Position + ZoomScroll.Frequency
-  else
-    ZoomScroll.Position := ZoomScroll.Position - ZoomScroll.Frequency;
+  FZoom.OnWheel(WheelDelta);
 end;
 
 {
@@ -1110,8 +1066,7 @@ begin
     scan is stale from here on. }
   Inc(FPreviewEpoch);
   LVFiles.Clear;
-  FAnchorFiles := -1;
-  FSelFiles := nil;
+  FSelectionFiles.Reset;
   ILFilesFirstPages.Clear;
   FFirstPages.Clear;
 end;
@@ -1169,6 +1124,11 @@ procedure TfrmMain.ClearPreview;
 var
   i: integer;
 begin
+  { Backstop: the save thread holds raw pointers to FPages[].Data, freeing
+    them here would be a use-after-free.  Every UI path into ClearPreview is
+    already guarded (HidePreview/OpenPreview/FormCloseQuery); this protects
+    any future caller. }
+  if SaveInProgress then Exit;
   FreePagesThread;
   { New session: any thumbnail batch still queued by an earlier thread
     (preview or directory scan) is stale from here on. }
@@ -1183,12 +1143,10 @@ begin
   FPageFile := '';
   PanelStageBar.Visible := False;
   LVPages.Clear;
-  { The rows are gone: drop the page selection state (FSelPages was missed
-    here historically, leaking stale indices into the next preview) and any
-    reassert still in flight for the old rows. }
-  FAnchorPages := -1;
-  FSelPages := nil;
-  ClearPendingSel;
+  { The rows are gone: drop the page selection state and any reassert still
+    in flight for the old rows, so no stale index leaks into the next
+    preview. }
+  FSelectionPages.ResetAll;
   ILPages.Clear;
   FPagePreviews.Clear;
   LblPreviewFile.Caption := ' ';
@@ -1204,10 +1162,16 @@ end;
 }
 procedure TfrmMain.HidePreview;
 begin
+  if SaveInProgress then
+  begin
+    SetStatus('Save in progress — the preview stays open until it finishes');
+    Exit;
+  end;
   ClearPreview;
   PanelSingleFile.Visible := False;
   SplitterPreview.Visible := False;
-  ClearPendingSel;
+  FSelectionFiles.CancelPending;
+  FSelectionPages.CancelPending;
   { The floating page view shows a page of the closed preview; hide it too. }
   if FPageView <> nil then
     FPageView.Hide;
@@ -1481,7 +1445,7 @@ var
   i: integer;
 begin
   W := TMultiEditWorker(Sender);
-  FinishServiceThread(nil, MnuBatchEdit);
+  FinishServiceThread(W, nil, MnuBatchEdit);
   if ServiceThreadFailed(W, 'Batch edit') then Exit;
 
   Staged := StageMultiEditResults(FPages, FChanges, W.Results, HadSplit,
@@ -1537,21 +1501,22 @@ end;
   starting the thread so items appear at the right size as they arrive.
 }
 procedure TfrmMain.OpenPreview(AItem: TListItem);
-var
-  Sz: integer;
 begin
   if AItem = nil then Exit;
+  if SaveInProgress then
+  begin
+    SetStatus('Save in progress — wait for it to finish');
+    Exit;
+  end;
   ClearPreview;
 
-  Sz := Max(THUMB_RENDER_FLOOR, ZoomScroll.Position);
   LblPreviewFile.Caption := ItemFileName(AItem);
   PanelSingleFile.Visible := True;
   SplitterPreview.Visible := True;
 
-  LVPages.LargeImages := nil;
-  ILPages.Width := Sz;
-  ILPages.Height := ThumbHeight(Sz);
-  LVPages.LargeImages := ILPages;
+  { Pre-size the page image list: the loader threads append to it as batches
+    arrive and must find the zoom dimensions already applied. }
+  FThumbPages.Prepare(FZoom.RenderedSize);
 
   FPageFile := IncludeTrailingPathDelimiter(FDir) + ItemFileName(AItem);
   FAddFrontSeq := 0;
@@ -1595,354 +1560,48 @@ begin
       click position maps to a different item or to empty space, so the
       completing mouse-up clears or moves the selection).  Remember the item
       and re-assert it on the next message-loop tick, after the native pass
-      has settled.  See ReassertPendingSelection. }
-    SetPendingSel(LVFiles, [It.Index], It.Index);
+      has settled (see uselectioncontroller). }
+    FSelectionFiles.SelectOnly(It.Index)
   end
   else
-    ClearPendingSel;
+    FSelectionFiles.CancelPending;
   OpenPreview(It);
 end;
 
 {
-  SetAnchor / selection helpers
-  -----------------------------
-  SetAnchor stores the shift+click anchor (item index, -1 = none) for the given
-  list.  RangeSel / HasSel / ToggleSel build the desired selection for shift+click
-  and Ctrl+click.  ApplySelection makes exactly the given indices selected (clearing
-  everything else) and focuses the item at AFocus when the selection is a single
-  item.  SetPendingSel records the selection to (re)apply after the native widgetset
-  reconcile and updates the authoritative FSelFiles / FSelPages so subsequent
-  Ctrl+click toggles are deterministic regardless of native ordering.
-
-  We compute the full desired selection ourselves instead of trusting the Qt6
-  widgetset, whose icon-view shift-range (QListWidget_row) and modifier handling
-  fight the index-based model and produce "random" extra selections.  The single
-  deferred apply wins over the native pass because it runs on the next message-loop
-  tick (see LVFilesMouseUp / ReassertPendingSelection).
-
-  RangeSel / HasSel / ToggleSel / UnionSel / SelectionMatches / ApplySelection
-  are imported from the shared uselection unit.
+  Selection controllers
+  ---------------------
+  The Qt6-safe selection gestures (authoritative selection, shift/ctrl
+  handling, deferred re-assert) live in uselectioncontroller; the form only
+  routes the events to the controller that owns the sender list.
 }
-procedure TfrmMain.SetAnchor(ALV: TListView; AIndex: integer);
+function TfrmMain.SelectionFor(ALV: TListView): TListSelectionController;
 begin
-  if ALV = LVFiles then
-    FAnchorFiles := AIndex
+  if ALV = LVPages then
+    Result := FSelectionPages
   else
-    FAnchorPages := AIndex;
+    Result := FSelectionFiles;
 end;
 
-{
-  SyncAuthoritativeSelection
-  --------------------------
-  Rebuilds the authoritative selection (FSelFiles / FSelPages) and the
-  shift anchor from the list's live native state.  Call after any selection
-  change that bypasses LVFilesMouseDown — keyboard navigation (arrows,
-  Shift+arrows, Ctrl+Space, Home/End) and the Ctrl+A handler — so the next
-  Ctrl/shift+click computes from the truth instead of a stale snapshot.
-}
-procedure TfrmMain.SyncAuthoritativeSelection(ALV: TListView);
-var
-  i, n: integer;
-begin
-  n := 0;
-  if ALV = LVFiles then
-  begin
-    SetLength(FSelFiles, ALV.Items.Count);
-    for i := 0 to ALV.Items.Count - 1 do
-      if ALV.Items[i].Selected then
-      begin
-        FSelFiles[n] := i;
-        Inc(n);
-      end;
-    SetLength(FSelFiles, n);
-    if ALV.Selected <> nil then
-      FAnchorFiles := ALV.Selected.Index
-    else
-      FAnchorFiles := -1;
-  end
-  else
-  begin
-    SetLength(FSelPages, ALV.Items.Count);
-    for i := 0 to ALV.Items.Count - 1 do
-      if ALV.Items[i].Selected then
-      begin
-        FSelPages[n] := i;
-        Inc(n);
-      end;
-    SetLength(FSelPages, n);
-    if ALV.Selected <> nil then
-      FAnchorPages := ALV.Selected.Index
-    else
-      FAnchorPages := -1;
-  end;
-end;
-
-{
-  LVFilesSelectItem
-  -----------------
-  Native selection-change hook (wired to both LVFiles and LVPages).  Picks
-  up selection changes the mouse-gesture machinery never sees — keyboard
-  navigation above all — and folds them into the authoritative state.
-  While a reassert is in flight (FPendingList <> nil) the events belong to
-  the native click reconcile or to our own ApplySelection and are ignored.
-  This handler never modifies the selection itself, so it cannot recurse.
-}
 procedure TfrmMain.LVFilesSelectItem(Sender: TObject; Item: TListItem;
   Selected: boolean);
 begin
-  if FPendingList <> nil then Exit;
-  SyncAuthoritativeSelection(TListView(Sender));
+  SelectionFor(TListView(Sender)).SelectItem(Item, Selected);
 end;
 
-procedure TfrmMain.ClearPendingSel;
-begin
-  FPendingList := nil;
-  FPendingSel := nil;
-  FPendingFocus := -1;
-  FReassertStable := 0;
-  FReassertTicks := 0;
-end;
-
-procedure TfrmMain.SetPendingSel(ALV: TListView; const A: array of integer;
-  AFocus: integer);
-var
-  i: integer;
-begin
-  FPendingList := ALV;
-  SetLength(FPendingSel, Length(A));
-  for i := 0 to High(A) do FPendingSel[i] := A[i];
-  FPendingFocus := AFocus;
-  if ALV = LVFiles then
-  begin
-    SetLength(FSelFiles, Length(A));
-    for i := 0 to High(A) do FSelFiles[i] := A[i];
-  end
-  else
-  begin
-    SetLength(FSelPages, Length(A));
-    for i := 0 to High(A) do FSelPages[i] := A[i];
-  end;
-end;
-
-{
-  LVFilesMouseDown
-  ----------------
-  Implements Explorer/Dolphin selection semantics for both thumbnail lists
-  (shared handler wired to LVFiles and LVPages).  Instead of trusting the Qt6
-  widgetset's own modifier handling (which computes icon-view shift ranges from
-  visual rows and keeps its own anchor/current-item that drifts out of sync),
-  we compute the exact desired selection here and re-apply it after the native
-  click/release reconcile via ReassertPendingSelection (scheduled in
-  LVFilesMouseUp).  Behaviour:
-
-  - Left click            : replace selection with the clicked item.
-  - Ctrl+left click       : toggle the clicked item (based on our authoritative
-                            selection, so repeated ctrl toggles are deterministic).
-  - Shift+left click      : select the contiguous anchor..clicked range, replacing
-                            any previous selection (Explorer semantics); the anchor
-                            stays put so repeated shift+clicks extend from it.
-  - Left click on empty   : clear the selection.
-  - Right click           : select the clicked item only if it was not already
-                            selected (the popup menu then acts on it alone); a
-                            right-click on an existing multi-selection keeps it.
-}
 procedure TfrmMain.LVFilesMouseDown(Sender: TObject; Button: TMouseButton;
   Shift: TShiftState; X, Y: integer);
-var
-  ALV: TListView;
-  It: TListItem;
-  Anchor: integer;
-  Cur: TIntegerDynArray;
-  ShiftDown, CtrlDown: boolean;
 begin
-  ALV := TListView(Sender);
-  It := ItemAtPoint(ALV, X, Y);
-
-  { The modifier flags in the event's Shift parameter are not always reliable on
-    Qt6: a Ctrl+Shift+click is sometimes delivered with only ssCtrl set (ssShift
-    dropped), which would misroute it into the Ctrl-toggle branch.  Back the event
-    flags with the live keyboard state so Shift/Ctrl are detected regardless. }
-  ShiftDown := FKeyShiftDown or (ssShift in Shift) or (GetKeyState(VK_SHIFT) < 0);
-  CtrlDown := FKeyCtrlDown or (ssCtrl in Shift) or (GetKeyState(VK_CONTROL) < 0);
-
-  { Right-click on an unselected item makes that item the sole selection so
-    the context menu acts on it alone; right-clicking an already-selected
-    item keeps the existing multi-selection intact — and must NOT cancel a
-    pending reassert from a preceding left-click. }
-  if Button = mbRight then
-  begin
-    if (It <> nil) and not It.Selected then
-    begin
-      if not (ssDouble in Shift) then
-        ClearPendingSel;
-      SetPendingSel(ALV, [It.Index], It.Index);
-    end;
-    Exit;
-  end;
-
-  if Button <> mbLeft then Exit;
-
-  { Any new left-click gesture cancels a pending re-assert, except the second
-    press of a double-click (which carries ssDouble) so the first click's
-    pending selection survives into the completed double-click. }
-  if not (ssDouble in Shift) then
-    ClearPendingSel;
-
-  if It = nil then
-  begin
-    { Click on empty space: clear the selection and drop the anchor. }
-    SetPendingSel(ALV, [], -1);
-    SetAnchor(ALV, -1);
-    Exit;
-  end;
-
-  if ShiftDown then
-  begin
-    { Shift+click (with or without Ctrl) selects the contiguous range from the
-      anchor to the clicked item, replacing any previous selection — Explorer
-      semantics.  The anchor is left in place so repeated shift+clicks extend
-      from the same base. }
-    if ALV = LVFiles then
-      Anchor := FAnchorFiles
-    else
-      Anchor := FAnchorPages;
-    if Anchor < 0 then
-    begin
-      { No explicit anchor yet: extend from the currently focused item (Explorer
-        keeps the focus as the shift base), falling back to the clicked item. }
-      if ALV.Selected <> nil then Anchor := ALV.Selected.Index else Anchor := It.Index;
-    end;
-    if CtrlDown then
-    begin
-      { Ctrl+Shift+click: add the anchor..clicked range to the existing selection
-        (extend) instead of replacing it, matching Explorer. }
-      if ALV = LVFiles then
-        Cur := FSelFiles
-      else
-        Cur := FSelPages;
-      SetPendingSel(ALV, UnionSel(Cur, RangeSel(Anchor, It.Index)), It.Index);
-    end
-    else
-      SetPendingSel(ALV, RangeSel(Anchor, It.Index), It.Index);
-  end
-  else if CtrlDown then
-  begin
-    { Ctrl+click toggles the clicked item, based on the authoritative selection
-      we last applied (the native widgetset may have toggled it first, so we must
-      not read the native state here). }
-    if ALV = LVFiles then
-      Cur := FSelFiles
-    else
-      Cur := FSelPages;
-    SetPendingSel(ALV, ToggleSel(Cur, It.Index), It.Index);
-    SetAnchor(ALV, It.Index);
-  end
-  else
-  begin
-    { Plain click replaces the selection with the clicked item. }
-    SetPendingSel(ALV, [It.Index], It.Index);
-    SetAnchor(ALV, It.Index);
-  end;
+  { The live modifier flags are tracked by the form (Qt6 sometimes drops
+    ssShift from the event) and passed to the controller. }
+  SelectionFor(TListView(Sender)).MouseDown(Button, Shift, X, Y,
+    FKeyShiftDown, FKeyCtrlDown);
 end;
 
-{
-  ReassertPendingSelection
-  -------------------------
-  Re-applies the exact selection remembered by LVFilesMouseDown / LVFilesDblClick.
-  It is deferred (via Application.QueueAsyncCall) to the next message-loop tick so
-  it runs AFTER the Qt6 widgetset's native press/release selection reconcile, which
-  otherwise toggles or clears the items we forced in OnMouseDown.  Because we
-  recompute the whole desired set ourselves, native Ctrl/Shift behaviour is always
-  overridden with our authoritative result.
-
-  We apply by item index (not name): no list rebuild happens between the click and
-  this call, so the indices are still valid, and the click that opened the preview
-  only changes the view size, not the item set.
-
-  Called with Data = 0 (unused).
-}
-procedure TfrmMain.ReassertPendingSelection(Data: PtrInt);
-var
-  LV: TListView;
-begin
-  if (FPendingList = nil) or (FPendingList.Items.Count = 0) then
-  begin
-    ClearPendingSel;
-    Exit;
-  end;
-  LV := FPendingList;
-
-  { Only touch the list when it actually differs: re-applying an already
-    correct selection fires selection-change events for nothing. }
-  if SelectionMatches(LV, FPendingSel) then
-    Inc(FReassertStable)
-  else
-  begin
-    ApplySelection(LV, FPendingSel, FPendingFocus);
-    FReassertStable := 0;
-  end;
-
-  if FReassertTicks > 0 then
-    Dec(FReassertTicks);
-  { Done once the selection has survived untouched for a couple of ticks.
-    The cap is only a backstop against a widgetset that insists on undoing
-    us every single tick; without it this would spin forever. }
-  if (FReassertStable >= REASSERT_STABLE_TICKS) or (FReassertTicks <= 0) then
-    ClearPendingSel
-  else
-    Application.QueueAsyncCall(@ReassertPendingSelection, 0);
-end;
-
-{
-  ItemAtPoint
-  -----------
-  Resolves the list item under a client-coordinate point.  Tries the widgetset
-  GetItemAt first; if that returns nil (vsIcon on Qt6 can miss the label /
-  sub-item area) it scans the items' bounding rectangles.  Returns nil for
-  empty space.  Used by LVFilesMouseDown / LVFilesDblClick so a click always
-  resolves to its item and arms the pending re-assert reliably.
-}
-function TfrmMain.ItemAtPoint(ALV: TListView; X, Y: integer): TListItem;
-var
-  i: integer;
-  R: TRect;
-  Pt: TPoint;
-begin
-  Result := ALV.GetItemAt(X, Y);
-  if Result <> nil then Exit;
-  Pt := Point(X, Y);
-  for i := 0 to ALV.Items.Count - 1 do
-  begin
-    R := ALV.Items[i].DisplayRect(drBounds);
-    if PtInRect(R, Pt) then
-      Exit(ALV.Items[i]);
-  end;
-  Result := nil;
-end;
-
-{
-  LVFilesMouseUp
-  --------------
-  Schedules a deferred re-assert of the selection computed in LVFilesMouseDown
-  (any plain / Ctrl / Shift / empty-space click, plus the double-click path).
-
-  On the Qt6 widgetset the press/release is delivered to the LCL *and* to Qt's
-  native item-view handling, which re-applies its own selection once the LCL
-  handlers have returned.  A synchronous apply in OnMouseUp would still be undone
-  by that native release-time pass, so we defer to ReassertPendingSelection on
-  the next message-loop tick, which arrives after the native pass.
-}
 procedure TfrmMain.LVFilesMouseUp(Sender: TObject; Button: TMouseButton;
   Shift: TShiftState; X, Y: integer);
 begin
-  if FPendingList = nil then Exit;
-  { Watch the selection until it stays ours rather than re-applying a fixed
-    number of times: each widgetset picks its own tick to reconcile the click,
-    so a fixed count tuned against one of them loses the race on the other —
-    and it did, on both.  See ReassertPendingSelection. }
-  FReassertTicks := REASSERT_MAX_TICKS;
-  FReassertStable := 0;
-  Application.QueueAsyncCall(@ReassertPendingSelection, 0);
+  SelectionFor(TListView(Sender)).MouseUp;
 end;
 
 {
@@ -2095,7 +1754,7 @@ var
   Dlg: TdlgValidate;
 begin
   Thread := Sender as TValidateThread;
-  FinishServiceThread(TbValidate, MnuValidate);
+  FinishServiceThread(Thread, TbValidate, MnuValidate);
   if ServiceThreadFailed(Thread, 'Validation') then Exit;
   Dlg := TdlgValidate.Create(Self);
   Dlg.ShowResults(Thread.Result);
@@ -2158,7 +1817,7 @@ var
 begin
   Thread := Sender as TConvertThread;
   LoadDirectory(FDir);
-  FinishServiceThread(TbConvertWebP, MnuConvertWebP);
+  FinishServiceThread(Thread, TbConvertWebP, MnuConvertWebP);
 
   if ServiceThreadFailed(Thread, 'WebP conversion') then Exit;
   SetStatus(Format('WebP conversion complete: %d files', [Length(Thread.Result)]));
@@ -2232,7 +1891,7 @@ var
 begin
   Thread := Sender as TCbrConvertThread;
   LoadDirectory(FDir);
-  FinishServiceThread(nil, MnuConvertCbr);
+  FinishServiceThread(Thread, nil, MnuConvertCbr);
 
   if ServiceThreadFailed(Thread, 'CBR conversion') then Exit;
   SetStatus(Format('CBR conversion complete: %d files', [Length(Thread.Result)]));
@@ -2322,7 +1981,7 @@ begin
   else
     SetStatus(Format('Merge failed: %s', [Thread.Result.ErrorMsg]));
   LoadDirectory(FDir);
-  FinishServiceThread(TbMerge, MnuMerge);
+  FinishServiceThread(Thread, TbMerge, MnuMerge);
 end;
 
 
@@ -2495,7 +2154,7 @@ var
   Thread: TDeletePagesThread;
 begin
   Thread := Sender as TDeletePagesThread;
-  FinishServiceThread(nil, MnuDeletePages);
+  FinishServiceThread(Thread, nil, MnuDeletePages);
   MnuDeletePages.Enabled := True;
   { Surface a hard crash (unhandled exception escaped from Execute) in the same
     way as a captured per-file error. }
@@ -2617,7 +2276,7 @@ end;
 }
 procedure TfrmMain.MnuZoomInClick(Sender: TObject);
 begin
-  ZoomScroll.Position := Min(ZoomScroll.Max, ZoomScroll.Position + ZOOM_STEP);
+  FZoom.StepBy(ZOOM_STEP);
 end;
 
 {
@@ -2627,7 +2286,7 @@ end;
 }
 procedure TfrmMain.MnuZoomOutClick(Sender: TObject);
 begin
-  ZoomScroll.Position := Max(ZoomScroll.Min, ZoomScroll.Position - ZOOM_STEP);
+  FZoom.StepBy(-ZOOM_STEP);
 end;
 
 { ---------------------------------------------------------------------------
@@ -2942,6 +2601,9 @@ var
   PageExt: string;
 begin
   Thread := Sender as TSaveChangesThread;
+  { The thread object is still alive here (OnTerminate runs before it frees
+    itself); clearing the field re-opens the preview/close paths. }
+  FSaveThread := nil;
   if Thread.Result.Success then
   begin
     { Free the Data streams of inserted pages — no longer needed after save }
@@ -3011,6 +2673,9 @@ var
 begin
   if Length(FChanges) = 0 then Exit;
   if FPageFile = '' then Exit;
+  { Guard the Ctrl+S accelerator: the button is disabled during a save but
+    the key handler calls this method directly. }
+  if FSaveThread <> nil then Exit;
 
   if CbBackup.Checked then
     BackupMsg := ' The original will be backed up as _OLD.cbz.'
@@ -3043,6 +2708,7 @@ begin
   Thread := TSaveChangesThread.Create(FPageFile, Snapshot, FRenumber,
     CbBackup.Checked, @UpdateProgress);
   Thread.OnTerminate := @SaveChangesThreadTerminated;
+  FSaveThread := Thread;
   Thread.Start;
 end;
 
@@ -3282,9 +2948,7 @@ begin
     it arrived.  Gestures across batches are best-effort: drop the
     row-based state (the native highlight stays) so post-load gestures
     start from a clean slate instead of a stale one. }
-  ClearPendingSel;
-  FAnchorFiles := -1;
-  FSelFiles := nil;
+  FSelectionFiles.ResetAll;
 end;
 
 {
@@ -3296,9 +2960,7 @@ end;
 }
 procedure TfrmMain.PagesBatchAdded(Sender: TObject);
 begin
-  ClearPendingSel;
-  FAnchorPages := -1;
-  FSelPages := nil;
+  FSelectionPages.ResetAll;
 end;
 
 {
@@ -3356,14 +3018,17 @@ begin
     FPagesThread := nil;
 
     { The thumbnail cache and the list view are filled together by
-      SyncAddThumbs, but a stale batch from a previous session can slip
-      in under extreme timing (rapid file switching).  Never trust the
-      two counts to be equal: clamp to the smaller one and treat a
-      mismatch as a truncated load instead of crashing on Items[i]. }
-    n := Min(FPagePreviews.Count, LVPages.Items.Count);
-    if n <> FPagePreviews.Count then
-      Log('Pages: thumbnail/item count mismatch (%d vs %d) — model truncated',
-        [FPagePreviews.Count, LVPages.Items.Count]);
+      SyncAddThumbs, and the thread's OnTerminate only fires after every
+      worker drained its queued batches, so the two counts must match.  A
+      mismatch is a bug, not a session race: keep every row anyway (a page
+      without a cached thumbnail gets an empty one) instead of dropping
+      pages from the model — a truncated model would silently persist the
+      loss on the next save. }
+    n := LVPages.Items.Count;
+    if FPagePreviews.Count <> n then
+      Log('Pages: thumbnail/item count mismatch (%d vs %d) — keeping all %d ' +
+        'rows, missing thumbnails render empty',
+        [FPagePreviews.Count, n, n]);
     SetLength(FPages, n);
     SetLength(FBaseline, n);
     for i := 0 to n - 1 do
@@ -3382,7 +3047,10 @@ begin
         extension when renumbering. }
       FPages[i].Name := ItemFileName(It);
       FPages[i].OrigName := FPages[i].Name;
-      FPages[i].Image := FPagePreviews[i];
+      if i < FPagePreviews.Count then
+        FPages[i].Image := FPagePreviews[i]
+      else
+        FPages[i].Image := nil;
       FPages[i].Gone := False;
       FPages[i].OrigIndex := i;
       FBaseline[i] := FPages[i];

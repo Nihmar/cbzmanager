@@ -33,6 +33,8 @@ uses
   test_upageeditmodel,
   test_uimageedit,
   test_uselection,
+  test_uselectioncontroller,
+  test_uthumbview,
   test_mainform;
 var
   App: TTestRunner;

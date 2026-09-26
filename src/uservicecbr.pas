@@ -63,111 +63,79 @@ type
 implementation
 
 uses
-  Math;
+  Math, uservicepool;
 
 type
   { Shared state of a CBR conversion pool: the file list, the result slots
-    and the claim counter.  Mutable fields are guarded by Lock; each worker
-    writes only Result[Idx] with the Idx it claimed, so slot writes need no
-    lock.  Unlike the WebP pool there is no Error field: CBR failures are
-    per-file and land in the result entry, never aborting the batch. }
-  TCbrConvertPoolState = class
-    Lock: TRTLCriticalSection;
+    and the progress state.  The claim counter lives in TIndexPool; each
+    worker writes only Result[Idx] with the Idx it claimed, so slot writes
+    need no lock.  Unlike the WebP pool there is no Error field: CBR
+    failures are per-file and land in the result entry, never aborting the
+    batch. }
+  TCbrConvertPoolState = class(TIndexPool)
+  public
     Files: TStringArray;
     Dir: string;
     Options: TCbrConvertOptions;
     Results: TConvertResults;
-    Next: integer;             { next file index (under Lock) }
     Completed: integer;        { finished files (under Lock) }
-    Total: integer;
     OnProgress: TServiceProgressEvent;
-    constructor Create;
-    destructor Destroy; override;
+    { Shared translator for within-file progress (may be nil). }
+    Progress: TLockedProgress;
+    function CreateWorker: TIndexPoolWorker; override;
   end;
 
-  { Pool worker: claims the next file index under the lock, converts that
-    file with the untouched per-file logic, then reports progress —
-    serialized, monotonic via the completed counter. }
-  TCbrConvertWorker = class(TThread)
+  { Pool worker: converts the claimed file with the untouched per-file
+    logic, then reports progress — serialized by the pool lock, monotonic
+    via the completed counter. }
+  TCbrConvertWorker = class(TIndexPoolWorker)
   private
     FPool: TCbrConvertPoolState;
     FProgress: TLockedProgress;
   protected
-    procedure Execute; override;
+    procedure ProcessIndex(Idx: integer); override;
   public
     constructor Create(APool: TCbrConvertPoolState;
       AProgress: TLockedProgress);
   end;
 
-function GetFileSize(const APath: string): int64;
-var
-  SR: TSearchRec;
+function TCbrConvertPoolState.CreateWorker: TIndexPoolWorker;
 begin
-  if FindFirst(APath, faAnyFile, SR) = 0 then
-  begin
-    Result := SR.Size;
-    FindClose(SR);
-  end
-  else
-    Result := 0;
-end;
-
-constructor TCbrConvertPoolState.Create;
-begin
-  inherited Create;
-  InitCriticalSection(Lock);
-end;
-
-destructor TCbrConvertPoolState.Destroy;
-begin
-  DoneCriticalSection(Lock);
-  inherited Destroy;
+  Result := TCbrConvertWorker.Create(Self, Progress);
 end;
 
 constructor TCbrConvertWorker.Create(APool: TCbrConvertPoolState;
   AProgress: TLockedProgress);
 begin
-  { Created suspended: the caller Start()s every worker before joining. }
-  inherited Create(True);
+  inherited Create(APool);
   FPool := APool;
   FProgress := AProgress;
 end;
 
-{ TCbrConvertWorker.Execute
+{ TCbrConvertWorker.ProcessIndex
 
-  Claims the next file index under the pool lock, converts that file (the
-  per-file logic never raises — errors land in the result entry), then
-  reports progress per finished file.  The percentage derives from the
-  completed counter, so the sequence is monotonic even though files finish
-  out of order. }
-procedure TCbrConvertWorker.Execute;
-var
-  Idx: integer;
+  Converts one claimed file (the per-file logic never raises — errors land
+  in the result entry), then reports progress per finished file.  The
+  percentage derives from the completed counter, so the sequence is
+  monotonic even though files finish out of order. }
+procedure TCbrConvertWorker.ProcessIndex(Idx: integer);
 begin
-  while True do
-  begin
-    EnterCriticalSection(FPool.Lock);
-    try
-      if FPool.Next >= Length(FPool.Files) then Exit;
-      Idx := FPool.Next;
-      Inc(FPool.Next);
-    finally
-      LeaveCriticalSection(FPool.Lock);
-    end;
-
+  if FProgress <> nil then
     FPool.Results[Idx] := TConvertCbrService.ConvertOne(Idx, FPool.Files,
-      FPool.Dir, FPool.Options, @FProgress.Translate);
+      FPool.Dir, FPool.Options, @FProgress.Translate)
+  else
+    FPool.Results[Idx] := TConvertCbrService.ConvertOne(Idx, FPool.Files,
+      FPool.Dir, FPool.Options, FPool.OnProgress);
 
-    EnterCriticalSection(FPool.Lock);
-    try
-      Inc(FPool.Completed);
-      if Assigned(FPool.OnProgress) then
-        FPool.OnProgress((FPool.Completed * 100) div FPool.Total,
-          Format('Converting CBR %s (%d/%d)', [FPool.Files[Idx],
-            FPool.Completed, FPool.Total]));
-    finally
-      LeaveCriticalSection(FPool.Lock);
-    end;
+  FPool.LockPool;
+  try
+    Inc(FPool.Completed);
+    if Assigned(FPool.OnProgress) then
+      FPool.OnProgress((FPool.Completed * 100) div FPool.Total,
+        Format('Converting CBR %s (%d/%d)', [FPool.Files[Idx],
+          FPool.Completed, FPool.Total]));
+  finally
+    FPool.UnlockPool;
   end;
 end;
 
@@ -234,8 +202,6 @@ var
   i, Total, ThreadCount: integer;
   Pool: TCbrConvertPoolState;
   Locked: TLockedProgress;
-  Workers: array of TCbrConvertWorker;
-  Started: boolean;
 begin
   Total := Length(AFiles);
   Result := nil;
@@ -259,35 +225,21 @@ begin
   end
   else
   begin
-    Pool := TCbrConvertPoolState.Create;
+    Pool := TCbrConvertPoolState.Create(Total);
     Locked := TLockedProgress.Create;
-    Workers := nil;
-    Started := False;
     try
       Pool.Files := AFiles;
       Pool.Dir := ADir;
       Pool.Options := Options;
       Pool.Results := Result;
-      Pool.Total := Total;
       Pool.OnProgress := AOnProgress;
-      Locked.Lock := @Pool.Lock;
+      { Fold within-file progress through the pool lock, so the service
+        callback is never entered concurrently. }
+      Locked.Lock := Pool.Lock;
       Locked.Inner := AOnProgress;
-
-      SetLength(Workers, ThreadCount);
-      for i := 0 to ThreadCount - 1 do
-        Workers[i] := TCbrConvertWorker.Create(Pool, Locked);
-      Started := True;
-      for i := 0 to ThreadCount - 1 do
-        Workers[i].Start;
+      Pool.Progress := Locked;
+      Pool.Run(ThreadCount);
     finally
-      { Join and free the workers here — also covers a mid-spawn failure,
-        where only the created (started) workers must be waited for. }
-      if Started then
-        for i := 0 to High(Workers) do
-          Workers[i].WaitFor;
-      for i := 0 to High(Workers) do
-        if Workers[i] <> nil then
-          Workers[i].Free;
       Pool.Free;
       Locked.Free;
     end;

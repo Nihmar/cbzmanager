@@ -93,7 +93,11 @@ type
       3. Optionally renumbers remaining pages (001, 002, …).
       4. Writes a replacement CBZ via ReplaceCBZ.
 
-    Progress is reported to the main thread through TThread.Queue.
+    Progress is reported to the main thread through TThread.Synchronize
+    (the same shape as the service threads, for the same reasons: a queued
+    call on a FreeOnTerminate thread can outlive it, and an exception in a
+    queued callback would be re-raised on the main thread instead of being
+    recorded as the save's error).
     ------------------------------------------------------------------------ }
   TSaveChangesThread = class(TThread)
   private
@@ -105,8 +109,8 @@ type
     FOnProgress: TServiceProgressEvent;     // callback for UI progress updates
     FPendingPct: integer;            // latest progress percentage (set by Execute, read by SyncProgress)
     FPendingMsg: string;             // latest progress message   (set by Execute, read by SyncProgress)
-    procedure SyncProgress;          // called on the main thread via TThread.Queue
-    procedure DoProgress(APercent: integer; const AMsg: string);  // posts a progress update to the queue
+    procedure SyncProgress;          // called on the main thread via TThread.Synchronize
+    procedure DoProgress(APercent: integer; const AMsg: string);  // reports progress on the main thread
   protected
     procedure Execute; override;
   public
@@ -121,6 +125,10 @@ type
     { Read the result after the thread has terminated.  Call only from the
       OnTerminate handler or after WaitFor. }
     property Result: TSaveChangesResult read FResult;
+    { Drops the progress callback.  The owner calls this on the main thread
+      before the callback target is destroyed: a later SyncProgress sees
+      FOnProgress = nil and cannot call into a freed form. }
+    procedure DetachProgress;
   end;
 
 procedure AppendChange(var AChanges: TChanges; AKind: TChangeKind;
@@ -406,28 +414,39 @@ end;
 { TSaveChangesThread.DoProgress
 
   Called from the worker thread (Execute).  Stores the latest progress values
-  in thread-owned fields and posts a SyncProgress call to the main thread's
-  event queue via TThread.Queue.  If no progress callback was supplied, the
-  Queue call is skipped entirely to avoid unnecessary overhead. }
+  in thread-owned fields and fires SyncProgress on the MAIN thread through
+  Synchronize.  If no progress callback was supplied the call is skipped
+  entirely to avoid the main-thread round-trip.
+
+  Synchronize (not Queue) is deliberate, exactly like TServiceThread.Progress:
+  the thread is FreeOnTerminate, so a queued method could be dispatched after
+  the thread freed itself (the SIGSEGV the service base documents), and an
+  exception raised by the callback is re-raised on the main thread by FPC's
+  queue processing instead of landing in this thread's Execute handler. }
 procedure TSaveChangesThread.DoProgress(APercent: integer; const AMsg: string);
 begin
   FPendingPct := APercent;
   FPendingMsg := AMsg;
-  // Only queue if there is a listener — avoids pointless main-thread wakeups.
   if Assigned(FOnProgress) then
-    TThread.Queue(nil, @SyncProgress);
+    Synchronize(@SyncProgress);
 end;
 
 { TSaveChangesThread.SyncProgress
 
-  Executes on the MAIN thread (invoked by TThread.Queue).  Reads the latest
-  values written by DoProgress and fires the callback.  The guard on
-  FOnProgress is re-checked because the callback could have been cleared
-  between the Queue call and execution. }
+  Executes on the MAIN thread (invoked by Synchronize; the worker blocks
+  until it returns, so the thread object is alive).  Reads the latest values
+  written by DoProgress and fires the callback.  The guard on FOnProgress is
+  re-checked because the callback could have been detached meanwhile. }
 procedure TSaveChangesThread.SyncProgress;
 begin
   if Assigned(FOnProgress) then
     FOnProgress(FPendingPct, FPendingMsg);
+end;
+
+{ TSaveChangesThread.DetachProgress }
+procedure TSaveChangesThread.DetachProgress;
+begin
+  FOnProgress := nil;
 end;
 
 { TSaveChangesThread.Execute
@@ -458,6 +477,7 @@ var
   PageExt: string;
   Found: boolean;
   SortedNames: array of TNameIdx;
+  Key: TNameIdx;
   Idx: integer;
 
   function FindIdx(const AName: string): integer;
@@ -495,16 +515,22 @@ begin
         SortedNames[i].Name := LowerCase(AllEntries[i].Name);
         SortedNames[i].Idx := i;
       end;
-      { Insertion sort by lowercase name (stable, fast for <1000 entries). }
+      { Insertion sort by lowercase name (stable, fast for <1000 entries).
+        The element being inserted must be saved in Key first: the shifting
+        loop overwrites SortedNames[i] on its first step, and comparing
+        against the clobbered slot corrupted the table (lost/duplicated
+        entries, mangled by binary search) whenever the archive stored its
+        entries in a non-alphabetical order. }
       for i := 1 to High(SortedNames) do
       begin
+        Key := SortedNames[i];
         j := i - 1;
-        while (j >= 0) and (SortedNames[j].Name > SortedNames[i].Name) do
+        while (j >= 0) and (SortedNames[j].Name > Key.Name) do
         begin
           SortedNames[j + 1] := SortedNames[j];
           Dec(j);
         end;
-        SortedNames[j + 1] := SortedNames[i];
+        SortedNames[j + 1] := Key;
       end;
 
       // Upper bound: every page survives (no Gone), plus all metadata entries.
@@ -518,7 +544,11 @@ begin
         // Rebuild the page list from the (reordered / filtered) snapshot.
         for i := 0 to High(FPages) do
         begin
-          if Terminated then Exit;          // cooperative cancellation
+          if Terminated then
+          begin
+            FResult.ErrorMsg := 'Save cancelled';
+            Exit;                           // cooperative cancellation
+          end;
 
           // Locate this page's source entry by OrigName — O(log n) via binary search.
           Found := False;
@@ -535,8 +565,16 @@ begin
 
           if FPages[i].Gone then Continue;  // deleted: accounted for, not written
           // Nothing to write if the page is neither in the archive nor backed
-          // by inserted data (should not happen now OrigName is the real name).
-          if not (Found or (FPages[i].Data <> nil)) then Continue;
+          // by inserted data.  That means the archive changed under us (or a
+          // page reference was lost): fail loudly instead of silently writing
+          // an archive without that page.
+          if not (Found or (FPages[i].Data <> nil)) then
+          begin
+            FResult.ErrorMsg := Format(
+              'Page %s is missing from the archive — nothing was saved',
+              [FPages[i].OrigName]);
+            Exit;
+          end;
 
           Inc(Idx);
           OutEntries[Idx].Data := TMemoryStream.Create;

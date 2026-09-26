@@ -235,6 +235,9 @@ type
 
 implementation
 
+uses
+  uservicepool;
+
 { ============================================================================
   TDeletePagesThread
   ============================================================================ }
@@ -273,128 +276,104 @@ type
   end;
 
   { Shared state of a delete-pages pool: the file list, the per-file
-    result slots and the claim counter.  Mutable fields are guarded by
-    Lock; each worker writes only Slots[Idx] with the Idx it claimed. }
-  TDeletePagesPoolState = class
-    Lock: TRTLCriticalSection;
+    result slots and the progress state.  The claim counter and the answer
+    to "stop claiming" live in the TIndexPool base; Slots[Idx] is written
+    only by the worker that claimed Idx. }
+  TDeletePagesPoolState = class(TIndexPool)
+  public
     Files: TStringArray;
     Dir: string;
     PagesToDelete: array of boolean;
     Renumber: boolean;
     DeletePerm: boolean;
     Slots: array of TDeletePagesSlot;
-    Next: integer;             { next file index (under Lock) }
     Completed: integer;        { finished files (under Lock) }
-    Total: integer;
     OnProgress: TServiceProgressEvent;
-    constructor Create;
-    destructor Destroy; override;
+    { Owner thread, for cooperative cancellation of the join. }
+    Thread: TDeletePagesThread;
+    function Cancelled: boolean; override;
+    function CreateWorker: TIndexPoolWorker; override;
   end;
 
-  { Pool worker: claims the next file index under the lock, filters that
-    file's pages and writes it back, then reports progress — serialized,
-    monotonic via the completed counter. }
-  TDeletePagesPoolWorker = class(TThread)
+  { Pool worker: filters the claimed file and writes it back, then reports
+    progress — serialized by the pool lock, monotonic via the completed
+    counter.  Never raises: failures land in the result slot. }
+  TDeletePagesPoolWorker = class(TIndexPoolWorker)
   private
     FPool: TDeletePagesPoolState;
-    FProgress: TLockedProgress;
   protected
-    procedure Execute; override;
+    procedure ProcessIndex(Idx: integer); override;
   public
-    constructor Create(APool: TDeletePagesPoolState;
-      AProgress: TLockedProgress);
+    constructor Create(APool: TDeletePagesPoolState);
   end;
 
-constructor TDeletePagesPoolState.Create;
+function TDeletePagesPoolState.Cancelled: boolean;
 begin
-  inherited Create;
-  InitCriticalSection(Lock);
+  Result := (Thread <> nil) and Thread.Terminated;
 end;
 
-destructor TDeletePagesPoolState.Destroy;
+function TDeletePagesPoolState.CreateWorker: TIndexPoolWorker;
 begin
-  DoneCriticalSection(Lock);
-  inherited Destroy;
+  Result := TDeletePagesPoolWorker.Create(Self);
 end;
 
-constructor TDeletePagesPoolWorker.Create(APool: TDeletePagesPoolState;
-  AProgress: TLockedProgress);
+constructor TDeletePagesPoolWorker.Create(APool: TDeletePagesPoolState);
 begin
-  { Created suspended: the coordinator Start()s every worker before joining.
-    FreeOnTerminate stays False — the coordinator frees the workers after
-    the join. }
-  inherited Create(True);
+  inherited Create(APool);
   FPool := APool;
-  FProgress := AProgress;
 end;
 
-{ Filters one file (claimed index Idx) and writes it back.  Never raises:
-  failures land in the result slot. }
-procedure TDeletePagesPoolWorker.Execute;
+procedure TDeletePagesPoolWorker.ProcessIndex(Idx: integer);
 var
-  Idx: integer;
   FullPath: string;
   Entries: TZipEntries;
   Ok: boolean;
 begin
-  while True do
-  begin
-    if Terminated then Exit;
-    EnterCriticalSection(FPool.Lock);
+  FullPath := IncludeTrailingPathDelimiter(FPool.Dir) + FPool.Files[Idx];
+  try
+    // FilterPagesFromCBZ reads the archive, drops marked pages,
+    // optionally renumbers, and returns the surviving entries.
+    Entries := FilterPagesFromCBZ(FullPath, FPool.PagesToDelete,
+      FPool.Renumber);
     try
-      if FPool.Next >= Length(FPool.Files) then Exit;
-      Idx := FPool.Next;
-      Inc(FPool.Next);
-    finally
-      LeaveCriticalSection(FPool.Lock);
-    end;
-
-    FullPath := IncludeTrailingPathDelimiter(FPool.Dir) + FPool.Files[Idx];
-    try
-      // FilterPagesFromCBZ reads the archive, drops marked pages,
-      // optionally renumbers, and returns the surviving entries.
-      Entries := FilterPagesFromCBZ(FullPath, FPool.PagesToDelete,
-        FPool.Renumber);
-      try
-        if Length(Entries) > 0 then
+      if Length(Entries) > 0 then
+      begin
+        // Always write through the safe temp-file + rename path
+        // (ReplaceCBZ), matching the sequential behaviour.
+        Ok := ReplaceCBZ(FullPath, Entries);
+        if Ok and FPool.DeletePerm then
         begin
-          // Always write through the safe temp-file + rename path
-          // (ReplaceCBZ), matching the sequential behaviour.
-          Ok := ReplaceCBZ(FullPath, Entries);
-          if Ok and FPool.DeletePerm then
-          begin
-            // "Delete permanently": drop the _OLD.cbz backup so no recovery
-            // copy remains.
-            if DeleteFile(ChangeFileExt(FullPath, '') + BACKUP_SUFFIX) then
-              ;  // backup removed
-          end;
-          if Ok then
-            FPool.Slots[Idx].Written := True
-          else
-            FPool.Slots[Idx].ErrorMsg :=
-              Format('Failed to write %s', [FPool.Files[Idx]]);
+          // "Delete permanently": drop the _OLD.cbz backup so no recovery
+          // copy remains.
+          if DeleteFile(ChangeFileExt(FullPath, '') + BACKUP_SUFFIX) then
+            ;  // backup removed
         end;
-        { Length(Entries) = 0: silent no-op, like the sequential path —
-          the slot stays neutral. }
-      finally
-        FreeZipEntries(Entries);  // always free the temporary entry list
+        if Ok then
+          FPool.Slots[Idx].Written := True
+        else
+          FPool.Slots[Idx].ErrorMsg :=
+            Format('Failed to write %s', [FPool.Files[Idx]]);
       end;
-    except
-      on E: Exception do
-        FPool.Slots[Idx].ErrorMsg :=
-          Format('%s: %s', [FPool.Files[Idx], E.Message]);
-    end;
-
-    EnterCriticalSection(FPool.Lock);
-    try
-      Inc(FPool.Completed);
-      if Assigned(FPool.OnProgress) then
-        FPool.OnProgress((FPool.Completed * 100) div FPool.Total,
-          Format('Deleting pages from %s (%d/%d)', [FPool.Files[Idx],
-            FPool.Completed, FPool.Total]));
+      { Length(Entries) = 0: silent no-op, like the sequential path —
+        the slot stays neutral. }
     finally
-      LeaveCriticalSection(FPool.Lock);
+      FreeZipEntries(Entries);  // always free the temporary entry list
     end;
+  except
+    on E: Exception do
+      FPool.Slots[Idx].ErrorMsg :=
+        Format('%s: %s', [FPool.Files[Idx], E.Message]);
+  end;
+
+  FPool.LockPool;
+  try
+    Inc(FPool.Completed);
+    if Assigned(FPool.OnProgress) then
+      FPool.OnProgress((FPool.Completed * 100) div FPool.Total,
+        Format('Deleting pages from %s (%d/%d)', [FPool.Files[Idx],
+          FPool.Completed, FPool.Total]));
+  finally
+    FPool.UnlockPool;
   end;
 end;
 
@@ -410,14 +389,11 @@ end;
   Checks Terminated before each file to support cooperative cancellation. }
 procedure TDeletePagesThread.Execute;
 var
-  i, ThreadCount, W: integer;
+  i, ThreadCount: integer;
   FullPath: string;
   Entries: TZipEntries;
   Ok: boolean;
   Pool: TDeletePagesPoolState;
-  Locked: TLockedProgress;
-  Workers: array of TDeletePagesPoolWorker;
-  AllDone: boolean;
 begin
   FResult.Success := True;
   FResult.Processed := 0;
@@ -498,54 +474,19 @@ begin
       result into its own slot; the outcome is aggregated in order after
       the join, so it is identical for any thread count.  Per-file
       failures never abort the batch, mirroring the sequential path. }
-    Pool := TDeletePagesPoolState.Create;
-    Locked := TLockedProgress.Create;
-    Workers := nil;
+    Pool := TDeletePagesPoolState.Create(Length(FFiles));
     try
       Pool.Files := FFiles;
       Pool.Dir := FDir;
       Pool.PagesToDelete := FPagesToDelete;
       Pool.Renumber := FRenumber;
       Pool.DeletePerm := FDeletePerm;
+      Pool.Thread := Self;
       SetLength(Pool.Slots, Length(FFiles));
-      Pool.Total := Length(FFiles);
-      { Both the per-file completion reports and the locked within-file
-        progress funnel through the service thread's synchronized Progress,
-        serialized by the pool lock (same shape as the CBR pool). }
+      { The per-file completion reports funnel through the service thread's
+        synchronized Progress, serialized by the pool lock. }
       Pool.OnProgress := @Progress;
-      Locked.Lock := @Pool.Lock;
-      Locked.Inner := @Progress;
-      SetLength(Workers, ThreadCount);
-      try
-        for i := 0 to ThreadCount - 1 do
-          Workers[i] := TDeletePagesPoolWorker.Create(Pool, Locked);
-        for i := 0 to ThreadCount - 1 do
-          Workers[i].Start;
-        { Join with cancel propagation: terminating the service thread
-          terminates the pool workers so they exit at the next claim. }
-        while True do
-        begin
-          AllDone := True;
-          for W := 0 to High(Workers) do
-            if (Workers[W] <> nil) and not Workers[W].Finished then
-            begin
-              AllDone := False;
-              Break;
-            end;
-          if AllDone then Break;
-          if Terminated then
-            for W := 0 to High(Workers) do
-              if Workers[W] <> nil then
-                Workers[W].Terminate;
-          Sleep(5);
-        end;
-        for i := 0 to High(Workers) do
-          if Workers[i] <> nil then
-            Workers[i].WaitFor;
-      finally
-        for i := 0 to High(Workers) do
-          Workers[i].Free;
-      end;
+      Pool.Run(ThreadCount);
       for i := 0 to High(FFiles) do
       begin
         if Pool.Slots[i].Written then
@@ -563,7 +504,6 @@ begin
       end;
     finally
       Pool.Free;
-      Locked.Free;
     end;
   end;
   Progress(100, Format('Complete: %d files processed', [FResult.Processed]));

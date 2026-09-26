@@ -34,6 +34,7 @@ const
   ARCHIVE_EOF = 1;   { Found end of archive (archive_read_next_header) }
   ARCHIVE_OK  = 0;
   ARCHIVE_RETRY = -10;  { transient failure: retry the read (per libarchive) }
+  ARCHIVE_WARN = -20;   { header read with a warning: the entry is still valid }
 
   { Entry file-type masks (archive_entry_filetype). }
   AE_IFMT  = $F000;
@@ -79,7 +80,7 @@ function CbrLibraryName: string;
 implementation
 
 uses
-  DynLibs, uLog;
+  DynLibs, uLog, udynlib;
 
 const
   {$IFDEF WINDOWS}
@@ -117,20 +118,16 @@ type
   TArchiveErrorString = function(AR: Pointer): PAnsiChar; cdecl;
 
 var
-  { Serializes the lazy initialization of the library. }
-  LibLock: TRTLCriticalSection;
-  { Handle of the dynamic library; NilHandle if not loaded. }
-  hLib: TLibHandle = NilHandle;
-  { True after the first load attempt (avoids repeated retries). }
-  LibTried: boolean = False;
-  { Name of the library file actually loaded. }
-  LibName: string = '';
+  { Lazy loader (udynlib): load-once guard, handle and actual file name. }
+  Lib: TDynLib;
   { Pointers to the functions exported by libarchive, resolved dynamically. }
   _ArchiveReadNew: TArchiveReadNew = nil;
   _ArchiveReadSupportFormatAll: TArchiveReadSupport = nil;
   _ArchiveReadSupportFilterAll: TArchiveReadSupport = nil;
   _ArchiveReadOpenFilename: TArchiveReadOpenFilename = nil;
+  {$IFDEF WINDOWS}
   _ArchiveReadOpenFilenameW: TArchiveReadOpenFilenameW = nil;
+  {$ENDIF}
   _ArchiveReadNextHeader: TArchiveReadNextHeader = nil;
   _ArchiveReadData: TArchiveReadData = nil;
   _ArchiveReadDataSkip: TArchiveReadDataSkip = nil;
@@ -148,97 +145,82 @@ var
   library exists but lacks the core read functions, it is discarded.  Logs
   the outcome via uLog. }
 procedure InitLib;
-var
-  i: integer;
 begin
-  EnterCriticalSection(LibLock);
-  try
-    if LibTried then Exit;
-    LibTried := True;
+  if not Lib.TryInit then Exit;
 
-    for i := Low(ARCHIVE_LIB_NAMES) to High(ARCHIVE_LIB_NAMES) do
-    begin
-      hLib := LoadLibrary(ARCHIVE_LIB_NAMES[i]);
-      if hLib <> NilHandle then
-      begin
-        LibName := ARCHIVE_LIB_NAMES[i];
-        Break;
-      end;
-    end;
-    if hLib = NilHandle then
-    begin
-      Log('Archive: libarchive NOT found: CBR files will not be readable');
-      Exit;
-    end;
+  Pointer(_ArchiveReadNew) := Lib.Symbol('archive_read_new');
+  Pointer(_ArchiveReadSupportFormatAll) :=
+    Lib.Symbol('archive_read_support_format_all');
+  Pointer(_ArchiveReadSupportFilterAll) :=
+    Lib.Symbol('archive_read_support_filter_all');
+  Pointer(_ArchiveReadOpenFilename) :=
+    Lib.Symbol('archive_read_open_filename');
+  {$IFDEF WINDOWS}
+  Pointer(_ArchiveReadOpenFilenameW) :=
+    Lib.Symbol('archive_read_open_filename_w');
+  {$ENDIF}
+  Pointer(_ArchiveReadNextHeader) := Lib.Symbol('archive_read_next_header');
+  Pointer(_ArchiveReadData) := Lib.Symbol('archive_read_data');
+  Pointer(_ArchiveReadDataSkip) := Lib.Symbol('archive_read_data_skip');
+  Pointer(_ArchiveReadFree) := Lib.Symbol('archive_read_free');
+  Pointer(_ArchiveEntryPathname) := Lib.Symbol('archive_entry_pathname');
+  Pointer(_ArchiveEntryPathnameUtf8) :=
+    Lib.Symbol('archive_entry_pathname_utf8');
+  Pointer(_ArchiveEntryFiletype) := Lib.Symbol('archive_entry_filetype');
+  Pointer(_ArchiveEntryIsEncrypted) :=
+    Lib.Symbol('archive_entry_is_encrypted');
+  Pointer(_ArchiveEntrySize) := Lib.Symbol('archive_entry_size');
+  Pointer(_ArchiveErrorString) := Lib.Symbol('archive_error_string');
 
-    Pointer(_ArchiveReadNew) := GetProcedureAddress(hLib, 'archive_read_new');
-    Pointer(_ArchiveReadSupportFormatAll) :=
-      GetProcedureAddress(hLib, 'archive_read_support_format_all');
-    Pointer(_ArchiveReadSupportFilterAll) :=
-      GetProcedureAddress(hLib, 'archive_read_support_filter_all');
-    Pointer(_ArchiveReadOpenFilename) :=
-      GetProcedureAddress(hLib, 'archive_read_open_filename');
-    Pointer(_ArchiveReadOpenFilenameW) :=
-      GetProcedureAddress(hLib, 'archive_read_open_filename_w');
-    Pointer(_ArchiveReadNextHeader) :=
-      GetProcedureAddress(hLib, 'archive_read_next_header');
-    Pointer(_ArchiveReadData) := GetProcedureAddress(hLib, 'archive_read_data');
-    Pointer(_ArchiveReadDataSkip) :=
-      GetProcedureAddress(hLib, 'archive_read_data_skip');
-    Pointer(_ArchiveReadFree) := GetProcedureAddress(hLib, 'archive_read_free');
-    Pointer(_ArchiveEntryPathname) :=
-      GetProcedureAddress(hLib, 'archive_entry_pathname');
-    Pointer(_ArchiveEntryPathnameUtf8) :=
-      GetProcedureAddress(hLib, 'archive_entry_pathname_utf8');
-    Pointer(_ArchiveEntryFiletype) :=
-      GetProcedureAddress(hLib, 'archive_entry_filetype');
-    Pointer(_ArchiveEntryIsEncrypted) :=
-      GetProcedureAddress(hLib, 'archive_entry_is_encrypted');
-    Pointer(_ArchiveEntrySize) := GetProcedureAddress(hLib, 'archive_entry_size');
-    Pointer(_ArchiveErrorString) :=
-      GetProcedureAddress(hLib, 'archive_error_string');
-
-    if not (Assigned(_ArchiveReadNew) and Assigned(_ArchiveReadNextHeader) and
-            Assigned(_ArchiveReadData) and Assigned(_ArchiveReadFree)) then
-    begin
-      Log('Archive: %s loaded but missing the core read functions', [LibName]);
-      UnloadLibrary(hLib);
-      hLib := NilHandle;
-      LibName := '';
-      _ArchiveReadNew := nil;
-      _ArchiveReadSupportFormatAll := nil;
-      _ArchiveReadSupportFilterAll := nil;
-      _ArchiveReadOpenFilename := nil;
-      _ArchiveReadOpenFilenameW := nil;
-      _ArchiveReadNextHeader := nil;
-      _ArchiveReadData := nil;
-      _ArchiveReadDataSkip := nil;
-      _ArchiveReadFree := nil;
-      _ArchiveEntryPathname := nil;
-      _ArchiveEntryPathnameUtf8 := nil;
-      _ArchiveEntryFiletype := nil;
-      _ArchiveEntryIsEncrypted := nil;
-      _ArchiveEntrySize := nil;
-      _ArchiveErrorString := nil;
-      Exit;
-    end;
-
-    Log('Archive: loaded %s', [LibName]);
-  finally
-    LeaveCriticalSection(LibLock);
+  if not (Assigned(_ArchiveReadNew) and
+          Assigned(_ArchiveReadSupportFormatAll) and
+          Assigned(_ArchiveReadSupportFilterAll) and
+          Assigned(_ArchiveReadOpenFilename) and
+          Assigned(_ArchiveReadNextHeader) and
+          Assigned(_ArchiveReadData) and
+          Assigned(_ArchiveReadDataSkip) and
+          Assigned(_ArchiveReadFree) and
+          Assigned(_ArchiveEntryPathname) and
+          Assigned(_ArchiveEntryFiletype) and
+          Assigned(_ArchiveEntrySize) and
+          Assigned(_ArchiveErrorString)) then
+  begin
+    Log('Archive: %s loaded but missing the core read functions',
+      [Lib.LibraryName]);
+    Lib.Reject;
+    _ArchiveReadNew := nil;
+    _ArchiveReadSupportFormatAll := nil;
+    _ArchiveReadSupportFilterAll := nil;
+    _ArchiveReadOpenFilename := nil;
+    {$IFDEF WINDOWS}
+    _ArchiveReadOpenFilenameW := nil;
+    {$ENDIF}
+    _ArchiveReadNextHeader := nil;
+    _ArchiveReadData := nil;
+    _ArchiveReadDataSkip := nil;
+    _ArchiveReadFree := nil;
+    _ArchiveEntryPathname := nil;
+    _ArchiveEntryPathnameUtf8 := nil;
+    _ArchiveEntryFiletype := nil;
+    _ArchiveEntryIsEncrypted := nil;
+    _ArchiveEntrySize := nil;
+    _ArchiveErrorString := nil;
+    Exit;
   end;
+
+  Log('Archive: loaded %s', [Lib.LibraryName]);
 end;
 
 function CbrSupported: boolean;
 begin
   InitLib;
-  Result := hLib <> NilHandle;
+  Result := Lib.Handle <> NilHandle;
 end;
 
 function CbrLibraryName: string;
 begin
   InitLib;
-  Result := LibName;
+  Result := Lib.LibraryName;
 end;
 
 { Last error message from the archive handle ('' when none). }
@@ -247,7 +229,7 @@ var
   P: PAnsiChar;
 begin
   Result := '';
-  if AR = nil then Exit;
+  if (AR = nil) or not Assigned(_ArchiveErrorString) then Exit;
   P := _ArchiveErrorString(AR);
   if P <> nil then Result := P;
 end;
@@ -257,7 +239,9 @@ end;
 constructor TCbrReader.Create(const AFileName: string);
 var
   R: integer;
+  {$IFDEF WINDOWS}
   WS: WideString;
+  {$ENDIF}
 begin
   inherited Create;
   FHandle := nil;
@@ -325,16 +309,27 @@ begin
   if R = ARCHIVE_EOF then Exit;   { clean end of archive }
   if R < 0 then
   begin
-    FError := LibErrorString(FHandle);
-    Exit;
+    { ARCHIVE_WARN means the entry header is valid but libarchive flagged a
+      problem: keep reading it instead of treating the whole archive as
+      corrupt. }
+    if R <> ARCHIVE_WARN then
+    begin
+      FError := LibErrorString(FHandle);
+      Exit;
+    end;
   end;
 
-  P := _ArchiveEntryPathnameUtf8(Entry);
+  P := nil;
+  if Assigned(_ArchiveEntryPathnameUtf8) then
+    P := _ArchiveEntryPathnameUtf8(Entry);
   if P = nil then P := _ArchiveEntryPathname(Entry);
   if P <> nil then AInfo.Name := P;
   AInfo.Size := _ArchiveEntrySize(Entry);
   AInfo.IsDirectory := (_ArchiveEntryFiletype(Entry) and AE_IFMT) = AE_IFDIR;
-  AInfo.IsEncrypted := _ArchiveEntryIsEncrypted(Entry) <> 0;
+  { archive_entry_is_encrypted appeared in libarchive 3.3.3: optional, with
+    a safe default (the pointer is checked before it is called). }
+  if Assigned(_ArchiveEntryIsEncrypted) then
+    AInfo.IsEncrypted := _ArchiveEntryIsEncrypted(Entry) <> 0;
   Result := True;
 end;
 
@@ -371,14 +366,10 @@ begin
 end;
 
 initialization
-  InitCriticalSection(LibLock);
+  Lib := TDynLib.Create(ARCHIVE_LIB_NAMES,
+    'Archive: libarchive NOT found: CBR files will not be readable');
 
 finalization
-  if hLib <> NilHandle then
-  begin
-    UnloadLibrary(hLib);
-    hLib := NilHandle;
-  end;
-  DoneCriticalSection(LibLock);
+  Lib.Free;
 
 end.

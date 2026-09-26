@@ -103,19 +103,6 @@ type
 
 implementation
 
-function GetFileSize(const APath: string): int64;
-var
-  SR: TSearchRec;
-begin
-  if FindFirst(APath, faAnyFile, SR) = 0 then
-  begin
-    Result := SR.Size;
-    FindClose(SR);
-  end
-  else
-    Result := 0;
-end;
-
 class function TConvertService.Convert(const AFiles: TStringArray;
   const ADir: string; const Options: TConvertOptions;
   AOnProgress: TServiceProgressEvent = nil): TConvertResults;

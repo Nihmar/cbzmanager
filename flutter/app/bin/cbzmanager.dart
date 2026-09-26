@@ -153,10 +153,8 @@ _Options _parseOptions(List<String> args) {
         options.directory = arg;
     }
   }
-  if (options.chapters != null && options.chaptersPerVolume > 0) {
-    options.error =
-        '--chapters and --chapters-per-volume are mutually exclusive';
-  }
+  // The mutual exclusion is a runtime error (exit 1) like the reference
+  // CLI, not a usage error — it is checked by _merge.
   return options;
 }
 
@@ -179,6 +177,13 @@ Future<List<ArchiveItem>> _archives(
 }
 
 Future<int> _validate(Vfs vfs, String dir, _Options options) async {
+  if (options.force ||
+      options.chapters != null ||
+      options.chaptersPerVolume > 0) {
+    stderr.writeln("Error: option not valid for 'validate'");
+    stderr.writeln("Try 'cbzmanager --help' for usage.");
+    return _exitUsage;
+  }
   final items = await _archives(vfs, dir, extension: '.cbz');
   if (items.isEmpty) {
     stdout.writeln('No chapter files found');
@@ -223,6 +228,9 @@ Future<int> _convert(Vfs vfs, String dir, _Options options) async {
     items,
     backup: !options.delete,
     threads: options.threads,
+    // Reference CLI defaults: skip existing WebP, q75, only-if-smaller,
+    // strip ComicInfo, renumber.
+    skipExistingWebp: true,
     onProgress: (done, total, message) =>
         stdout.writeln('[$done/$total] $message'),
   );
@@ -233,6 +241,9 @@ Future<int> _convert(Vfs vfs, String dir, _Options options) async {
         'OK   ${outcome.item.name} '
         '(${outcome.converted} converted, ${outcome.kept} kept)',
       );
+    } else if (outcome.skipped) {
+      // No image pages: a benign no-op (the reference exits 0 for it).
+      stdout.writeln('SKIP ${outcome.item.name} (no images)');
     } else {
       failed++;
       stderr.writeln('FAIL ${outcome.item.name}: ${outcome.error}');
@@ -242,6 +253,12 @@ Future<int> _convert(Vfs vfs, String dir, _Options options) async {
 }
 
 Future<int> _merge(Vfs vfs, String dir, _Options options) async {
+  if (options.chapters != null && options.chaptersPerVolume > 0) {
+    stderr.writeln(
+      'Error: --chapters and --chapters-per-volume are mutually exclusive',
+    );
+    return _exitError;
+  }
   final all = await _archives(vfs, dir, extension: '.cbz');
   if (all.isEmpty) {
     stdout.writeln('No chapter files found');

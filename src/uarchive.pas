@@ -125,7 +125,9 @@ var
   _ArchiveReadSupportFormatAll: TArchiveReadSupport = nil;
   _ArchiveReadSupportFilterAll: TArchiveReadSupport = nil;
   _ArchiveReadOpenFilename: TArchiveReadOpenFilename = nil;
+  {$IFDEF WINDOWS}
   _ArchiveReadOpenFilenameW: TArchiveReadOpenFilenameW = nil;
+  {$ENDIF}
   _ArchiveReadNextHeader: TArchiveReadNextHeader = nil;
   _ArchiveReadData: TArchiveReadData = nil;
   _ArchiveReadDataSkip: TArchiveReadDataSkip = nil;
@@ -153,8 +155,10 @@ begin
     Lib.Symbol('archive_read_support_filter_all');
   Pointer(_ArchiveReadOpenFilename) :=
     Lib.Symbol('archive_read_open_filename');
+  {$IFDEF WINDOWS}
   Pointer(_ArchiveReadOpenFilenameW) :=
     Lib.Symbol('archive_read_open_filename_w');
+  {$ENDIF}
   Pointer(_ArchiveReadNextHeader) := Lib.Symbol('archive_read_next_header');
   Pointer(_ArchiveReadData) := Lib.Symbol('archive_read_data');
   Pointer(_ArchiveReadDataSkip) := Lib.Symbol('archive_read_data_skip');
@@ -188,7 +192,9 @@ begin
     _ArchiveReadSupportFormatAll := nil;
     _ArchiveReadSupportFilterAll := nil;
     _ArchiveReadOpenFilename := nil;
+    {$IFDEF WINDOWS}
     _ArchiveReadOpenFilenameW := nil;
+    {$ENDIF}
     _ArchiveReadNextHeader := nil;
     _ArchiveReadData := nil;
     _ArchiveReadDataSkip := nil;
@@ -233,7 +239,9 @@ end;
 constructor TCbrReader.Create(const AFileName: string);
 var
   R: integer;
+  {$IFDEF WINDOWS}
   WS: WideString;
+  {$ENDIF}
 begin
   inherited Create;
   FHandle := nil;

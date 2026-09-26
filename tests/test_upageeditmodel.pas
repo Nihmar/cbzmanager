@@ -30,6 +30,12 @@ type
     procedure TestSave_CreatesOldBackup;
     procedure TestSave_EditedPage_DataWins;
     procedure TestSave_Split_StagedPiecesWritesNewPages;
+    { Regression: the save lookup table is built with an insertion sort that
+      must save the key before shifting.  With a non-alphabetical archive
+      order the old version lost entries, so a page was not found and the
+      archive was written with a duplicated name (the un-consumed original
+      was re-added as leftover metadata). }
+    procedure TestSave_NonAlphabeticalArchiveOrder_NoLossNoDup;
   end;
 
   TPageEditModelTest = class(TTestCase)
@@ -372,6 +378,81 @@ begin
     Fail('page_0001.png not found in saved CBZ');
   finally
     FreeZipEntries(Entries);
+  end;
+end;
+
+{ Regression test for the save lookup table.  The archive stores its entries
+  in reverse page order (not a rare shape for CBZs produced by other tools).
+  The insertion sort that builds the name -> index table used to compare
+  against the element being inserted AFTER its first shift had overwritten
+  it, losing 'page_0001.png' from the table: the page was not found, the
+  original entry was re-added by the metadata pass and the output ended up
+  with a duplicated name (and page_0002's bytes under page_0001's name). }
+procedure TSaveChangesTest.TestSave_NonAlphabeticalArchiveOrder_NoLossNoDup;
+var
+  RevCBZ: string;
+  S1, S2, CInfo: TStringStream;
+  Save: TSyncSaveChanges;
+  Pages: TPageStates;
+  Entries: TZipEntries;
+  i: integer;
+  Got: array[0..1] of string;
+  S: string;
+begin
+  RevCBZ := FTempDir + 'reversed.cbz';
+  S1 := TStringStream.Create('PAGE-0002-BYTES');
+  S2 := TStringStream.Create('PAGE-0001-BYTES');
+  CInfo := TStringStream.Create('<ComicInfo/>');
+  CreateCBZ(RevCBZ, [S1, S2, CInfo],
+    ['page_0002.png', 'page_0001.png', 'ComicInfo.xml']);
+  S1.Free;
+  S2.Free;
+  CInfo.Free;
+
+  try
+    { Snapshot in reading (alphabetical) order: page_0001 then page_0002. }
+    SetLength(Pages, 2);
+    Pages[0].Name := 'page_0001.png';
+    Pages[0].OrigName := 'page_0001.png';
+    Pages[0].Image := nil;
+    Pages[0].Data := nil;
+    Pages[0].OrigIndex := 0;
+    Pages[0].Gone := False;
+    Pages[1].Name := 'page_0002.png';
+    Pages[1].OrigName := 'page_0002.png';
+    Pages[1].Image := nil;
+    Pages[1].Data := nil;
+    Pages[1].OrigIndex := 1;
+    Pages[1].Gone := False;
+
+    Save := TSyncSaveChanges.Create(RevCBZ, Pages, True, False, nil);
+    try
+      Save.RunSync;
+      AssertTrue('save succeeds', Save.Result.Success);
+    finally
+      Save.Free;
+    end;
+
+    Entries := CollectZipEntries(RevCBZ);
+    try
+      AssertEquals('page_0001.png,page_0002.png,ComicInfo.xml',
+        EntryNames(RevCBZ));
+      for i := 0 to High(Entries) do
+      begin
+        SetString(S, PChar(Entries[i].Data.Memory), Entries[i].Data.Size);
+        if Entries[i].Name = 'page_0001.png' then Got[0] := S
+        else if Entries[i].Name = 'page_0002.png' then Got[1] := S;
+      end;
+      AssertEquals('page_0001 keeps its own bytes',
+        'PAGE-0001-BYTES', Got[0]);
+      AssertEquals('page_0002 keeps its own bytes',
+        'PAGE-0002-BYTES', Got[1]);
+    finally
+      FreeZipEntries(Entries);
+    end;
+  finally
+    DeleteFile(RevCBZ);
+    DeleteFile(ChangeFileExt(RevCBZ, '_OLD.cbz'));
   end;
 end;
 

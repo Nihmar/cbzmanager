@@ -458,6 +458,7 @@ var
   PageExt: string;
   Found: boolean;
   SortedNames: array of TNameIdx;
+  Key: TNameIdx;
   Idx: integer;
 
   function FindIdx(const AName: string): integer;
@@ -495,16 +496,22 @@ begin
         SortedNames[i].Name := LowerCase(AllEntries[i].Name);
         SortedNames[i].Idx := i;
       end;
-      { Insertion sort by lowercase name (stable, fast for <1000 entries). }
+      { Insertion sort by lowercase name (stable, fast for <1000 entries).
+        The element being inserted must be saved in Key first: the shifting
+        loop overwrites SortedNames[i] on its first step, and comparing
+        against the clobbered slot corrupted the table (lost/duplicated
+        entries, mangled by binary search) whenever the archive stored its
+        entries in a non-alphabetical order. }
       for i := 1 to High(SortedNames) do
       begin
+        Key := SortedNames[i];
         j := i - 1;
-        while (j >= 0) and (SortedNames[j].Name > SortedNames[i].Name) do
+        while (j >= 0) and (SortedNames[j].Name > Key.Name) do
         begin
           SortedNames[j + 1] := SortedNames[j];
           Dec(j);
         end;
-        SortedNames[j + 1] := SortedNames[i];
+        SortedNames[j + 1] := Key;
       end;
 
       // Upper bound: every page survives (no Gone), plus all metadata entries.

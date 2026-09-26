@@ -14,6 +14,7 @@ import '../../jobs/job_monitor.dart';
 import '../../native/cbr_reader.dart';
 import '../../vfs/local_vfs.dart';
 import '../../vfs/smb_vfs.dart';
+import '../settings/settings.dart';
 import '../settings/settings_dialog.dart';
 import '../batch_edit/batch_edit_dialog.dart';
 import '../batch_edit/batch_edit_service.dart';
@@ -299,7 +300,13 @@ class BrowserScreen extends ConsumerWidget {
       return;
     }
 
-    final options = await showMergeDialog(context, files: files);
+    final settings = ref.read(settingsProvider);
+    final options = await showMergeDialog(
+      context,
+      files: files,
+      defaultThreads: settings.mergeThreads,
+      defaultBackup: settings.backupByDefault,
+    );
     if (options == null || !context.mounted) return;
 
     final job = ref.read(jobProvider.notifier);
@@ -349,6 +356,7 @@ class BrowserScreen extends ConsumerWidget {
       context,
       fileCount: editable.length,
       previewBytes: previewBytes,
+      defaultBackup: ref.read(settingsProvider).backupByDefault,
     );
     if (params == null || !context.mounted) return;
 
@@ -359,6 +367,7 @@ class BrowserScreen extends ConsumerWidget {
         source.vfs,
         editable,
         params,
+        threads: ref.read(settingsProvider).batchThreads,
         onProgress: (percent, message) => job.progress(percent, message),
         isCancelled: () => job.cancelRequested,
       );
@@ -398,6 +407,8 @@ class BrowserScreen extends ConsumerWidget {
     final request = await showConvertOptionsDialog(
       context,
       fileCount: items.length,
+      defaultThreads: ref.read(settingsProvider).convertThreads,
+      defaultBackup: ref.read(settingsProvider).backupByDefault,
     );
     if (request == null || !context.mounted) return;
 
@@ -439,6 +450,7 @@ class BrowserScreen extends ConsumerWidget {
     final request = await showCbrOptionsDialog(
       context,
       fileCount: names.length,
+      defaultThreads: ref.read(settingsProvider).cbrThreads,
     );
     if (request == null || !context.mounted) return;
 
@@ -888,6 +900,7 @@ class _ArchiveTile extends ConsumerWidget {
                                 builder: (_) => PageEditScreen(
                                   vfs: source.vfs,
                                   item: item,
+                                  backup: ref.read(settingsProvider).backupByDefault,
                                 ),
                               ),
                             );
@@ -987,7 +1000,12 @@ class _BrowserActions {
     ArchiveSource source,
     ArchiveItem item,
   ) async {
-    final request = await showConvertOptionsDialog(context, fileCount: 1);
+    final request = await showConvertOptionsDialog(
+      context,
+      fileCount: 1,
+      defaultThreads: ref.read(settingsProvider).convertThreads,
+      defaultBackup: ref.read(settingsProvider).backupByDefault,
+    );
     if (request == null || !context.mounted) return;
     final job = ref.read(jobProvider.notifier);
     job.start('Convert to WebP', message: item.name);
@@ -1012,7 +1030,11 @@ class _BrowserActions {
     ArchiveSource source,
     ArchiveItem item,
   ) async {
-    final request = await showCbrOptionsDialog(context, fileCount: 1);
+    final request = await showCbrOptionsDialog(
+      context,
+      fileCount: 1,
+      defaultThreads: ref.read(settingsProvider).cbrThreads,
+    );
     if (request == null || !context.mounted) return;
     final job = ref.read(jobProvider.notifier);
     job.start('CBR → CBZ', message: item.name);

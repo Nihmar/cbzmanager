@@ -127,21 +127,28 @@ Future<BatchEditParams?> showBatchEditDialog(
   BuildContext context, {
   required int fileCount,
   Uint8List? previewBytes,
+  bool defaultBackup = true,
 }) {
   return showDialog<BatchEditParams>(
     context: context,
     builder: (context) => _BatchEditDialog(
       fileCount: fileCount,
       previewBytes: previewBytes,
+      defaultBackup: defaultBackup,
     ),
   );
 }
 
 class _BatchEditDialog extends StatefulWidget {
-  const _BatchEditDialog({required this.fileCount, this.previewBytes});
+  const _BatchEditDialog({
+    required this.fileCount,
+    this.previewBytes,
+    this.defaultBackup = true,
+  });
 
   final int fileCount;
   final Uint8List? previewBytes;
+  final bool defaultBackup;
 
   @override
   State<_BatchEditDialog> createState() => _BatchEditDialogState();
@@ -153,7 +160,7 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
   bool _split = false;
   bool _horizontal = true;
   int _pieces = 2;
-  bool _backup = true;
+  late bool _backup = widget.defaultBackup;
   img.Image? _previewSrc;
 
   @override

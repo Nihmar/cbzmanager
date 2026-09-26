@@ -11,29 +11,43 @@ class ConvertRequest {
 }
 
 /// Asks how to convert: keep an `_OLD` backup or delete the originals, and how
-/// many files to convert in parallel.
+/// many files to convert in parallel.  [defaultThreads]/[defaultBackup] come
+/// from the persisted settings.
 Future<ConvertRequest?> showConvertOptionsDialog(
   BuildContext context, {
   required int fileCount,
+  int defaultThreads = 0,
+  bool defaultBackup = true,
 }) {
   return showDialog<ConvertRequest>(
     context: context,
-    builder: (context) => _ConvertOptionsDialog(fileCount: fileCount),
+    builder: (context) => _ConvertOptionsDialog(
+      fileCount: fileCount,
+      defaultThreads: defaultThreads,
+      defaultBackup: defaultBackup,
+    ),
   );
 }
 
 class _ConvertOptionsDialog extends StatefulWidget {
-  const _ConvertOptionsDialog({required this.fileCount});
+  const _ConvertOptionsDialog({
+    required this.fileCount,
+    this.defaultThreads = 0,
+    this.defaultBackup = true,
+  });
 
   final int fileCount;
+  final int defaultThreads;
+  final bool defaultBackup;
 
   @override
   State<_ConvertOptionsDialog> createState() => _ConvertOptionsDialogState();
 }
 
 class _ConvertOptionsDialogState extends State<_ConvertOptionsDialog> {
-  bool _backup = true;
-  final _threads = TextEditingController(text: '0');
+  late bool _backup = widget.defaultBackup;
+  late final _threads =
+      TextEditingController(text: '${widget.defaultThreads}');
 
   @override
   void dispose() {

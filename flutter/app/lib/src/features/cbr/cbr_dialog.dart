@@ -18,17 +18,25 @@ class CbrConvertRequest {
 Future<CbrConvertRequest?> showCbrOptionsDialog(
   BuildContext context, {
   required int fileCount,
+  int defaultThreads = 0,
 }) {
   return showDialog<CbrConvertRequest>(
     context: context,
-    builder: (context) => _CbrOptionsDialog(fileCount: fileCount),
+    builder: (context) => _CbrOptionsDialog(
+      fileCount: fileCount,
+      defaultThreads: defaultThreads,
+    ),
   );
 }
 
 class _CbrOptionsDialog extends StatefulWidget {
-  const _CbrOptionsDialog({required this.fileCount});
+  const _CbrOptionsDialog({
+    required this.fileCount,
+    this.defaultThreads = 0,
+  });
 
   final int fileCount;
+  final int defaultThreads;
 
   @override
   State<_CbrOptionsDialog> createState() => _CbrOptionsDialogState();
@@ -37,7 +45,8 @@ class _CbrOptionsDialog extends StatefulWidget {
 class _CbrOptionsDialogState extends State<_CbrOptionsDialog> {
   bool _skipExisting = true;
   bool _deleteSource = false;
-  final _threads = TextEditingController(text: '0');
+  late final _threads =
+      TextEditingController(text: '${widget.defaultThreads}');
 
   @override
   void dispose() {

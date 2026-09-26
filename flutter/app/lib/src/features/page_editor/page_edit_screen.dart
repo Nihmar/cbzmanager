@@ -16,10 +16,18 @@ import 'page_editor_dialog.dart';
 /// single-page editor (resize / colours / split). Changes are staged in a
 /// [PageEditModel] and only written on Save.
 class PageEditScreen extends StatefulWidget {
-  const PageEditScreen({super.key, required this.vfs, required this.item});
+  const PageEditScreen({
+    super.key,
+    required this.vfs,
+    required this.item,
+    this.backup = true,
+  });
 
   final Vfs vfs;
   final ArchiveItem item;
+
+  /// Whether saving keeps an `_OLD.cbz` backup (persisted setting).
+  final bool backup;
 
   @override
   State<PageEditScreen> createState() => _PageEditScreenState();
@@ -130,6 +138,7 @@ class _PageEditScreenState extends State<PageEditScreen> {
         widget.item.path,
         model,
         renumber: true,
+        backup: widget.backup,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context)

@@ -5,20 +5,33 @@ import 'sequence_builder_dialog.dart';
 
 /// Merge configuration dialog with a live volume preview and optional custom
 /// sequence. Returns the chosen [MergeOptions], or null when cancelled.
+/// [defaultThreads]/[defaultBackup] come from the persisted settings.
 Future<MergeOptions?> showMergeDialog(
   BuildContext context, {
   required List<String> files,
+  int defaultThreads = 0,
+  bool defaultBackup = true,
 }) {
   return showDialog<MergeOptions>(
     context: context,
-    builder: (context) => _MergeDialog(files: files),
+    builder: (context) => _MergeDialog(
+      files: files,
+      defaultThreads: defaultThreads,
+      defaultBackup: defaultBackup,
+    ),
   );
 }
 
 class _MergeDialog extends StatefulWidget {
-  const _MergeDialog({required this.files});
+  const _MergeDialog({
+    required this.files,
+    this.defaultThreads = 0,
+    this.defaultBackup = true,
+  });
 
   final List<String> files;
+  final int defaultThreads;
+  final bool defaultBackup;
 
   @override
   State<_MergeDialog> createState() => _MergeDialogState();
@@ -29,11 +42,12 @@ class _MergeDialogState extends State<_MergeDialog> {
   final _start = TextEditingController(text: '0');
   final _end = TextEditingController();
   final _cpv = TextEditingController();
-  final _threads = TextEditingController(text: '0');
+  late final _threads =
+      TextEditingController(text: '${widget.defaultThreads}');
 
   bool _autoCpv = true;
   bool _force = false;
-  bool _backup = true;
+  late bool _backup = widget.defaultBackup;
   bool _comicInfo = false;
   List<int> _chaptersList = const <int>[];
 

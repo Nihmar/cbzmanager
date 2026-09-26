@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:cbzmanager/l10n/generated/app_localizations.dart';
+
 import 'job_controller.dart';
 
 /// Non-modal job monitor: label, progress, elapsed time and the rolling log.
@@ -20,11 +22,12 @@ class _JobMonitor extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final job = ref.watch(jobProvider);
     final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context);
 
     return SizedBox(
       height: 420,
       child: job == null
-          ? const Center(child: Text('No job running'))
+          ? Center(child: Text(l10n.noJobRunning))
           : Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
               child: Column(
@@ -73,13 +76,16 @@ class _JobMonitor extends ConsumerWidget {
                             ? null
                             : () => ref
                                   .read(jobProvider.notifier)
-                                  .requestCancel(),
-                        child: const Text('Cancel'),
+                                  .requestCancel(
+                                    message: l10n.cancelling,
+                                    logEntry: l10n.cancellationRequested,
+                                  ),
+                        child: Text(l10n.cancel),
                       ),
                       const SizedBox(width: 8),
                       FilledButton(
                         onPressed: () => Navigator.of(context).pop(),
-                        child: const Text('Close'),
+                        child: Text(l10n.close),
                       ),
                     ],
                   ),

@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'package:cbzmanager/l10n/generated/app_localizations.dart';
+
+import '../../util/service_messages.dart';
 import 'validate_service.dart';
 
 /// Shows the aggregated validation outcome with a copyable report.
@@ -15,8 +18,9 @@ Future<void> showValidateResultsDialog(
     context: context,
     builder: (context) {
       final theme = Theme.of(context);
+      final l10n = AppLocalizations.of(context);
       return AlertDialog(
-        title: const Text('Validation results'),
+        title: Text(l10n.validationResults),
         content: SizedBox(
           width: 520,
           height: 420,
@@ -29,12 +33,12 @@ Future<void> showValidateResultsDialog(
                 children: [
                   Chip(
                     avatar: const Icon(Icons.check_circle, size: 18),
-                    label: Text('$valid valid'),
+                    label: Text(l10n.validCount(valid)),
                   ),
                   if (failed > 0)
                     Chip(
                       avatar: const Icon(Icons.error, size: 18),
-                      label: Text('$failed with errors'),
+                      label: Text(l10n.failedWithErrors(failed)),
                       backgroundColor: theme.colorScheme.errorContainer,
                     ),
                 ],
@@ -42,7 +46,7 @@ Future<void> showValidateResultsDialog(
               const SizedBox(height: 12),
               Expanded(
                 child: outcomes.every((o) => o.result.valid)
-                    ? const Center(child: Text('All archives are valid.'))
+                    ? Center(child: Text(l10n.allArchivesValid))
                     : ListView.builder(
                         itemCount: outcomes.length,
                         itemBuilder: (context, index) {
@@ -64,21 +68,34 @@ Future<void> showValidateResultsDialog(
                             ),
                             title: Text(outcome.item.name),
                             subtitle: Text(
-                              outcome.result.error ??
-                                  '${outcome.result.errors.length} page error(s)',
+                              outcome.result.error != null
+                                  ? localizeServiceMessage(
+                                      l10n,
+                                      outcome.result.error!,
+                                    )
+                                  : l10n.pageErrors(
+                                      outcome.result.errors.length,
+                                    ),
                             ),
                             children: [
                               for (final error in outcome.result.errors)
                                 ListTile(
                                   dense: true,
                                   title: Text(error.page),
-                                  subtitle: Text(error.message),
+                                  subtitle: Text(
+                                    localizeServiceMessage(l10n, error.message),
+                                  ),
                                 ),
                               if (outcome.result.errors.isEmpty &&
                                   outcome.result.error != null)
                                 ListTile(
                                   dense: true,
-                                  subtitle: Text(outcome.result.error!),
+                                  subtitle: Text(
+                                    localizeServiceMessage(
+                                      l10n,
+                                      outcome.result.error!,
+                                    ),
+                                  ),
                                 ),
                             ],
                           );
@@ -91,13 +108,13 @@ Future<void> showValidateResultsDialog(
         actions: [
           TextButton.icon(
             onPressed: () =>
-                Clipboard.setData(ClipboardData(text: _report(outcomes))),
+                Clipboard.setData(ClipboardData(text: _report(l10n, outcomes))),
             icon: const Icon(Icons.copy),
-            label: const Text('Copy report'),
+            label: Text(l10n.copyReport),
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Close'),
+            child: Text(l10n.close),
           ),
         ],
       );
@@ -105,12 +122,11 @@ Future<void> showValidateResultsDialog(
   );
 }
 
-String _report(List<ValidateOutcome> outcomes) {
+String _report(AppLocalizations l10n, List<ValidateOutcome> outcomes) {
   final valid = outcomes.where((o) => o.result.valid).length;
   final buffer = StringBuffer()
     ..writeln(
-      'Validation report — ${outcomes.length} file(s): '
-      '$valid ok, ${outcomes.length - valid} failed',
+      l10n.reportHeader(outcomes.length, valid, outcomes.length - valid),
     );
   for (final outcome in outcomes) {
     buffer.writeln(
@@ -119,7 +135,9 @@ String _report(List<ValidateOutcome> outcomes) {
     );
     if (!outcome.result.valid) {
       if (outcome.result.error != null) {
-        buffer.writeln('     ${outcome.result.error}');
+        buffer.writeln(
+          '     ${localizeServiceMessage(l10n, outcome.result.error!)}',
+        );
       }
       for (final error in outcome.result.errors) {
         buffer.writeln('     ${error.page}: ${error.message}');

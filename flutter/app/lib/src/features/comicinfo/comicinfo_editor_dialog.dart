@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'package:cbzmanager/l10n/generated/app_localizations.dart';
+
 import '../../engine/comicinfo.dart';
 
 /// Opens the ComicInfo viewer/editor. Returns the edited metadata, or null when
@@ -145,8 +147,9 @@ class _ComicInfoEditorDialogState extends State<_ComicInfoEditorDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return AlertDialog(
-      title: Text('ComicInfo — ${widget.archiveName}'),
+      title: Text(l10n.comicInfoTitle(widget.archiveName)),
       content: SizedBox(
         width: 560,
         height: 520,
@@ -156,65 +159,79 @@ class _ComicInfoEditorDialogState extends State<_ComicInfoEditorDialog> {
             children: [
               Row(
                 children: [
-                  Expanded(child: _text('Series', _series)),
+                  Expanded(child: _text(l10n.seriesField, _series)),
                   const SizedBox(width: 12),
-                  Expanded(child: _text('Number', _number)),
-                  const SizedBox(width: 12),
-                  Expanded(child: _text('Volume', _volume, numeric: true)),
-                ],
-              ),
-              Row(
-                children: [
-                  Expanded(child: _text('Title', _title)),
-                  const SizedBox(width: 12),
-                  Expanded(child: _text('Count', _count, numeric: true)),
-                ],
-              ),
-              Row(
-                children: [
-                  Expanded(child: _text('Writer', _writer)),
-                  const SizedBox(width: 12),
-                  Expanded(child: _text('Penciller', _penciller)),
-                ],
-              ),
-              Row(
-                children: [
-                  Expanded(child: _text('Publisher', _publisher)),
-                  const SizedBox(width: 12),
-                  Expanded(child: _text('Genre', _genre)),
-                ],
-              ),
-              Row(
-                children: [
-                  Expanded(child: _text('Year', _year, numeric: true)),
-                  const SizedBox(width: 12),
-                  Expanded(child: _text('Month', _month, numeric: true)),
-                  const SizedBox(width: 12),
-                  Expanded(child: _text('Day', _day, numeric: true)),
-                ],
-              ),
-              Row(
-                children: [
-                  Expanded(
-                    child: _text('Page count', _pageCount, numeric: true),
-                  ),
+                  Expanded(child: _text(l10n.numberField, _number)),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: _text('Community rating', _rating, numeric: true),
+                    child: _text(l10n.volumeField, _volume, numeric: true),
                   ),
                 ],
               ),
               Row(
                 children: [
-                  Expanded(child: _text('Language ISO', _language)),
+                  Expanded(child: _text(l10n.titleField, _title)),
                   const SizedBox(width: 12),
-                  Expanded(child: _text('Manga', _manga)),
-                  const SizedBox(width: 12),
-                  Expanded(child: _text('Age rating', _ageRating)),
+                  Expanded(
+                    child: _text(l10n.countField, _count, numeric: true),
+                  ),
                 ],
               ),
-              _text('Web', _web),
-              _text('Summary', _summary, lines: 4),
+              Row(
+                children: [
+                  Expanded(child: _text(l10n.writerField, _writer)),
+                  const SizedBox(width: 12),
+                  Expanded(child: _text(l10n.pencillerField, _penciller)),
+                ],
+              ),
+              Row(
+                children: [
+                  Expanded(child: _text(l10n.publisherField, _publisher)),
+                  const SizedBox(width: 12),
+                  Expanded(child: _text(l10n.genreField, _genre)),
+                ],
+              ),
+              Row(
+                children: [
+                  Expanded(child: _text(l10n.yearField, _year, numeric: true)),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _text(l10n.monthField, _month, numeric: true),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(child: _text(l10n.dayField, _day, numeric: true)),
+                ],
+              ),
+              Row(
+                children: [
+                  Expanded(
+                    child: _text(
+                      l10n.pageCountField,
+                      _pageCount,
+                      numeric: true,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _text(
+                      l10n.communityRatingField,
+                      _rating,
+                      numeric: true,
+                    ),
+                  ),
+                ],
+              ),
+              Row(
+                children: [
+                  Expanded(child: _text(l10n.languageIsoField, _language)),
+                  const SizedBox(width: 12),
+                  Expanded(child: _text(l10n.mangaField, _manga)),
+                  const SizedBox(width: 12),
+                  Expanded(child: _text(l10n.ageRatingField, _ageRating)),
+                ],
+              ),
+              _text(l10n.webField, _web),
+              _text(l10n.summaryField, _summary, lines: 4),
             ],
           ),
         ),
@@ -222,12 +239,12 @@ class _ComicInfoEditorDialogState extends State<_ComicInfoEditorDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(l10n.cancel),
         ),
         FilledButton.icon(
           onPressed: () => Navigator.of(context).pop(_collect()),
           icon: const Icon(Icons.save_outlined),
-          label: const Text('Save'),
+          label: Text(l10n.save),
         ),
       ],
     );

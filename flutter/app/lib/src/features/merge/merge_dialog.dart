@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
+import 'package:cbzmanager/l10n/generated/app_localizations.dart';
+
 import '../../engine/merge.dart';
+import '../../util/service_messages.dart';
 import 'sequence_builder_dialog.dart';
 
 /// Merge configuration dialog with a live volume preview and optional custom
@@ -99,19 +102,20 @@ class _MergeDialogState extends State<_MergeDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context);
     final autoCpv = calculateChaptersPerVolumeFloat(widget.files, _series);
     final plan = planMerge(widget.files, _options);
     final batches = plan.plan?.batches ?? const <MergeBatch>[];
 
     return AlertDialog(
-      title: const Text('Merge chapters into volumes'),
+      title: Text(l10n.mergeTitle),
       content: SizedBox(
         width: 600,
         height: 560,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Series: $_series', style: theme.textTheme.titleMedium),
+            Text(l10n.seriesLabel(_series), style: theme.textTheme.titleMedium),
             const SizedBox(height: 12),
             Expanded(
               child: SingleChildScrollView(
@@ -124,8 +128,8 @@ class _MergeDialogState extends State<_MergeDialog> {
                           child: TextField(
                             controller: _start,
                             keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              labelText: 'Chapter from',
+                            decoration: InputDecoration(
+                              labelText: l10n.chapterFrom,
                             ),
                             onChanged: (_) => setState(() {}),
                           ),
@@ -135,8 +139,8 @@ class _MergeDialogState extends State<_MergeDialog> {
                           child: TextField(
                             controller: _end,
                             keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              labelText: 'Chapter to (empty = all)',
+                            decoration: InputDecoration(
+                              labelText: l10n.chapterTo,
                             ),
                             onChanged: (_) => setState(() {}),
                           ),
@@ -145,12 +149,13 @@ class _MergeDialogState extends State<_MergeDialog> {
                     ),
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
-                      title: const Text('Automatic chapters per volume'),
+                      title: Text(l10n.autoCpv),
                       subtitle: Text(
                         autoCpv >= 1
-                            ? 'Calculated: ${autoCpv.toStringAsFixed(2)}'
-                            : 'No existing volumes — default '
-                                  '$kDefaultChaptersPerVolume',
+                            ? l10n.calculatedCpv(autoCpv.toStringAsFixed(2))
+                            : l10n.noExistingVolumesDefault(
+                                kDefaultChaptersPerVolume,
+                              ),
                       ),
                       value: _autoCpv,
                       onChanged: (v) => setState(() => _autoCpv = v),
@@ -159,39 +164,37 @@ class _MergeDialogState extends State<_MergeDialog> {
                       TextField(
                         controller: _cpv,
                         keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'Chapters per volume',
+                        decoration: InputDecoration(
+                          labelText: l10n.chaptersPerVolume,
                         ),
                         onChanged: (_) => setState(() {}),
                       ),
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
-                      title: const Text(
-                        'Force remaining chapters into last volume',
-                      ),
+                      title: Text(l10n.forceRemaining),
                       value: _force,
                       onChanged: (v) => setState(() => _force = v),
                     ),
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
-                      title: const Text('Generate ComicInfo.xml per volume'),
+                      title: Text(l10n.generateComicInfoPerVolume),
                       value: _comicInfo,
                       onChanged: (v) => setState(() => _comicInfo = v),
                     ),
                     const SizedBox(height: 8),
-                    Text('Originals', style: theme.textTheme.labelLarge),
+                    Text(l10n.originals, style: theme.textTheme.labelLarge),
                     const SizedBox(height: 8),
                     SegmentedButton<bool>(
-                      segments: const [
+                      segments: [
                         ButtonSegment(
                           value: true,
-                          label: Text('Backup'),
-                          icon: Icon(Icons.backup_outlined),
+                          label: Text(l10n.backup),
+                          icon: const Icon(Icons.backup_outlined),
                         ),
                         ButtonSegment(
                           value: false,
-                          label: Text('Delete'),
-                          icon: Icon(Icons.delete_outline),
+                          label: Text(l10n.delete),
+                          icon: const Icon(Icons.delete_outline),
                         ),
                       ],
                       selected: {_backup},
@@ -205,8 +208,8 @@ class _MergeDialogState extends State<_MergeDialog> {
                           child: TextField(
                             controller: _threads,
                             keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              labelText: 'Parallel volumes (0 = auto)',
+                            decoration: InputDecoration(
+                              labelText: l10n.parallelVolumes,
                             ),
                           ),
                         ),
@@ -217,19 +220,23 @@ class _MergeDialogState extends State<_MergeDialog> {
                             icon: const Icon(Icons.playlist_add),
                             label: Text(
                               _chaptersList.isEmpty
-                                  ? 'Custom sequence…'
-                                  : 'Sequence: ${_chaptersList.join(', ')}',
+                                  ? l10n.customSequence
+                                  : l10n.sequenceValue(
+                                      _chaptersList.join(', '),
+                                    ),
                             ),
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 16),
-                    Text('Preview', style: theme.textTheme.labelLarge),
+                    Text(l10n.preview, style: theme.textTheme.labelLarge),
                     const SizedBox(height: 8),
                     if (batches.isEmpty)
                       Text(
-                        plan.error ?? 'Nothing to merge.',
+                        plan.error != null
+                            ? localizeServiceMessage(l10n, plan.error!)
+                            : l10n.nothingToMerge,
                         style: theme.textTheme.bodyMedium,
                       )
                     else
@@ -237,14 +244,16 @@ class _MergeDialogState extends State<_MergeDialog> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '${batches.length} volume(s) will be created',
+                            l10n.volumesWillBeCreated(batches.length),
                             style: theme.textTheme.bodyMedium,
                           ),
                           const SizedBox(height: 4),
                           for (final batch in batches)
                             Text(
-                              '${batch.fileName} — ${batch.files.length} '
-                              'chapter(s)',
+                              l10n.volumeAndChapters(
+                                batch.fileName,
+                                batch.files.length,
+                              ),
                               style: theme.textTheme.bodySmall,
                             ),
                         ],
@@ -259,14 +268,14 @@ class _MergeDialogState extends State<_MergeDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(l10n.cancel),
         ),
         FilledButton.icon(
           onPressed: batches.isEmpty
               ? null
               : () => Navigator.of(context).pop(_options),
           icon: const Icon(Icons.merge_type),
-          label: const Text('Merge'),
+          label: Text(l10n.merge),
         ),
       ],
     );

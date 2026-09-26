@@ -3,6 +3,8 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
 
+import 'package:cbzmanager/l10n/generated/app_localizations.dart';
+
 import '../../engine/format.dart';
 import '../../engine/image_edit.dart';
 import '../batch_edit/batch_edit_dialog.dart' show ColorAdjustEditor;
@@ -20,16 +22,19 @@ Future<List<Uint8List>?> showPageEditorDialog(
   if (decoded == null) {
     return showDialog<List<Uint8List>>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Edit page'),
-        content: Text('Cannot decode $pageName.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
+      builder: (context) {
+        final l10n = AppLocalizations.of(context);
+        return AlertDialog(
+          title: Text(l10n.editPageTitle),
+          content: Text(l10n.cannotDecodePage(pageName)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(l10n.close),
+            ),
+          ],
+        );
+      },
     );
   }
   return showDialog<List<Uint8List>>(
@@ -182,8 +187,9 @@ class _PageEditorDialogState extends State<_PageEditorDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context);
     return AlertDialog(
-      title: Text('Edit ${widget.pageName}'),
+      title: Text(l10n.editPageName(widget.pageName)),
       content: SizedBox(
         width: 700,
         height: 580,
@@ -210,16 +216,14 @@ class _PageEditorDialogState extends State<_PageEditorDialog> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Size', style: theme.textTheme.labelLarge),
+                    Text(l10n.size, style: theme.textTheme.labelLarge),
                     Row(
                       children: [
                         Expanded(
                           child: TextField(
                             controller: _width,
                             keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              labelText: 'Width',
-                            ),
+                            decoration: InputDecoration(labelText: l10n.width),
                             onChanged: (_) => setState(() => _onWidthChanged()),
                           ),
                         ),
@@ -228,9 +232,7 @@ class _PageEditorDialogState extends State<_PageEditorDialog> {
                           child: TextField(
                             controller: _height,
                             keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              labelText: 'Height',
-                            ),
+                            decoration: InputDecoration(labelText: l10n.height),
                             onChanged: (_) =>
                                 setState(() => _onHeightChanged()),
                           ),
@@ -239,7 +241,7 @@ class _PageEditorDialogState extends State<_PageEditorDialog> {
                     ),
                     CheckboxListTile(
                       contentPadding: EdgeInsets.zero,
-                      title: const Text('Keep aspect ratio'),
+                      title: Text(l10n.keepAspectRatio),
                       value: _lockAspect,
                       onChanged: (v) => setState(() => _lockAspect = v ?? true),
                     ),
@@ -251,9 +253,9 @@ class _PageEditorDialogState extends State<_PageEditorDialog> {
                     const Divider(),
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
-                      title: const Text('Split page'),
+                      title: Text(l10n.splitPage),
                       subtitle: Text(
-                        _split ? '${_cuts.length + 1} pieces' : 'Off',
+                        _split ? l10n.piecesCount(_cuts.length + 1) : l10n.off,
                       ),
                       value: _split,
                       onChanged: (v) => setState(() => _split = v),
@@ -262,11 +264,14 @@ class _PageEditorDialogState extends State<_PageEditorDialog> {
                       Row(
                         children: [
                           SegmentedButton<bool>(
-                            segments: const [
-                              ButtonSegment(value: true, label: Text('Rows')),
+                            segments: [
+                              ButtonSegment(
+                                value: true,
+                                label: Text(l10n.rows),
+                              ),
                               ButtonSegment(
                                 value: false,
-                                label: Text('Columns'),
+                                label: Text(l10n.columns),
                               ),
                             ],
                             selected: {_horizontal},
@@ -276,25 +281,25 @@ class _PageEditorDialogState extends State<_PageEditorDialog> {
                             }),
                           ),
                           const Spacer(),
-                          Text('${_cuts.length} line(s)'),
+                          Text(l10n.linesCount(_cuts.length)),
                           TextButton(
                             onPressed: _cuts.isEmpty
                                 ? null
                                 : () => setState(_cuts.clear),
-                            child: const Text('Clear'),
+                            child: Text(l10n.clear),
                           ),
                         ],
                       ),
-                      Text(
-                        'Tap the preview to add a cut, drag to move it, '
-                        'long-press to remove.',
-                        style: theme.textTheme.bodySmall,
-                      ),
+                      Text(l10n.cutHint, style: theme.textTheme.bodySmall),
                       const SizedBox(height: 4),
                     ],
                     Text(
-                      'Output: ${widget.targetExt} '
-                      '(${_split ? '${_cuts.length + 1} pages' : '1 page'})',
+                      l10n.outputLine(
+                        widget.targetExt,
+                        _split
+                            ? l10n.manyPages(_cuts.length + 1)
+                            : l10n.onePage,
+                      ),
                       style: theme.textTheme.bodySmall,
                     ),
                   ],
@@ -307,14 +312,14 @@ class _PageEditorDialogState extends State<_PageEditorDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(l10n.cancel),
         ),
         FilledButton.icon(
           onPressed: _split && _cuts.isEmpty
               ? null
               : () => Navigator.of(context).pop(_build()),
           icon: const Icon(Icons.check),
-          label: const Text('Apply'),
+          label: Text(l10n.apply),
         ),
       ],
     );

@@ -60,7 +60,7 @@ class BrowserScreen extends ConsumerWidget {
           appBar: AppBar(
             leading: selecting
                 ? IconButton(
-                    tooltip: 'Cancel selection',
+                    tooltip: l10n.cancelSelection,
                     icon: const Icon(Icons.close),
                     onPressed: () =>
                         ref.read(selectionProvider.notifier).clear(),
@@ -68,19 +68,19 @@ class BrowserScreen extends ConsumerWidget {
                 : up == null
                 ? null
                 : IconButton(
-                    tooltip: 'Up',
+                    tooltip: l10n.up,
                     icon: const Icon(Icons.arrow_back),
                     onPressed: () => navigate(ref, source!, up),
                   ),
             title: Text(
               selecting
-                  ? '${selection.length} selected'
+                  ? l10n.selectedCount(selection.length)
                   : (source?.label ?? l10n.appTitle),
             ),
             actions: selecting
                 ? [
                     IconButton(
-                      tooltip: 'Validate',
+                      tooltip: l10n.validate,
                       icon: const Icon(Icons.fact_check_outlined),
                       onPressed: job?.running == true || source == null
                           ? null
@@ -92,7 +92,7 @@ class BrowserScreen extends ConsumerWidget {
                             ),
                     ),
                     IconButton(
-                      tooltip: 'Convert to WebP',
+                      tooltip: l10n.convertWebp,
                       icon: const Icon(Icons.transform),
                       onPressed: job?.running == true || source == null
                           ? null
@@ -104,7 +104,7 @@ class BrowserScreen extends ConsumerWidget {
                             ),
                     ),
                     IconButton(
-                      tooltip: 'Batch edit pages',
+                      tooltip: l10n.batchEditPages,
                       icon: const Icon(Icons.tune),
                       onPressed: job?.running == true || source == null
                           ? null
@@ -116,7 +116,7 @@ class BrowserScreen extends ConsumerWidget {
                             ),
                     ),
                     IconButton(
-                      tooltip: 'Remove ComicInfo',
+                      tooltip: l10n.removeComicInfo,
                       icon: const Icon(Icons.bookmark_remove_outlined),
                       onPressed: job?.running == true || source == null
                           ? null
@@ -128,7 +128,7 @@ class BrowserScreen extends ConsumerWidget {
                             ),
                     ),
                     IconButton(
-                      tooltip: 'Select all',
+                      tooltip: l10n.selectAll,
                       icon: const Icon(Icons.select_all),
                       onPressed: () => ref
                           .read(selectionProvider.notifier)
@@ -138,7 +138,7 @@ class BrowserScreen extends ConsumerWidget {
                 : [
                     if (source != null)
                       IconButton(
-                        tooltip: 'Refresh',
+                        tooltip: l10n.refresh,
                         icon: const Icon(Icons.refresh),
                         onPressed: job?.running == true
                             ? null
@@ -148,7 +148,7 @@ class BrowserScreen extends ConsumerWidget {
                       ),
                     if (source != null && browser.items.isNotEmpty)
                       IconButton(
-                        tooltip: 'Select',
+                        tooltip: l10n.select,
                         icon: const Icon(Icons.checklist),
                         onPressed: () => ref
                             .read(selectionProvider.notifier)
@@ -156,7 +156,7 @@ class BrowserScreen extends ConsumerWidget {
                       ),
                     if (source != null && browser.items.isNotEmpty)
                       IconButton(
-                        tooltip: 'Merge chapters',
+                        tooltip: l10n.mergeChapters,
                         icon: const Icon(Icons.merge_type),
                         onPressed: job?.running == true
                             ? null
@@ -169,7 +169,7 @@ class BrowserScreen extends ConsumerWidget {
                       ),
                     if (source != null && browser.items.any((i) => i.isCbr))
                       IconButton(
-                        tooltip: 'Convert CBR to CBZ',
+                        tooltip: l10n.convertCbr,
                         icon: const Icon(Icons.swap_horiz),
                         onPressed: job?.running == true
                             ? null
@@ -184,7 +184,7 @@ class BrowserScreen extends ConsumerWidget {
                               ),
                       ),
                     PopupMenuButton<String>(
-                      tooltip: 'Open source',
+                      tooltip: l10n.openSource,
                       onSelected: (value) {
                         if (value == 'local') {
                           BrowserOperations.openLocal(context, ref);
@@ -195,13 +195,13 @@ class BrowserScreen extends ConsumerWidget {
                       itemBuilder: (context) => [
                         if (!kIsWeb &&
                             defaultTargetPlatform != TargetPlatform.android)
-                          const PopupMenuItem(
+                          PopupMenuItem(
                             value: 'local',
-                            child: Text('Open local folder'),
+                            child: Text(l10n.openLocalFolder),
                           ),
-                        const PopupMenuItem(
+                        PopupMenuItem(
                           value: 'smb',
-                          child: Text('Connect to SMB share'),
+                          child: Text(l10n.connectSmbShare),
                         ),
                       ],
                     ),

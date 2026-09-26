@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:cbzmanager/l10n/generated/app_localizations.dart';
+
 import 'settings.dart';
 
 Future<void> showSettingsDialog(BuildContext context) {
@@ -54,21 +56,28 @@ class _SettingsDialogState extends ConsumerState<_SettingsDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context);
     return AlertDialog(
-      title: const Text('Settings'),
+      title: Text(l10n.settingsTitle),
       content: SizedBox(
         width: 480,
         child: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Appearance', style: theme.textTheme.labelLarge),
+              Text(l10n.appearance, style: theme.textTheme.labelLarge),
               const SizedBox(height: 8),
               SegmentedButton<ThemeMode>(
-                segments: const [
-                  ButtonSegment(value: ThemeMode.system, label: Text('System')),
-                  ButtonSegment(value: ThemeMode.light, label: Text('Light')),
-                  ButtonSegment(value: ThemeMode.dark, label: Text('Dark')),
+                segments: [
+                  ButtonSegment(
+                    value: ThemeMode.system,
+                    label: Text(l10n.system),
+                  ),
+                  ButtonSegment(
+                    value: ThemeMode.light,
+                    label: Text(l10n.light),
+                  ),
+                  ButtonSegment(value: ThemeMode.dark, label: Text(l10n.dark)),
                 ],
                 selected: {_settings.themeMode},
                 onSelectionChanged: (s) => setState(
@@ -78,41 +87,38 @@ class _SettingsDialogState extends ConsumerState<_SettingsDialog> {
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
                 initialValue: _settings.languageCode,
-                decoration: const InputDecoration(labelText: 'Language'),
-                items: const [
-                  DropdownMenuItem(value: '', child: Text('System')),
-                  DropdownMenuItem(value: 'en', child: Text('English')),
-                  DropdownMenuItem(value: 'it', child: Text('Italiano')),
+                decoration: InputDecoration(labelText: l10n.language),
+                items: [
+                  DropdownMenuItem(value: '', child: Text(l10n.system)),
+                  DropdownMenuItem(value: 'en', child: Text(l10n.english)),
+                  DropdownMenuItem(value: 'it', child: Text(l10n.italian)),
                 ],
                 onChanged: (v) => setState(
                   () => _settings = _settings.copyWith(languageCode: v ?? ''),
                 ),
               ),
               const SizedBox(height: 16),
-              Text(
-                'Default threads (0 = auto)',
-                style: theme.textTheme.labelLarge,
-              ),
+              Text(l10n.defaultThreads, style: theme.textTheme.labelLarge),
               const SizedBox(height: 8),
               Row(
                 children: [
-                  Expanded(child: _threadField('Convert', _convert)),
+                  Expanded(child: _threadField(l10n.convertLabel, _convert)),
                   const SizedBox(width: 8),
-                  Expanded(child: _threadField('Merge', _merge)),
+                  Expanded(child: _threadField(l10n.mergeLabel, _merge)),
                 ],
               ),
               const SizedBox(height: 8),
               Row(
                 children: [
-                  Expanded(child: _threadField('CBR', _cbr)),
+                  Expanded(child: _threadField(l10n.cbrLabel, _cbr)),
                   const SizedBox(width: 8),
-                  Expanded(child: _threadField('Batch edit', _batch)),
+                  Expanded(child: _threadField(l10n.batchEdit, _batch)),
                 ],
               ),
               const SizedBox(height: 8),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
-                title: const Text('Keep _OLD backups by default'),
+                title: Text(l10n.keepBackupsByDefault),
                 value: _settings.backupByDefault,
                 onChanged: (v) => setState(
                   () => _settings = _settings.copyWith(backupByDefault: v),
@@ -125,9 +131,9 @@ class _SettingsDialogState extends ConsumerState<_SettingsDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(l10n.cancel),
         ),
-        FilledButton(onPressed: _save, child: const Text('Save')),
+        FilledButton(onPressed: _save, child: Text(l10n.save)),
       ],
     );
   }

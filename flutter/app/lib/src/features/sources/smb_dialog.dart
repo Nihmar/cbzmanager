@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'package:cbzmanager/l10n/generated/app_localizations.dart';
+
 import '../../vfs/smb_vfs.dart';
 
 /// Prompts for SMB connection details. Returns null when cancelled.
@@ -35,8 +37,9 @@ class _SmbConnectDialogState extends State<_SmbConnectDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return AlertDialog(
-      title: const Text('Connect to SMB share'),
+      title: Text(l10n.connectSmbShare),
       content: Form(
         key: _formKey,
         child: SingleChildScrollView(
@@ -45,32 +48,30 @@ class _SmbConnectDialogState extends State<_SmbConnectDialog> {
             children: [
               TextFormField(
                 controller: _host,
-                decoration: const InputDecoration(
-                  labelText: 'Host',
+                decoration: InputDecoration(
+                  labelText: l10n.host,
                   hintText: '192.168.1.10',
                 ),
                 validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Required' : null,
+                    (v == null || v.trim().isEmpty) ? l10n.required : null,
               ),
               TextFormField(
                 controller: _share,
-                decoration: const InputDecoration(
-                  labelText: 'Share',
+                decoration: InputDecoration(
+                  labelText: l10n.share,
                   hintText: 'Comics',
                 ),
                 validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Required' : null,
+                    (v == null || v.trim().isEmpty) ? l10n.required : null,
               ),
               TextFormField(
                 controller: _user,
-                decoration: const InputDecoration(labelText: 'User (optional)'),
+                decoration: InputDecoration(labelText: l10n.userOptional),
               ),
               TextFormField(
                 controller: _password,
                 obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: 'Password (optional)',
-                ),
+                decoration: InputDecoration(labelText: l10n.passwordOptional),
               ),
             ],
           ),
@@ -79,7 +80,7 @@ class _SmbConnectDialogState extends State<_SmbConnectDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(l10n.cancel),
         ),
         FilledButton(
           onPressed: () {
@@ -93,7 +94,7 @@ class _SmbConnectDialogState extends State<_SmbConnectDialog> {
               ),
             );
           },
-          child: const Text('Connect'),
+          child: Text(l10n.connect),
         ),
       ],
     );

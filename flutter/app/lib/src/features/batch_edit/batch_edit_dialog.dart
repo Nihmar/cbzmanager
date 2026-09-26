@@ -3,6 +3,8 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
 
+import 'package:cbzmanager/l10n/generated/app_localizations.dart';
+
 import '../../engine/image_edit.dart';
 import 'batch_edit_service.dart';
 
@@ -43,6 +45,7 @@ class ColorAdjustEditor extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -50,45 +53,45 @@ class ColorAdjustEditor extends StatelessWidget {
           spacing: 8,
           children: [
             FilterChip(
-              label: const Text('Grayscale'),
+              label: Text(l10n.grayscale),
               selected: value.grayscale,
               onSelected: (v) => onChanged(_with(grayscale: v)),
             ),
             FilterChip(
-              label: const Text('Sepia'),
+              label: Text(l10n.sepia),
               selected: value.sepia,
               onSelected: (v) => onChanged(_with(sepia: v)),
             ),
             FilterChip(
-              label: const Text('Invert'),
+              label: Text(l10n.invert),
               selected: value.invert,
               onSelected: (v) => onChanged(_with(invert: v)),
             ),
           ],
         ),
         _slider(
-          'Brightness',
+          l10n.brightness,
           value.brightness,
           -100,
           100,
           (v) => onChanged(_with(brightness: v)),
         ),
         _slider(
-          'Contrast',
+          l10n.contrast,
           value.contrast,
           0.25,
           3,
           (v) => onChanged(_with(contrast: v)),
         ),
         _slider(
-          'Saturation',
+          l10n.saturation,
           value.saturation,
           0,
           2,
           (v) => onChanged(_with(saturation: v)),
         ),
         _slider(
-          'Gamma',
+          l10n.gamma,
           value.gamma,
           0.25,
           3,
@@ -98,7 +101,7 @@ class ColorAdjustEditor extends StatelessWidget {
           children: [
             Expanded(
               child: _slider(
-                'R gain',
+                l10n.rGain,
                 value.rGain,
                 0,
                 2,
@@ -107,7 +110,7 @@ class ColorAdjustEditor extends StatelessWidget {
             ),
             Expanded(
               child: _slider(
-                'G gain',
+                l10n.gGain,
                 value.gGain,
                 0,
                 2,
@@ -116,7 +119,7 @@ class ColorAdjustEditor extends StatelessWidget {
             ),
             Expanded(
               child: _slider(
-                'B gain',
+                l10n.bGain,
                 value.bGain,
                 0,
                 2,
@@ -223,9 +226,10 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
   Widget build(BuildContext context) {
     final preview = _previewBytes();
     final piecesTotal = _pieces + 1;
+    final l10n = AppLocalizations.of(context);
 
     return AlertDialog(
-      title: Text('Batch edit — ${widget.fileCount} file(s)'),
+      title: Text(l10n.batchEditTitle(widget.fileCount)),
       content: SizedBox(
         width: 660,
         height: 560,
@@ -248,7 +252,7 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
                   children: [
                     Row(
                       children: [
-                        const Text('Resize %'),
+                        Text(l10n.resizePercent),
                         Expanded(
                           child: Slider(
                             value: _percent.toDouble(),
@@ -271,11 +275,11 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
                     const Divider(),
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
-                      title: const Text('Split pages'),
+                      title: Text(l10n.splitPages),
                       subtitle: Text(
                         _split
-                            ? '$_pieces line(s) → $piecesTotal pieces'
-                            : 'Off',
+                            ? l10n.splitStatus(_pieces, piecesTotal)
+                            : l10n.off,
                       ),
                       value: _split,
                       onChanged: (v) => setState(() => _split = v),
@@ -284,11 +288,14 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
                       Row(
                         children: [
                           SegmentedButton<bool>(
-                            segments: const [
-                              ButtonSegment(value: true, label: Text('Rows')),
+                            segments: [
+                              ButtonSegment(
+                                value: true,
+                                label: Text(l10n.rows),
+                              ),
                               ButtonSegment(
                                 value: false,
-                                label: Text('Columns'),
+                                label: Text(l10n.columns),
                               ),
                             ],
                             selected: {_horizontal},
@@ -296,7 +303,7 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
                                 setState(() => _horizontal = s.first),
                           ),
                           const SizedBox(width: 16),
-                          const Text('Lines'),
+                          Text(l10n.lines),
                           Expanded(
                             child: Slider(
                               value: _pieces.toDouble(),
@@ -312,7 +319,7 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
                       ),
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
-                      title: const Text('Backup originals (_OLD.cbz)'),
+                      title: Text(l10n.backupOriginals),
                       value: _backup,
                       onChanged: (v) => setState(() => _backup = v),
                     ),
@@ -326,7 +333,7 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(l10n.cancel),
         ),
         FilledButton.icon(
           onPressed: () => Navigator.of(context).pop(
@@ -340,7 +347,7 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
             ),
           ),
           icon: const Icon(Icons.check),
-          label: const Text('Apply'),
+          label: Text(l10n.apply),
         ),
       ],
     );

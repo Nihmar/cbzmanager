@@ -3,6 +3,8 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:cbzmanager/l10n/generated/app_localizations.dart';
+
 import '../../vfs/vfs.dart';
 import 'archive_item.dart';
 import 'thumbnail_isolate.dart';
@@ -129,7 +131,7 @@ class _PreviewScreenState extends ConsumerState<PreviewScreen> {
               padding: const EdgeInsets.only(right: 8),
               child: Chip(
                 avatar: const Icon(Icons.lock_outline, size: 16),
-                label: const Text('read-only'),
+                label: Text(AppLocalizations.of(context).readOnly),
                 visualDensity: VisualDensity.compact,
               ),
             ),
@@ -164,8 +166,11 @@ class _PreviewScreenState extends ConsumerState<PreviewScreen> {
       );
     }
     if (_pageCount == 0) {
-      return const Center(
-        child: Text('No pages', style: TextStyle(color: Colors.white70)),
+      return Center(
+        child: Text(
+          AppLocalizations.of(context).noPages,
+          style: const TextStyle(color: Colors.white70),
+        ),
       );
     }
 

@@ -1,3 +1,4 @@
+import 'package:cbzmanager/l10n/generated/app_localizations.dart';
 import 'package:cbzmanager/src/features/batch_edit/batch_edit_dialog.dart';
 import 'package:cbzmanager/src/features/cbr/cbr_dialog.dart';
 import 'package:cbzmanager/src/features/convert/convert_dialog.dart';
@@ -12,6 +13,8 @@ Future<void> pumpDialog(
 ) async {
   await tester.pumpWidget(
     MaterialApp(
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       home: Builder(
         builder: (context) => Scaffold(
           body: Center(

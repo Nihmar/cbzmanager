@@ -27,6 +27,7 @@ class BrowserJobBar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 8, 8),
       child: Column(
@@ -48,13 +49,18 @@ class BrowserJobBar extends ConsumerWidget {
               ),
               TextButton(
                 onPressed: () => showJobMonitor(context),
-                child: const Text('Details'),
+                child: Text(l10n.details),
               ),
               TextButton(
                 onPressed: job.cancelled
                     ? null
-                    : () => ref.read(jobProvider.notifier).requestCancel(),
-                child: const Text('Cancel'),
+                    : () => ref
+                          .read(jobProvider.notifier)
+                          .requestCancel(
+                            message: l10n.cancelling,
+                            logEntry: l10n.cancellationRequested,
+                          ),
+                child: Text(l10n.cancel),
               ),
             ],
           ),
@@ -268,6 +274,7 @@ class ArchiveTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context);
     final thumbnails = ref.read(thumbnailServiceProvider);
     final selected = ref.watch(selectionProvider).contains(item.path);
     final selecting = ref.watch(selectionProvider).isNotEmpty;
@@ -363,7 +370,7 @@ class ArchiveTile extends ConsumerWidget {
                   ),
                   if (!selecting)
                     PopupMenuButton<String>(
-                      tooltip: 'Actions',
+                      tooltip: l10n.actions,
                       padding: EdgeInsets.zero,
                       iconSize: 18,
                       onSelected: (value) async {
@@ -413,31 +420,31 @@ class ArchiveTile extends ConsumerWidget {
                         }
                       },
                       itemBuilder: (context) => [
-                        const PopupMenuItem(
+                        PopupMenuItem(
                           value: 'validate',
-                          child: Text('Validate'),
+                          child: Text(l10n.validate),
                         ),
-                        const PopupMenuItem(
+                        PopupMenuItem(
                           value: 'convert',
-                          child: Text('Convert to WebP'),
+                          child: Text(l10n.convertWebp),
                         ),
                         if (item.isCbr)
-                          const PopupMenuItem(
+                          PopupMenuItem(
                             value: 'cbr',
-                            child: Text('Convert to CBZ'),
+                            child: Text(l10n.convertCbz),
                           ),
                         if (!item.isCbr)
-                          const PopupMenuItem(
+                          PopupMenuItem(
                             value: 'pages',
-                            child: Text('Edit pages…'),
+                            child: Text(l10n.editPages),
                           ),
-                        const PopupMenuItem(
+                        PopupMenuItem(
                           value: 'comicinfo',
-                          child: Text('Edit ComicInfo…'),
+                          child: Text(l10n.editComicInfo),
                         ),
                         PopupMenuItem(
                           value: 'remove',
-                          child: Text('Remove ComicInfo'),
+                          child: Text(l10n.removeComicInfo),
                         ),
                       ],
                     ),

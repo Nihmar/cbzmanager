@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'package:cbzmanager/l10n/generated/app_localizations.dart';
+
 import '../../engine/merge.dart';
 
 /// Sequence-builder: lets the user assign chapter counts per volume and previews
@@ -60,9 +62,10 @@ class _SequenceBuilderDialogState extends State<_SequenceBuilderDialog> {
       widget.lastVolume,
     );
     final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context);
 
     return AlertDialog(
-      title: const Text('Custom sequence'),
+      title: Text(l10n.customSequenceTitle),
       content: SizedBox(
         width: 520,
         height: 480,
@@ -70,8 +73,11 @@ class _SequenceBuilderDialogState extends State<_SequenceBuilderDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '${widget.chapters.length} chapters, $_assigned assigned, '
-              '$_remaining to go',
+              l10n.sequenceSummary(
+                widget.chapters.length,
+                _assigned,
+                _remaining,
+              ),
               style: theme.textTheme.bodyMedium,
             ),
             const Divider(),
@@ -105,7 +111,7 @@ class _SequenceBuilderDialogState extends State<_SequenceBuilderDialog> {
                   child: TextFormField(
                     initialValue: '$_next',
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'Next vol.'),
+                    decoration: InputDecoration(labelText: l10n.nextVolume),
                     onChanged: (v) => _next = int.tryParse(v) ?? 1,
                   ),
                 ),
@@ -113,20 +119,20 @@ class _SequenceBuilderDialogState extends State<_SequenceBuilderDialog> {
                 FilledButton.icon(
                   onPressed: _remaining > 0 ? _add : null,
                   icon: const Icon(Icons.add),
-                  label: const Text('Add volume'),
+                  label: Text(l10n.addVolume),
                 ),
                 const Spacer(),
                 TextButton(
                   onPressed: _sequence.isEmpty
                       ? null
                       : () => setState(() => _sequence.removeLast()),
-                  child: const Text('Undo'),
+                  child: Text(l10n.undo),
                 ),
                 TextButton(
                   onPressed: _sequence.isEmpty
                       ? null
                       : () => setState(_sequence.clear),
-                  child: const Text('Clear'),
+                  child: Text(l10n.clear),
                 ),
               ],
             ),
@@ -136,13 +142,13 @@ class _SequenceBuilderDialogState extends State<_SequenceBuilderDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(l10n.cancel),
         ),
         FilledButton(
           onPressed: _sequence.isEmpty
               ? null
               : () => Navigator.of(context).pop(List<int>.of(_sequence)),
-          child: const Text('Use sequence'),
+          child: Text(l10n.useSequence),
         ),
       ],
     );

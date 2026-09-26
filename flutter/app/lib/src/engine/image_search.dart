@@ -18,20 +18,6 @@ enum ImageProvider {
   url,
 }
 
-String providerName(ImageProvider p) => switch (p) {
-  ImageProvider.all => 'All sources',
-  ImageProvider.mangaDex => 'MangaDex (manga volumes)',
-  ImageProvider.openverse => 'Openverse',
-  ImageProvider.wikimedia => 'Wikimedia Commons',
-  ImageProvider.openLibrary => 'Open Library',
-  ImageProvider.artInstitute => 'Art Institute of Chicago',
-  ImageProvider.met => 'The Met',
-  ImageProvider.cleveland => 'Cleveland Museum of Art',
-  ImageProvider.wellcome => 'Wellcome Collection',
-  ImageProvider.nasa => 'NASA Images',
-  ImageProvider.url => 'Paste a URL',
-};
-
 /// Providers combined by the `all` fan-out (the URL pseudo-provider is not a
 /// backend and is excluded).
 const List<ImageProvider> kFanOutProviders = <ImageProvider>[

@@ -5,10 +5,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
+import 'package:cbzmanager/l10n/generated/app_localizations.dart';
+
 import '../../engine/engine_provider.dart';
 import '../../engine/zip_ops.dart';
 import '../../jobs/job_controller.dart';
 import '../../native/cbr_reader.dart';
+import '../../util/service_messages.dart';
 import '../../vfs/local_vfs.dart';
 import '../../vfs/smb_vfs.dart';
 import '../batch_edit/batch_edit_dialog.dart';
@@ -88,8 +91,9 @@ class BrowserOperations {
     ArchiveSource source,
     List<ArchiveItem> items,
   ) async {
+    final l10n = AppLocalizations.of(context);
     final job = ref.read(jobProvider.notifier);
-    job.start('Validate', message: 'Validating ${items.length} file(s)...');
+    job.start(l10n.jobValidate, message: l10n.validatingFiles(items.length));
     List<ValidateOutcome> outcomes;
     try {
       outcomes = await ValidateService(ref.read(cbzEngineProvider))
@@ -102,7 +106,7 @@ class BrowserOperations {
           );
     } catch (e) {
       job.finish();
-      if (context.mounted) snack(context, 'Validation failed: $e');
+      if (context.mounted) snack(context, l10n.validationFailed('$e'));
       return;
     }
     job.finish();
@@ -119,8 +123,9 @@ class BrowserOperations {
       for (final item in items)
         if (item.name.toLowerCase().endsWith('.cbz')) item.name,
     ];
+    final l10n = AppLocalizations.of(context);
     if (files.isEmpty) {
-      snack(context, 'No CBZ files to merge');
+      snack(context, l10n.noCbzToMerge);
       return;
     }
 
@@ -135,26 +140,29 @@ class BrowserOperations {
 
     final job = ref.read(jobProvider.notifier);
     final dir = cwd(ref);
-    job.start('Merge', message: 'Planning...');
+    job.start(l10n.jobMerge, message: l10n.planning);
     try {
       final outcome = await const MergeService().merge(
         source.vfs,
         dir,
         options,
-        onProgress: (percent, message) => job.progress(percent, message),
+        onProgress: (percent, message) =>
+            job.progress(percent, localizeProgressMessage(l10n, message)),
         isCancelled: () => job.cancelRequested,
       );
       job.finish();
       if (!context.mounted) return;
       if (outcome.success) {
-        snack(context, 'Created ${outcome.volumesCreated} volume(s)');
+        snack(context, l10n.createdVolumes(outcome.volumesCreated));
         await ref.read(browserProvider.notifier).load(source.vfs, dir);
+      } else if (outcome.error != null) {
+        snack(context, localizeServiceMessage(l10n, outcome.error!));
       } else {
-        snack(context, outcome.error ?? 'Merge produced no volumes');
+        snack(context, l10n.mergeProducedNoVolumes);
       }
     } catch (e) {
       job.finish();
-      if (context.mounted) snack(context, 'Merge failed: $e');
+      if (context.mounted) snack(context, l10n.mergeFailed('$e'));
     }
   }
 
@@ -164,12 +172,13 @@ class BrowserOperations {
     ArchiveSource source,
     List<ArchiveItem> items,
   ) async {
+    final l10n = AppLocalizations.of(context);
     final editable = <ArchiveItem>[
       for (final item in items)
         if (!item.isCbr) item,
     ];
     if (editable.isEmpty) {
-      snack(context, 'CBR archives are read-only — convert them first');
+      snack(context, l10n.cbrReadOnlyConvertFirst);
       return;
     }
 
@@ -185,24 +194,25 @@ class BrowserOperations {
     if (params == null || !context.mounted) return;
 
     final job = ref.read(jobProvider.notifier);
-    job.start('Batch edit', message: 'Editing ${editable.length} file(s)...');
+    job.start(l10n.batchEdit, message: l10n.editingFiles(editable.length));
     try {
       final outcomes = await const BatchEditService().applyMany(
         source.vfs,
         editable,
         params,
         threads: ref.read(settingsProvider).batchThreads,
-        onProgress: (percent, message) => job.progress(percent, message),
+        onProgress: (percent, message) =>
+            job.progress(percent, localizeProgressMessage(l10n, message)),
         isCancelled: () => job.cancelRequested,
       );
       job.finish();
       if (!context.mounted) return;
       final ok = outcomes.where((o) => o.success).length;
-      snack(context, 'Edited $ok of ${outcomes.length} file(s)');
+      snack(context, l10n.editedFiles(ok, outcomes.length));
       await ref.read(browserProvider.notifier).load(source.vfs, cwd(ref));
     } catch (e) {
       job.finish();
-      if (context.mounted) snack(context, 'Batch edit failed: $e');
+      if (context.mounted) snack(context, l10n.batchEditFailed('$e'));
     }
   }
 
@@ -212,6 +222,7 @@ class BrowserOperations {
     ArchiveSource source,
     List<ArchiveItem> items,
   ) async {
+    final l10n = AppLocalizations.of(context);
     final settings = ref.read(settingsProvider);
     final request = await showConvertOptionsDialog(
       context,
@@ -222,10 +233,7 @@ class BrowserOperations {
     if (request == null || !context.mounted) return;
 
     final job = ref.read(jobProvider.notifier);
-    job.start(
-      'Convert to WebP',
-      message: 'Converting ${items.length} file(s)...',
-    );
+    job.start(l10n.convertWebp, message: l10n.convertingFiles(items.length));
     try {
       final outcomes = await const ConvertService().convertMany(
         source.vfs,
@@ -240,7 +248,7 @@ class BrowserOperations {
       if (context.mounted) await showConvertResultsDialog(context, outcomes);
     } catch (e) {
       job.finish();
-      if (context.mounted) snack(context, 'Conversion failed: $e');
+      if (context.mounted) snack(context, l10n.conversionFailed('$e'));
     }
   }
 
@@ -250,12 +258,13 @@ class BrowserOperations {
     ArchiveSource source,
     List<String> names,
   ) async {
+    final l10n = AppLocalizations.of(context);
     if (names.isEmpty) {
-      snack(context, 'No CBR files to convert');
+      snack(context, l10n.noCbrToConvert);
       return;
     }
     if (!CbrReader.isSupported) {
-      snack(context, 'CBR support requires libarchive, which is not available');
+      snack(context, l10n.cbrSupportMissing);
       return;
     }
 
@@ -268,7 +277,7 @@ class BrowserOperations {
 
     final job = ref.read(jobProvider.notifier);
     final dir = cwd(ref);
-    job.start('CBR → CBZ', message: 'Converting ${names.length} file(s)...');
+    job.start(l10n.jobCbrToCbz, message: l10n.convertingFiles(names.length));
     try {
       final outcomes = await const CbrConvertService().convertMany(
         source.vfs,
@@ -277,7 +286,8 @@ class BrowserOperations {
         skipExisting: request.skipExisting,
         deleteSource: request.deleteSource,
         threads: request.threads,
-        onProgress: (percent, message) => job.progress(percent, message),
+        onProgress: (percent, message) =>
+            job.progress(percent, localizeProgressMessage(l10n, message)),
         isCancelled: () => job.cancelRequested,
       );
       job.finish();
@@ -286,7 +296,7 @@ class BrowserOperations {
       await ref.read(browserProvider.notifier).load(source.vfs, dir);
     } catch (e) {
       job.finish();
-      if (context.mounted) snack(context, 'CBR conversion failed: $e');
+      if (context.mounted) snack(context, l10n.cbrConversionFailed('$e'));
     }
   }
 
@@ -296,11 +306,9 @@ class BrowserOperations {
     ArchiveSource source,
     List<ArchiveItem> items,
   ) async {
+    final l10n = AppLocalizations.of(context);
     final job = ref.read(jobProvider.notifier);
-    job.start(
-      'Remove ComicInfo',
-      message: 'Scanning ${items.length} file(s)...',
-    );
+    job.start(l10n.removeComicInfo, message: l10n.scanningFiles(items.length));
     try {
       final result = await ComicInfoService(ref.read(cbzEngineProvider))
           .removeMany(
@@ -314,14 +322,23 @@ class BrowserOperations {
       if (context.mounted) {
         snack(
           context,
-          'ComicInfo removed from ${result.changed} of ${result.scanned} '
-          'file(s), ${result.skipped} already clean'
-          '${result.errors.isEmpty ? '' : ', ${result.errors.length} error(s)'}',
+          result.errors.isEmpty
+              ? l10n.comicInfoRemoved(
+                  result.changed,
+                  result.scanned,
+                  result.skipped,
+                )
+              : l10n.comicInfoRemovedWithErrors(
+                  result.changed,
+                  result.scanned,
+                  result.skipped,
+                  result.errors.length,
+                ),
         );
       }
     } catch (e) {
       job.finish();
-      if (context.mounted) snack(context, 'Remove failed: $e');
+      if (context.mounted) snack(context, l10n.removeFailed('$e'));
     }
   }
 
@@ -354,14 +371,15 @@ class BrowserOperations {
     ArchiveSource source,
     ArchiveItem item,
   ) async {
+    final l10n = AppLocalizations.of(context);
     final service = ComicInfoService(ref.read(cbzEngineProvider));
     final job = ref.read(jobProvider.notifier);
-    job.start('ComicInfo', message: 'Reading ${item.name}');
+    job.start(l10n.jobComicInfo, message: l10n.readingName(item.name));
     final read = await service.read(source.vfs, item);
     job.finish();
     if (!context.mounted) return;
     if (read.error != null) {
-      snack(context, 'Cannot read ${item.name}: ${read.error}');
+      snack(context, l10n.cannotReadName(item.name, read.error!));
       return;
     }
     final edited = await showComicInfoEditor(
@@ -370,14 +388,14 @@ class BrowserOperations {
       initial: read.info,
     );
     if (edited == null || !context.mounted) return;
-    job.start('ComicInfo', message: 'Saving ${item.name}');
+    job.start(l10n.jobComicInfo, message: l10n.savingName(item.name));
     try {
       await service.write(source.vfs, item, edited);
       if (context.mounted) {
-        snack(context, 'ComicInfo saved for ${item.name}');
+        snack(context, l10n.comicInfoSaved(item.name));
       }
     } catch (e) {
-      if (context.mounted) snack(context, 'Save failed: $e');
+      if (context.mounted) snack(context, l10n.saveFailed('$e'));
     } finally {
       job.finish();
     }

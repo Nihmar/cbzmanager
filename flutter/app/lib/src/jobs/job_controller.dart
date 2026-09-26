@@ -73,14 +73,17 @@ class JobController extends Notifier<JobState?> {
     );
   }
 
-  void requestCancel() {
+  void requestCancel({
+    String message = 'Cancelling...',
+    String logEntry = 'Cancellation requested',
+  }) {
     _cancelRequested = true;
     final current = state;
     if (current != null) {
       state = current.copyWith(
         cancelled: true,
-        message: 'Cancelling...',
-        log: <String>[...current.log, 'Cancellation requested'],
+        message: message,
+        log: <String>[...current.log, logEntry],
       );
     }
   }

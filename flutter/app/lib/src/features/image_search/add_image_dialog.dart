@@ -2,6 +2,8 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart' hide ImageProvider;
 
+import 'package:cbzmanager/l10n/generated/app_localizations.dart';
+
 import '../../engine/image_search.dart';
 import 'image_search_service.dart';
 
@@ -15,6 +17,21 @@ Future<({Uint8List bytes, String ext, String title})?> showAddImageDialog(
     builder: (context) => const _AddImageDialog(),
   );
 }
+
+/// Localized name of an image-search provider.
+String _providerLabel(AppLocalizations l10n, ImageProvider p) => switch (p) {
+  ImageProvider.all => l10n.providerAll,
+  ImageProvider.mangaDex => l10n.providerMangaDex,
+  ImageProvider.openverse => l10n.providerOpenverse,
+  ImageProvider.wikimedia => l10n.providerWikimedia,
+  ImageProvider.openLibrary => l10n.providerOpenLibrary,
+  ImageProvider.artInstitute => l10n.providerArtInstitute,
+  ImageProvider.met => l10n.providerMet,
+  ImageProvider.cleveland => l10n.providerCleveland,
+  ImageProvider.wellcome => l10n.providerWellcome,
+  ImageProvider.nasa => l10n.providerNasa,
+  ImageProvider.url => l10n.providerUrl,
+};
 
 class _AddImageDialog extends StatefulWidget {
   const _AddImageDialog();
@@ -75,7 +92,11 @@ class _AddImageDialogState extends State<_AddImageDialog> {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..clearSnackBars()
-        ..showSnackBar(SnackBar(content: Text('Download failed: $e')));
+        ..showSnackBar(
+          SnackBar(
+            content: Text(AppLocalizations.of(context).downloadFailed('$e')),
+          ),
+        );
     } finally {
       if (mounted) setState(() => _downloading = false);
     }
@@ -84,8 +105,9 @@ class _AddImageDialogState extends State<_AddImageDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context);
     return AlertDialog(
-      title: const Text('Add image from internet'),
+      title: Text(l10n.addImageTitle),
       content: SizedBox(
         width: 720,
         height: 560,
@@ -97,12 +119,12 @@ class _AddImageDialogState extends State<_AddImageDialog> {
                 Expanded(
                   child: DropdownButtonFormField<ImageProvider>(
                     initialValue: _provider,
-                    decoration: const InputDecoration(labelText: 'Source'),
+                    decoration: InputDecoration(labelText: l10n.source),
                     items: [
                       for (final p in ImageProvider.values)
                         DropdownMenuItem(
                           value: p,
-                          child: Text(providerName(p)),
+                          child: Text(_providerLabel(l10n, p)),
                         ),
                     ],
                     onChanged: (value) =>
@@ -114,9 +136,7 @@ class _AddImageDialogState extends State<_AddImageDialog> {
                   flex: 2,
                   child: TextField(
                     controller: _query,
-                    decoration: const InputDecoration(
-                      labelText: 'Search (or paste an image URL)',
-                    ),
+                    decoration: InputDecoration(labelText: l10n.searchHint),
                     onSubmitted: (_) => _search(),
                   ),
                 ),
@@ -130,7 +150,7 @@ class _AddImageDialogState extends State<_AddImageDialog> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.search),
-                  label: const Text('Search'),
+                  label: Text(l10n.search),
                 ),
               ],
             ),
@@ -147,7 +167,7 @@ class _AddImageDialogState extends State<_AddImageDialog> {
               child: _downloading
                   ? const Center(child: CircularProgressIndicator())
                   : _results.isEmpty
-                  ? const Center(child: Text('No results yet'))
+                  ? Center(child: Text(l10n.noResultsYet))
                   : GridView.builder(
                       gridDelegate:
                           const SliverGridDelegateWithMaxCrossAxisExtent(
@@ -207,7 +227,7 @@ class _AddImageDialogState extends State<_AddImageDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(l10n.cancel),
         ),
       ],
     );

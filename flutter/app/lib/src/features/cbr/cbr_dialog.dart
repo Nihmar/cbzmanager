@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import 'package:cbzmanager/l10n/generated/app_localizations.dart';
+
+import '../../util/service_messages.dart';
 import 'cbr_service.dart';
 
 /// Options for a CBR→CBZ run.
@@ -50,38 +53,35 @@ class _CbrOptionsDialogState extends State<_CbrOptionsDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return AlertDialog(
-      title: const Text('Convert CBR to CBZ'),
+      title: Text(l10n.convertCbr),
       content: SizedBox(
         width: 460,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              '${widget.fileCount} CBR archive(s). ComicInfo.xml and '
-              'non-image entries are dropped, images renumbered page_NNNN.*.',
-            ),
+            Text(l10n.cbrSummary(widget.fileCount)),
             const SizedBox(height: 8),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('Skip existing .cbz targets'),
+              title: Text(l10n.skipExistingTargets),
               value: _skipExisting,
               onChanged: (v) => setState(() => _skipExisting = v),
             ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('Delete the .cbr source after conversion'),
+              title: Text(l10n.deleteCbrSource),
               value: _deleteSource,
               onChanged: (v) => setState(() => _deleteSource = v),
             ),
             TextField(
               controller: _threads,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Parallel files (0 = auto)',
-                helperText:
-                    'Automatic uses one worker per CPU core, capped at 4.',
+              decoration: InputDecoration(
+                labelText: l10n.parallelFiles,
+                helperText: l10n.autoThreadsCapped4,
               ),
             ),
           ],
@@ -90,7 +90,7 @@ class _CbrOptionsDialogState extends State<_CbrOptionsDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(l10n.cancel),
         ),
         FilledButton.icon(
           onPressed: () => Navigator.of(context).pop(
@@ -101,7 +101,7 @@ class _CbrOptionsDialogState extends State<_CbrOptionsDialog> {
             ),
           ),
           icon: const Icon(Icons.swap_horiz),
-          label: const Text('Convert'),
+          label: Text(l10n.convert),
         ),
       ],
     );
@@ -121,8 +121,9 @@ Future<void> showCbrResultsDialog(
     context: context,
     builder: (context) {
       final theme = Theme.of(context);
+      final l10n = AppLocalizations.of(context);
       return AlertDialog(
-        title: const Text('CBR → CBZ results'),
+        title: Text(l10n.cbrResults),
         content: SizedBox(
           width: 520,
           height: 380,
@@ -135,22 +136,23 @@ Future<void> showCbrResultsDialog(
                 children: [
                   Chip(
                     avatar: const Icon(Icons.check_circle, size: 18),
-                    label: Text('$converted converted'),
+                    label: Text(l10n.convertedCount(converted)),
                   ),
-                  if (skipped > 0) Chip(label: Text('$skipped skipped')),
+                  if (skipped > 0)
+                    Chip(label: Text(l10n.skippedCount(skipped))),
                   if (failed > 0)
                     Chip(
                       avatar: const Icon(Icons.error, size: 18),
-                      label: Text('$failed failed'),
+                      label: Text(l10n.failedCount(failed)),
                       backgroundColor: theme.colorScheme.errorContainer,
                     ),
-                  Chip(label: Text('$pages page(s)')),
+                  Chip(label: Text(l10n.pagesCount(pages))),
                 ],
               ),
               const SizedBox(height: 12),
               Expanded(
                 child: failed == 0
-                    ? const Center(child: Text('All done.'))
+                    ? Center(child: Text(l10n.allDone))
                     : ListView(
                         children: [
                           for (final outcome in outcomes)
@@ -162,7 +164,9 @@ Future<void> showCbrResultsDialog(
                                   color: theme.colorScheme.error,
                                 ),
                                 title: Text(outcome.name),
-                                subtitle: Text(outcome.error!),
+                                subtitle: Text(
+                                  localizeServiceMessage(l10n, outcome.error!),
+                                ),
                               ),
                         ],
                       ),
@@ -173,7 +177,7 @@ Future<void> showCbrResultsDialog(
         actions: [
           FilledButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Close'),
+            child: Text(l10n.close),
           ),
         ],
       );

@@ -2,6 +2,8 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import 'package:cbzmanager/l10n/generated/app_localizations.dart';
+
 import '../../engine/format.dart';
 import '../../engine/page_model.dart';
 import '../../engine/zip_ops.dart';
@@ -141,13 +143,19 @@ class _PageEditScreenState extends State<PageEditScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..clearSnackBars()
-        ..showSnackBar(const SnackBar(content: Text('Changes saved')));
+        ..showSnackBar(
+          SnackBar(content: Text(AppLocalizations.of(context).changesSaved)),
+        );
       await _load();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..clearSnackBars()
-        ..showSnackBar(SnackBar(content: Text('Save failed: $e')));
+        ..showSnackBar(
+          SnackBar(
+            content: Text(AppLocalizations.of(context).saveFailed('$e')),
+          ),
+        );
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -157,25 +165,26 @@ class _PageEditScreenState extends State<PageEditScreen> {
   Widget build(BuildContext context) {
     final model = _model;
     final visible = _visibleIndices;
+    final l10n = AppLocalizations.of(context);
 
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.item.name),
         actions: [
           IconButton(
-            tooltip: 'Edit page',
+            tooltip: l10n.editPage,
             icon: const Icon(Icons.edit_outlined),
             onPressed: _selected.length == 1
                 ? () => _openEditor(_selected.first)
                 : null,
           ),
           IconButton(
-            tooltip: 'Add image from internet',
+            tooltip: l10n.addImageInternet,
             icon: const Icon(Icons.add_photo_alternate_outlined),
             onPressed: _addImage,
           ),
           IconButton(
-            tooltip: 'Delete selected',
+            tooltip: l10n.deleteSelected,
             icon: const Icon(Icons.delete_outline),
             onPressed: _selected.isEmpty
                 ? null
@@ -186,7 +195,7 @@ class _PageEditScreenState extends State<PageEditScreen> {
                   }),
           ),
           IconButton(
-            tooltip: 'Move earlier',
+            tooltip: l10n.moveEarlier,
             icon: const Icon(Icons.arrow_upward),
             onPressed: _selected.isEmpty
                 ? null
@@ -199,7 +208,7 @@ class _PageEditScreenState extends State<PageEditScreen> {
                   }),
           ),
           IconButton(
-            tooltip: 'Move later',
+            tooltip: l10n.moveLater,
             icon: const Icon(Icons.arrow_downward),
             onPressed: _selected.isEmpty
                 ? null
@@ -226,9 +235,9 @@ class _PageEditScreenState extends State<PageEditScreen> {
                 });
               }
             },
-            itemBuilder: (context) => const [
-              PopupMenuItem(value: 'renumber', child: Text('Renumber pages')),
-              PopupMenuItem(value: 'revert', child: Text('Revert changes')),
+            itemBuilder: (context) => [
+              PopupMenuItem(value: 'renumber', child: Text(l10n.renumberPages)),
+              PopupMenuItem(value: 'revert', child: Text(l10n.revertChanges)),
             ],
           ),
         ],
@@ -239,7 +248,7 @@ class _PageEditScreenState extends State<PageEditScreen> {
           : BottomAppBar(
               child: Row(
                 children: [
-                  Text('${model.pendingChanges} pending change(s)'),
+                  Text(l10n.pendingChanges(model.pendingChanges)),
                   const Spacer(),
                   TextButton(
                     onPressed: _saving
@@ -249,7 +258,7 @@ class _PageEditScreenState extends State<PageEditScreen> {
                             _selected.clear();
                             _thumbs.clear();
                           }),
-                    child: const Text('Revert'),
+                    child: Text(l10n.revert),
                   ),
                   const SizedBox(width: 8),
                   FilledButton.icon(
@@ -261,7 +270,7 @@ class _PageEditScreenState extends State<PageEditScreen> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.save),
-                    label: const Text('Save changes'),
+                    label: Text(l10n.saveChanges),
                   ),
                 ],
               ),
@@ -280,7 +289,7 @@ class _PageEditScreenState extends State<PageEditScreen> {
       );
     }
     if (model == null || visible.isEmpty) {
-      return const Center(child: Text('No pages'));
+      return Center(child: Text(AppLocalizations.of(context).noPages));
     }
 
     return ReorderableListView.builder(
@@ -336,12 +345,14 @@ class _PageEditScreenState extends State<PageEditScreen> {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
-            subtitle: Text('Page ${gridIndex + 1}'),
+            subtitle: Text(
+              AppLocalizations.of(context).pageNumberLabel(gridIndex + 1),
+            ),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 IconButton(
-                  tooltip: 'Edit page',
+                  tooltip: AppLocalizations.of(context).editPage,
                   icon: const Icon(Icons.edit_outlined),
                   onPressed: () => _openEditor(modelIndex),
                 ),

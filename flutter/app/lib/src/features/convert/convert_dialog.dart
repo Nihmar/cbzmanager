@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import 'package:cbzmanager/l10n/generated/app_localizations.dart';
+
+import '../../util/service_messages.dart';
 import 'convert_service.dart';
 
 /// Options chosen in the convert dialog.
@@ -57,8 +60,9 @@ class _ConvertOptionsDialogState extends State<_ConvertOptionsDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context);
     return AlertDialog(
-      title: const Text('Convert to WebP'),
+      title: Text(l10n.convertWebp),
       content: SizedBox(
         width: 460,
         child: Column(
@@ -66,24 +70,23 @@ class _ConvertOptionsDialogState extends State<_ConvertOptionsDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '${widget.fileCount} file(s): WebP q${ConvertService.quality}, '
-              'only if smaller, ComicInfo filtered, pages renumbered.',
+              l10n.convertSummary(widget.fileCount, ConvertService.quality),
               style: theme.textTheme.bodyMedium,
             ),
             const SizedBox(height: 16),
-            Text('Originals', style: theme.textTheme.labelLarge),
+            Text(l10n.originals, style: theme.textTheme.labelLarge),
             const SizedBox(height: 8),
             SegmentedButton<bool>(
-              segments: const [
+              segments: [
                 ButtonSegment(
                   value: true,
-                  label: Text('Backup'),
-                  icon: Icon(Icons.backup_outlined),
+                  label: Text(l10n.backup),
+                  icon: const Icon(Icons.backup_outlined),
                 ),
                 ButtonSegment(
                   value: false,
-                  label: Text('Delete'),
-                  icon: Icon(Icons.delete_outline),
+                  label: Text(l10n.delete),
+                  icon: const Icon(Icons.delete_outline),
                 ),
               ],
               selected: {_backup},
@@ -92,19 +95,16 @@ class _ConvertOptionsDialogState extends State<_ConvertOptionsDialog> {
             ),
             const SizedBox(height: 8),
             Text(
-              _backup
-                  ? 'Originals are renamed to <name>_OLD.cbz.'
-                  : 'Originals are overwritten with no backup.',
+              _backup ? l10n.originalsRenamed : l10n.originalsOverwritten,
               style: theme.textTheme.bodySmall,
             ),
             const SizedBox(height: 16),
             TextField(
               controller: _threads,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Parallel files (0 = auto)',
-                helperText:
-                    'Automatic uses one worker per CPU core, capped at 8.',
+              decoration: InputDecoration(
+                labelText: l10n.parallelFiles,
+                helperText: l10n.autoThreadsCapped8,
               ),
             ),
           ],
@@ -113,7 +113,7 @@ class _ConvertOptionsDialogState extends State<_ConvertOptionsDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(l10n.cancel),
         ),
         FilledButton.icon(
           onPressed: () {
@@ -126,7 +126,7 @@ class _ConvertOptionsDialogState extends State<_ConvertOptionsDialog> {
             );
           },
           icon: const Icon(Icons.transform),
-          label: const Text('Convert'),
+          label: Text(l10n.convert),
         ),
       ],
     );
@@ -152,8 +152,9 @@ Future<void> showConvertResultsDialog(
     context: context,
     builder: (context) {
       final theme = Theme.of(context);
+      final l10n = AppLocalizations.of(context);
       return AlertDialog(
-        title: const Text('Conversion results'),
+        title: Text(l10n.conversionResults),
         content: SizedBox(
           width: 520,
           height: 400,
@@ -166,23 +167,23 @@ Future<void> showConvertResultsDialog(
                 children: [
                   Chip(
                     avatar: const Icon(Icons.check_circle, size: 18),
-                    label: Text('$ok converted'),
+                    label: Text(l10n.convertedCount(ok)),
                   ),
-                  if (kept > 0) Chip(label: Text('$kept page(s) kept')),
+                  if (kept > 0) Chip(label: Text(l10n.keptPages(kept))),
                   if (failed > 0)
                     Chip(
                       avatar: const Icon(Icons.error, size: 18),
-                      label: Text('$failed failed'),
+                      label: Text(l10n.failedCount(failed)),
                       backgroundColor: theme.colorScheme.errorContainer,
                     ),
-                  Chip(label: Text('$pages page(s) to WebP')),
-                  if (saved > 0) Chip(label: Text('${_mb(saved)} saved')),
+                  Chip(label: Text(l10n.pagesToWebp(pages))),
+                  if (saved > 0) Chip(label: Text(l10n.savedSize(_mb(saved)))),
                 ],
               ),
               const SizedBox(height: 12),
               Expanded(
                 child: failed == 0
-                    ? const Center(child: Text('All files converted.'))
+                    ? Center(child: Text(l10n.allFilesConverted))
                     : ListView(
                         children: [
                           for (final outcome in outcomes)
@@ -194,7 +195,9 @@ Future<void> showConvertResultsDialog(
                                   color: theme.colorScheme.error,
                                 ),
                                 title: Text(outcome.item.name),
-                                subtitle: Text(outcome.error!),
+                                subtitle: Text(
+                                  localizeServiceMessage(l10n, outcome.error!),
+                                ),
                               ),
                         ],
                       ),
@@ -205,7 +208,7 @@ Future<void> showConvertResultsDialog(
         actions: [
           FilledButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Close'),
+            child: Text(l10n.close),
           ),
         ],
       );

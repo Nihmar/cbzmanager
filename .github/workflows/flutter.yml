@@ -38,6 +38,47 @@ jobs:
       - name: Test
         run: flutter test --reporter expanded
 
+  smb-live:
+    name: SMB live tests
+    runs-on: ubuntu-latest
+    needs: analyze-test
+    services:
+      samba:
+        # Pinned digest of dperson/samba:latest (validated locally against the
+        # same image; the test recipe below reproduces it).
+        image: dperson/samba@sha256:66088b78a19810dd1457a8f39340e95e663c728083efa5fe7dc0d40b2478e869
+        ports:
+          - '445:445'
+        env:
+          USER: 'test;testpass'
+          # name;path;browse;readonly;guest;users;writelist
+          SHARE: 'books;/books;yes;no;no;test;test'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Dependencies
+        run: flutter pub get
+
+      - name: Live SMB round-trip
+        run: |
+          # dart_smb2 ships libsmb2.so inside the package; the test process
+          # (flutter_tester) needs it on the loader path.
+          LIBDIR=$(find "$HOME/.pub-cache" -path '*dart_smb2-*/linux/libs/x86_64' -type d | head -1)
+          test -n "$LIBDIR"
+          LIBDIR="$(cd "$LIBDIR" && pwd)"
+          CBZ_SMB_TEST=1 \
+          CBZ_SMB_HOST=127.0.0.1 \
+          CBZ_SMB_SHARE=books \
+          CBZ_SMB_USER=test \
+          CBZ_SMB_PASSWORD=testpass \
+          LD_LIBRARY_PATH="$LIBDIR" \
+          flutter test test/smb/smb_vfs_test.dart
+
   build-linux:
     name: Build (Linux)
     runs-on: ubuntu-latest

@@ -10,11 +10,21 @@ import 'package:flutter_test/flutter_test.dart';
 import '../support/fixtures.dart';
 
 /// Live SMB integration test. Disabled by default; set `CBZ_SMB_TEST=1` and
-/// point it at a share to run. CI runs it against a Samba container (see
-/// `flutter/PLAN.md`).
+/// point it at a share to run.  CI runs it against a Samba container (job
+/// `smb-live` in `.github/workflows/flutter.yml`).
 ///
-/// A local Samba container with user `test`/`testpass` and share `books`
-/// bound to host port 445 is enough.
+/// Local recipe (same as CI):
+///
+///   docker run -d --name cbz-samba -p 445:445 \
+///     -e USER="test;testpass" \
+///     -e SHARE="books;/books;yes;no;no;test;test" dperson/samba
+///   LIBDIR=$(find ~/.pub-cache -path '*dart_smb2-*/linux/libs/x86_64' -type d | head -1)
+///   CBZ_SMB_TEST=1 CBZ_SMB_USER=test CBZ_SMB_PASSWORD=testpass \
+///     LD_LIBRARY_PATH="$LIBDIR" flutter test test/smb/smb_vfs_test.dart
+///
+/// The share fields are name;path;browse;readonly;guest;users;writelist: the
+/// user must be listed in BOTH users and writelist or mkdir gets
+/// STATUS_ACCESS_DENIED.
 void main() {
   final enabled = Platform.environment['CBZ_SMB_TEST'] == '1';
 

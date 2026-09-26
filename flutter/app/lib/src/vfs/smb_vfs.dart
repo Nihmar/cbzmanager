@@ -29,6 +29,11 @@ class SmbVfs extends Vfs {
   /// overwrite the first, leaking its worker isolates).
   Future<SmbBackend>? _backendFuture;
 
+  /// Operations currently holding the backend, and the completer [disconnect]
+  /// waits on before closing it (`_idle` is set only while waiting).
+  int _pending = 0;
+  Completer<void>? _idle;
+
   @override
   String get scheme => 'smb';
 
@@ -40,18 +45,41 @@ class SmbVfs extends Vfs {
     return future;
   }
 
+  /// Runs [op] on the backend while counting it as in flight, so a concurrent
+  /// [disconnect] waits for it instead of closing the pool under its feet.
+  Future<T> _withBackend<T>(Future<T> Function(SmbBackend) op) async {
+    _pending++;
+    try {
+      return await op(await _ensureBackend());
+    } finally {
+      _pending--;
+      if (_pending == 0) {
+        _idle?.complete();
+        _idle = null;
+      }
+    }
+  }
+
   /// Closes the backend. Safe to call more than once.  A connect that is still
-  /// in flight is awaited first, so the backend is closed either way.
+  /// in flight is awaited first, then any operation already running is awaited
+  /// before the pool is closed.
   Future<void> disconnect() async {
     final future = _backendFuture;
     _backendFuture = null;
     if (future == null) return;
+    final SmbBackend backend;
     try {
-      final backend = await future;
-      await backend.disconnect();
+      backend = await future;
     } catch (_) {
       // The connect itself failed: nothing to release.
+      return;
     }
+    if (_pending > 0) {
+      final idle = Completer<void>();
+      _idle = idle;
+      await idle.future;
+    }
+    await backend.disconnect();
   }
 
   @override
@@ -70,8 +98,7 @@ class SmbVfs extends Vfs {
 
   @override
   Future<List<VfsEntry>> list(String dir) async {
-    final backend = await _ensureBackend();
-    final entries = await backend.list(_rel(dir));
+    final entries = await _withBackend((b) => b.list(_rel(dir)));
     return <VfsEntry>[
       for (final entry in entries)
         VfsEntry(
@@ -84,8 +111,7 @@ class SmbVfs extends Vfs {
   }
 
   @override
-  Future<VfsStat> stat(String path) async {
-    final backend = await _ensureBackend();
+  Future<VfsStat> stat(String path) => _withBackend((backend) async {
     final rel = _rel(path);
     if (!await backend.exists(rel)) return const VfsStat.missing();
     final stat = await backend.stat(rel);
@@ -95,38 +121,50 @@ class SmbVfs extends Vfs {
       size: stat.size,
       modified: stat.modified,
     );
-  }
+  });
 
   @override
-  Future<bool> exists(String path) async {
-    final backend = await _ensureBackend();
-    return backend.exists(_rel(path));
-  }
+  Future<bool> exists(String path) => _withBackend((b) => b.exists(_rel(path)));
 
   @override
-  Future<Uint8List> readAll(String path) async {
-    final backend = await _ensureBackend();
-    return backend.read(_rel(path));
-  }
+  Future<Uint8List> readAll(String path) =>
+      _withBackend((b) => b.read(_rel(path)));
 
   @override
-  Future<void> writeAll(String path, List<int> bytes) async {
-    final backend = await _ensureBackend();
-    final rel = _rel(path);
+  Future<void> writeAll(String path, List<int> bytes) =>
+      _withBackend((backend) => _write(backend, _rel(path), bytes));
+
+  /// Publishes [bytes] to [rel] without ever leaving the destination missing.
+  ///
+  /// SMB2/libsmb2 has no atomic replace (rename fails on an existing target),
+  /// so the previous file is first renamed aside, the temp file is renamed
+  /// into place and only then the aside copy is deleted.  A failed final
+  /// rename restores the original instead of deleting it.
+  static Future<void> _write(
+    SmbBackend backend,
+    String rel,
+    List<int> bytes,
+  ) async {
     final tmp = '$rel.new';
+    final old = '$rel.old';
+    await backend.write(tmp, Uint8List.fromList(bytes));
+    final hadTarget = await backend.exists(rel);
+    if (hadTarget) {
+      if (await backend.exists(old)) await backend.deleteFile(old);
+      await backend.rename(rel, old);
+    }
     try {
-      // Write to a sibling temp file first: the backend's write opens the
-      // destination with truncate, so a dropped connection mid-write would
-      // destroy the archive.  SMB2/libsmb2 has no atomic replace (rename
-      // fails on an existing target), hence delete-then-rename; a crash
-      // between the two steps leaves the temp file instead of a truncated
-      // original.
-      await backend.write(tmp, Uint8List.fromList(bytes));
-      if (await backend.exists(rel)) {
-        await backend.deleteFile(rel);
-      }
       await backend.rename(tmp, rel);
     } catch (_) {
+      // Restore the original before reporting the failure; its copy was
+      // never deleted, so the worst case leaves <rel>.old on the share.
+      if (hadTarget) {
+        try {
+          await backend.rename(old, rel);
+        } catch (_) {
+          // Best-effort restore; keep the .old copy for manual recovery.
+        }
+      }
       try {
         if (await backend.exists(tmp)) await backend.deleteFile(tmp);
       } catch (_) {
@@ -134,17 +172,21 @@ class SmbVfs extends Vfs {
       }
       rethrow;
     }
+    if (hadTarget) {
+      try {
+        await backend.deleteFile(old);
+      } catch (_) {
+        // The destination is already the new file; a stale .old is harmless.
+      }
+    }
   }
 
   @override
-  Future<void> rename(String from, String to) async {
-    final backend = await _ensureBackend();
-    await backend.rename(_rel(from), _rel(to));
-  }
+  Future<void> rename(String from, String to) =>
+      _withBackend((b) => b.rename(_rel(from), _rel(to)));
 
   @override
-  Future<void> delete(String path) async {
-    final backend = await _ensureBackend();
+  Future<void> delete(String path) => _withBackend((backend) async {
     final rel = _rel(path);
     final stat = await backend.exists(rel) ? await backend.stat(rel) : null;
     if (stat == null) return;
@@ -153,11 +195,8 @@ class SmbVfs extends Vfs {
     } else {
       await backend.deleteFile(rel);
     }
-  }
+  });
 
   @override
-  Future<void> mkdir(String path) async {
-    final backend = await _ensureBackend();
-    await backend.mkdir(_rel(path));
-  }
+  Future<void> mkdir(String path) => _withBackend((b) => b.mkdir(_rel(path)));
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:cbzmanager/src/vfs/smb/smb_backend.dart';
@@ -13,6 +14,13 @@ class _FakeBackend implements SmbBackend {
   final Set<String> dirs = <String>{''}; // share root
   final List<String> calls = <String>[];
   bool failWrites = false;
+
+  /// When set, a rename whose destination is this path throws.  Used to model
+  /// the libsmb2 rename failure the write fallback has to survive.
+  String? failRenameTo;
+
+  /// When set, [read] waits for it, so a test can keep an operation in flight.
+  Completer<void>? blockRead;
 
   static String _parent(String path) =>
       path.contains('/') ? path.substring(0, path.lastIndexOf('/')) : '';
@@ -54,6 +62,8 @@ class _FakeBackend implements SmbBackend {
   @override
   Future<Uint8List> read(String path) async {
     calls.add('read:$path');
+    final gate = blockRead;
+    if (gate != null) await gate.future;
     final bytes = files[path];
     if (bytes == null) throw VfsException('No such file: $path');
     return bytes;
@@ -69,8 +79,13 @@ class _FakeBackend implements SmbBackend {
   @override
   Future<void> rename(String from, String to) async {
     calls.add('rename:$from->$to');
-    final bytes = files.remove(from);
+    final bytes = files[from];
     if (bytes == null) throw VfsException('No such file: $from');
+    if (failRenameTo == to) {
+      failRenameTo = null; // one-shot: the retry/restore can succeed
+      throw const VfsException('rename failed');
+    }
+    files.remove(from);
     files[to] = bytes;
   }
 
@@ -118,8 +133,41 @@ void main() {
 
     backend.calls.clear();
     await vfs.writeAll('/dir/book.cbz', Uint8List.fromList([9]));
-    expect(backend.calls, contains('deleteFile:dir/book.cbz'));
     expect(backend.files['dir/book.cbz'], Uint8List.fromList([9]));
+    // The previous file is moved aside first, so the target is never deleted
+    // before the replacement exists; the aside copy is removed afterwards.
+    expect(
+      backend.calls,
+      containsAllInOrder(<String>[
+        'write:dir/book.cbz.new',
+        'rename:dir/book.cbz->dir/book.cbz.old',
+        'rename:dir/book.cbz.new->dir/book.cbz',
+        'deleteFile:dir/book.cbz.old',
+      ]),
+    );
+    expect(backend.files.containsKey('dir/book.cbz.old'), isFalse);
+  });
+
+  test('a failed replace restores the original file', () async {
+    // Regression: the old flow deleted the target before renaming the temp
+    // into place, so a rename failure destroyed the archive.
+    final backend = _FakeBackend();
+    backend.files['dir/book.cbz'] = Uint8List.fromList([1, 2, 3]);
+    backend.failRenameTo = 'dir/book.cbz';
+    final vfs = _vfsWith(backend);
+
+    await expectLater(
+      vfs.writeAll('/dir/book.cbz', Uint8List.fromList([9])),
+      throwsA(isA<VfsException>()),
+    );
+    expect(
+      backend.files['dir/book.cbz'],
+      Uint8List.fromList([1, 2, 3]),
+      reason: 'the failed replace leaves the original in place',
+    );
+    expect(backend.files.containsKey('dir/book.cbz.old'), isFalse);
+    expect(backend.files.containsKey('dir/book.cbz.new'), isFalse);
+    expect(backend.calls, contains('rename:dir/book.cbz.old->dir/book.cbz'));
   });
 
   test('a failed write keeps the original and cleans the temp', () async {
@@ -196,6 +244,29 @@ void main() {
 
     await Future.wait([vfs.exists('a'), vfs.exists('b'), vfs.list('')]);
     expect(connects, 1, reason: 'the in-flight connect is shared');
+  });
+
+  test('close waits for an in-flight operation before disconnecting', () async {
+    final backend = _FakeBackend();
+    backend.files['dir/book.cbz'] = Uint8List.fromList([1]);
+    backend.blockRead = Completer<void>();
+    final vfs = _vfsWith(backend);
+
+    final read = vfs.readAll('dir/book.cbz');
+    var disconnectDone = false;
+    final close = vfs.close().then((_) => disconnectDone = true);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(
+      disconnectDone,
+      isFalse,
+      reason: 'close must not finish while the operation is in flight',
+    );
+
+    backend.blockRead!.complete();
+    expect(await read, Uint8List.fromList([1]));
+    await close;
+    expect(disconnectDone, isTrue);
+    expect(backend.calls.where((c) => c == 'disconnect'), hasLength(1));
   });
 
   test('close disconnects the opened backend once', () async {

@@ -36,6 +36,9 @@ type
       archive was written with a duplicated name (the un-consumed original
       was re-added as leftover metadata). }
     procedure TestSave_NonAlphabeticalArchiveOrder_NoLossNoDup;
+    { A page that has neither an archive entry nor its own Data must fail the
+      save instead of being dropped silently. }
+    procedure TestSave_MissingOrigName_FailsAndLeavesArchive;
   end;
 
   TPageEditModelTest = class(TTestCase)
@@ -454,6 +457,28 @@ begin
     DeleteFile(RevCBZ);
     DeleteFile(ChangeFileExt(RevCBZ, '_OLD.cbz'));
   end;
+end;
+
+procedure TSaveChangesTest.TestSave_MissingOrigName_FailsAndLeavesArchive;
+var
+  Save: TSyncSaveChanges;
+  Pages: TPageStates;
+begin
+  MakePages([], Pages);
+  Pages[0].OrigName := 'ghost.png';   // no such entry in the archive
+
+  Save := TSyncSaveChanges.Create(FCBZ, Pages, True, False, nil);
+  try
+    Save.RunSync;
+    AssertFalse('save fails instead of dropping the page', Save.Result.Success);
+    AssertTrue('error names the missing page',
+      Pos('ghost.png', Save.Result.ErrorMsg) > 0);
+  finally
+    Save.Free;
+  end;
+
+  AssertEquals('archive left untouched',
+    'page_a.png,page_b.png,page_c.png,ComicInfo.xml', EntryNames(FCBZ));
 end;
 
 { Builds a W x H PNG stream whose rows carry the row index as grey value

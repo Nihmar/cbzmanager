@@ -536,7 +536,11 @@ begin
         // Rebuild the page list from the (reordered / filtered) snapshot.
         for i := 0 to High(FPages) do
         begin
-          if Terminated then Exit;          // cooperative cancellation
+          if Terminated then
+          begin
+            FResult.ErrorMsg := 'Save cancelled';
+            Exit;                           // cooperative cancellation
+          end;
 
           // Locate this page's source entry by OrigName — O(log n) via binary search.
           Found := False;
@@ -553,8 +557,16 @@ begin
 
           if FPages[i].Gone then Continue;  // deleted: accounted for, not written
           // Nothing to write if the page is neither in the archive nor backed
-          // by inserted data (should not happen now OrigName is the real name).
-          if not (Found or (FPages[i].Data <> nil)) then Continue;
+          // by inserted data.  That means the archive changed under us (or a
+          // page reference was lost): fail loudly instead of silently writing
+          // an archive without that page.
+          if not (Found or (FPages[i].Data <> nil)) then
+          begin
+            FResult.ErrorMsg := Format(
+              'Page %s is missing from the archive — nothing was saved',
+              [FPages[i].OrigName]);
+            Exit;
+          end;
 
           Inc(Idx);
           OutEntries[Idx].Data := TMemoryStream.Create;

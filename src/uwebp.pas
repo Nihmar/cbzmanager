@@ -54,7 +54,7 @@ function IntfImageToWebP(const Img: TLazIntfImage;
 implementation
 
 uses
-  DynLibs, GraphType, uLog;
+  DynLibs, GraphType, uLog, udynlib;
 
 const
   {$IF DEFINED(WINDOWS)}
@@ -103,18 +103,12 @@ type
     quality: single; var output: pbyte): PtrUInt; cdecl;
 
 var
-  { Serializes the lazy initialization of the library. }
-  LibLock: TRTLCriticalSection;
-  { Handle of the dynamic library; NilHandle if not loaded. }
-  hLib: TLibHandle = NilHandle;
-  { True after the first load attempt (avoids repeated retries). }
-  LibTried: boolean = False;
-  { Name of the library file actually loaded. }
-  LibName: string = '';
+  { Lazy loader (udynlib): load-once guard, handle and actual file name. }
+  Lib: TDynLib;
   { Pointers to the functions exported by libwebp, resolved dynamically. }
   _WebPGetInfo: TWebPGetInfo = nil;
   _WebPDecodeBGRA: TWebPDecodeBGRA = nil;
-  _WebPFree: TWebPFree = nil;   { absent before libwebp 0.5: optional }
+  _WebPFree: TWebPFree = nil;
   _WebPEncodeBGRA: TWebPEncodeBGRA = nil; { encode may be absent }
 
 {
@@ -123,62 +117,34 @@ var
   If the library exists but lacks the decode functions, it is discarded.
   Logs the outcome (success or failure) via uLog. }
 procedure InitLib;
-var
-  i: integer;
 begin
-  EnterCriticalSection(LibLock);
-  try
-    if LibTried then Exit;
-    LibTried := True;
+  if not Lib.TryInit then Exit;
 
-    for i := Low(WEBP_LIB_NAMES) to High(WEBP_LIB_NAMES) do
-    begin
-      hLib := LoadLibrary(WEBP_LIB_NAMES[i]);
-      if hLib <> NilHandle then
-      begin
-        LibName := WEBP_LIB_NAMES[i];
-        Break;
-      end;
-    end;
-    if hLib = NilHandle then
-    begin
-      Log('InitLib: libwebp NOT found: WebP-format CBZs will not ' +
-        'have previews');
-      Exit;
-    end;
+  Pointer(_WebPGetInfo) := Lib.Symbol('WebPGetInfo');
+  Pointer(_WebPDecodeBGRA) := Lib.Symbol('WebPDecodeBGRA');
+  Pointer(_WebPFree) := Lib.Symbol('WebPFree');
+  Pointer(_WebPEncodeBGRA) := Lib.Symbol('WebPEncodeBGRA');
 
-    Pointer(_WebPGetInfo) := GetProcedureAddress(hLib, 'WebPGetInfo');
-    Pointer(_WebPDecodeBGRA) := GetProcedureAddress(hLib, 'WebPDecodeBGRA');
-    Pointer(_WebPFree) := GetProcedureAddress(hLib, 'WebPFree');
-    Pointer(_WebPEncodeBGRA) := GetProcedureAddress(hLib, 'WebPEncodeBGRA');
-
-    if not (Assigned(_WebPGetInfo) and Assigned(_WebPDecodeBGRA) and
-            Assigned(_WebPFree)) then
-    begin
-      Log('InitLib: %s loaded but missing the decode functions', [LibName]);
-      UnloadLibrary(hLib);
-      hLib := NilHandle;
-      LibName := '';
-      _WebPGetInfo := nil;
-      _WebPDecodeBGRA := nil;
-      _WebPFree := nil;
-      Exit;
-    end;
-
-    Log('InitLib: loaded %s (WebPFree %s)',
-      [LibName, BoolToStr(Assigned(_WebPFree), 'present', 'absent')]);
-  finally
-    LeaveCriticalSection(LibLock);
+  if not (Assigned(_WebPGetInfo) and Assigned(_WebPDecodeBGRA) and
+          Assigned(_WebPFree)) then
+  begin
+    Log('InitLib: %s loaded but missing the decode functions',
+      [Lib.LibraryName]);
+    Lib.Reject;
+    _WebPGetInfo := nil;
+    _WebPDecodeBGRA := nil;
+    _WebPFree := nil;
+    _WebPEncodeBGRA := nil;
+    Exit;
   end;
+
+  Log('InitLib: loaded %s', [Lib.LibraryName]);
 end;
 
-{
-  Returns True if libwebp was found and loaded successfully.
-  The first use triggers the search (lazy init). }
 function WebPAvailable: boolean;
 begin
   InitLib;
-  Result := hLib <> NilHandle;
+  Result := Lib.Handle <> NilHandle;
 end;
 
 {
@@ -187,7 +153,7 @@ end;
 function WebPLibraryName: string;
 begin
   InitLib;
-  Result := LibName;
+  Result := Lib.LibraryName;
 end;
 
 {
@@ -339,14 +305,10 @@ begin
 end;
 
 initialization
-  InitCriticalSection(LibLock);
+  Lib := TDynLib.Create(WEBP_LIB_NAMES,
+    'InitLib: libwebp NOT found: WebP-format CBZs will not have previews');
 
 finalization
-  if hLib <> NilHandle then
-  begin
-    UnloadLibrary(hLib);
-    hLib := NilHandle;
-  end;
-  DoneCriticalSection(LibLock);
+  Lib.Free;
 
 end.

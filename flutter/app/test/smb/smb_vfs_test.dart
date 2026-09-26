@@ -18,9 +18,14 @@ import '../support/fixtures.dart';
 ///   docker run -d --name cbz-samba -p 445:445 \
 ///     -e USER="test;testpass" \
 ///     -e SHARE="books;/books;yes;no;no;test;test" dperson/samba
-///   LIBDIR=$(find ~/.pub-cache -path '*dart_smb2-*/linux/libs/x86_64' -type d | head -1)
+///   flutter build linux --release   # downloads libsmb2 into the bundle
 ///   CBZ_SMB_TEST=1 CBZ_SMB_USER=test CBZ_SMB_PASSWORD=testpass \
-///     LD_LIBRARY_PATH="$LIBDIR" flutter test test/smb/smb_vfs_test.dart
+///     LD_LIBRARY_PATH="$PWD/build/linux/x64/release/bundle/lib" \
+///     flutter test test/smb/smb_vfs_test.dart
+///
+/// dart_smb2's libsmb2.so is NOT in the pub.dev tarball: the package's CMake
+/// downloads it during a Linux build, and the bundle copy above is what the
+/// test runner loads.
 ///
 /// The share fields are name;path;browse;readonly;guest;users;writelist: the
 /// user must be listed in BOTH users and writelist or mkdir gets

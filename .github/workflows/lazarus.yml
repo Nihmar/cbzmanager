@@ -1,0 +1,65 @@
+name: lazarus
+
+on:
+  push:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'Makefile'
+      - 'cbzmanager.lpr'
+      - 'cbzmanager.lpi'
+      - 'man/**'
+      - '.github/workflows/lazarus.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'Makefile'
+      - 'cbzmanager.lpr'
+      - 'cbzmanager.lpi'
+      - 'man/**'
+      - '.github/workflows/lazarus.yml'
+
+# The project targets Arch Linux: build in an Arch container so the Makefile
+# paths and the qt6 widgetset match a developer machine exactly.  The package
+# set is the one validated locally (make test / test-checks / release):
+#   lazarus-qt6 pulls lazarus + qt6pas (the Qt6 binding library the LCL
+#   widgetset links against), libarchive/libwebp are runtime dependencies of
+#   the CBR reader and the WebP codec, ttf-dejavu/fontconfig keep the
+#   offscreen Qt platform happy.
+jobs:
+  build-test:
+    name: Build & test (Arch, Qt6)
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+    steps:
+      - name: Install toolchain
+        run: |
+          pacman -Sy --noconfirm --needed \
+            git make binutils \
+            lazarus-qt6 qt6-base qt6-svg qt6-5compat \
+            fontconfig ttf-dejavu libarchive libwebp groff
+
+      - uses: actions/checkout@v4
+
+      - name: Build (debug)
+        run: make build
+
+      - name: Tests
+        run: make test
+
+      - name: Tests (range/overflow/heaptrc)
+        run: make test-checks
+
+      - name: Man page
+        run: make man
+
+      - name: Release build
+        run: make release
+
+      - name: Headless smoke test
+        run: |
+          ./bin/release/x86_64-linux/cbzmanager --version
+          ./bin/release/x86_64-linux/cbzmanager --help >/dev/null
+          echo "release binary: $(du -h bin/release/x86_64-linux/cbzmanager | cut -f1)"

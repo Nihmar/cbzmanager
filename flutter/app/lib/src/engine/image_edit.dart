@@ -164,9 +164,12 @@ img.Image? adjustColors(img.Image source, ColorAdjust adjust) {
     b += adj.brightness;
   }
   if (adj.gamma != 1.0) {
-    r = (255 * math.pow(r / 255, 1 / adj.gamma)).toDouble();
-    g = (255 * math.pow(g / 255, 1 / adj.gamma)).toDouble();
-    b = (255 * math.pow(b / 255, 1 / adj.gamma)).toDouble();
+    // Steps 4-7 can push a channel below zero; clamp before the power so the
+    // curve stays defined (pow of a negative base is NaN, which the final
+    // clamp could not recover).
+    r = (255 * math.pow(r.clamp(0, 255) / 255, 1 / adj.gamma)).toDouble();
+    g = (255 * math.pow(g.clamp(0, 255) / 255, 1 / adj.gamma)).toDouble();
+    b = (255 * math.pow(b.clamp(0, 255) / 255, 1 / adj.gamma)).toDouble();
   }
   return (_clamp255(r), _clamp255(g), _clamp255(b));
 }

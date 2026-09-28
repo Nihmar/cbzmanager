@@ -67,6 +67,17 @@ void main() {
       expect(out.getPixel(0, 0).r.toInt(), 255);
     });
 
+    test('gamma on a negative channel clamps instead of crashing', () {
+      // Regression: a channel pushed below zero (brightness/contrast) made
+      // math.pow return NaN at the gamma stage, and _clamp255 threw
+      // UnsupportedError on NaN.round() — crashing the live preview.
+      final out = adjustColors(
+        solid(1, 1, 10, 10, 10),
+        const ColorAdjust(brightness: -60, gamma: 2.0),
+      )!;
+      expect(rgb(out), [0, 0, 0]);
+    });
+
     test('preserves alpha', () {
       final out = adjustColors(
         solid(1, 1, 10, 10, 10, 128),

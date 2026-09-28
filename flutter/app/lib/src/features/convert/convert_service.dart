@@ -73,7 +73,8 @@ class ConvertService {
           await pool.withResource(() async {
             final item = items[i];
             if (isCancelled?.call() ?? false) {
-              slots[i] = ConvertOutcome(item: item, skipped: true);
+              // Cancelled: no outcome at all (like ValidateService), never a
+              // "no images" skip.
               return;
             }
             try {
@@ -90,12 +91,19 @@ class ConvertService {
               );
               final output = result[0] as Uint8List?;
               final fileError = result[3] as String?;
+              final converted = (result[1] as int?) ?? 0;
+              final kept = (result[2] as int?) ?? 0;
               if (fileError != null) {
                 slots[i] = ConvertOutcome(item: item, error: fileError);
-              } else if (output == null) {
-                // No images: a benign no-op like the reference, not a
-                // failure (the CLI must exit 0 for it).
-                slots[i] = ConvertOutcome(item: item, skipped: true);
+              } else if (output == null || converted == 0) {
+                // Benign no-op: no image pages at all, or every page was
+                // already WebP / WebP was never smaller.  The reference
+                // leaves the file untouched — no rewrite, no backup.
+                slots[i] = ConvertOutcome(
+                  item: item,
+                  skipped: true,
+                  kept: kept,
+                );
               } else {
                 await _workspace.publish(
                   vfs,
@@ -105,8 +113,8 @@ class ConvertService {
                 );
                 slots[i] = ConvertOutcome(
                   item: item,
-                  converted: result[1]! as int,
-                  kept: result[2]! as int,
+                  converted: converted,
+                  kept: kept,
                   inputBytes: bytes.length,
                   outputBytes: output.length,
                 );

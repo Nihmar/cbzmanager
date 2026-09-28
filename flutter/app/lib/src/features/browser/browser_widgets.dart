@@ -373,6 +373,8 @@ class ArchiveTile extends ConsumerWidget {
                       tooltip: l10n.actions,
                       padding: EdgeInsets.zero,
                       iconSize: 18,
+                      // One job at a time, like the app-bar buttons.
+                      enabled: !(ref.watch(jobProvider)?.running ?? false),
                       onSelected: (value) async {
                         switch (value) {
                           case 'validate':
@@ -434,6 +436,10 @@ class ArchiveTile extends ConsumerWidget {
                             child: Text(l10n.editPages),
                           ),
                           PopupMenuItem(
+                            value: 'comicinfo',
+                            child: Text(l10n.editComicInfo),
+                          ),
+                          PopupMenuItem(
                             value: 'remove',
                             child: Text(l10n.removeComicInfo),
                           ),
@@ -443,10 +449,6 @@ class ArchiveTile extends ConsumerWidget {
                             value: 'cbr',
                             child: Text(l10n.convertCbz),
                           ),
-                        PopupMenuItem(
-                          value: 'comicinfo',
-                          child: Text(l10n.editComicInfo),
-                        ),
                       ],
                     ),
                 ],

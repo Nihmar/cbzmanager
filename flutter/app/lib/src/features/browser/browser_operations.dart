@@ -422,7 +422,8 @@ class BrowserOperations {
     }
   }
 
-  /// Opens the ComicInfo viewer/editor for one archive.
+  /// Opens the ComicInfo viewer/editor for one archive.  CBR archives are
+  /// read-only, so the editor is CBZ-only.
   static Future<void> editComicInfo(
     BuildContext context,
     WidgetRef ref,
@@ -430,6 +431,10 @@ class BrowserOperations {
     ArchiveItem item,
   ) async {
     final l10n = AppLocalizations.of(context);
+    if (item.isCbr) {
+      snack(context, l10n.cbrReadOnlyConvertFirst);
+      return;
+    }
     final service = ComicInfoService(ref.read(cbzEngineProvider));
     final job = ref.read(jobProvider.notifier);
     job.start(l10n.jobComicInfo, message: l10n.readingName(item.name));

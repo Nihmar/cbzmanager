@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>cbzmanager — comic archive manager for CBZ and CBR</title>
+    <meta
+      name="description"
+      content="cbzmanager browses, validates, converts, merges and edits comic archives (CBZ/CBR). A Lazarus desktop app and a Flutter port for Android, Linux and Windows, plus a headless CLI."
+    />
+    <meta name="theme-color" content="#312e81" />
+    <link rel="icon" href="assets/cbzmanager.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="nav">
+      <div class="wrap nav-inner">
+        <img src="assets/cbzmanager.svg" alt="" />
+        <strong>cbzmanager</strong>
+        <nav class="nav-links">
+          <a href="#apps">Apps</a>
+          <a href="#features">Features</a>
+          <a href="#install">Install</a>
+          <a href="#cli">CLI</a>
+          <a href="#docs">Docs</a>
+          <a
+            href="https://github.com/Nihmar/cbzmanager"
+            rel="noopener"
+            >GitHub</a
+          >
+        </nav>
+      </div>
+    </header>
+
+    <div class="hero">
+      <div class="wrap hero-inner">
+        <div>
+          <h1>cbzmanager</h1>
+          <p class="lead">
+            A comic archive manager for CBZ and CBR files: browse the library,
+            validate every page, convert to WebP, merge chapters into volumes,
+            edit pages in place — on the desktop, on Android and over SMB
+            shares.
+          </p>
+          <div class="badges">
+            <a href="https://github.com/Nihmar/cbzmanager/actions/workflows/flutter.yml"
+              ><img
+                src="https://github.com/Nihmar/cbzmanager/actions/workflows/flutter.yml/badge.svg"
+                alt="Flutter CI status"
+            /></a>
+            <a href="https://github.com/Nihmar/cbzmanager/actions/workflows/lazarus.yml"
+              ><img
+                src="https://github.com/Nihmar/cbzmanager/actions/workflows/lazarus.yml/badge.svg"
+                alt="Lazarus CI status"
+            /></a>
+            <a href="https://github.com/Nihmar/cbzmanager/releases"
+              ><img
+                src="https://img.shields.io/github/v/release/Nihmar/cbzmanager?include_prereleases"
+                alt="Latest release"
+            /></a>
+            <a href="https://github.com/Nihmar/cbzmanager/blob/main/LICENSE"
+              ><img
+                src="https://img.shields.io/github/license/Nihmar/cbzmanager"
+                alt="MIT license"
+            /></a>
+          </div>
+          <div class="cta">
+            <a class="btn btn-primary" href="https://github.com/Nihmar/cbzmanager/releases"
+              >Download</a
+            >
+            <a
+              class="btn btn-ghost"
+              href="https://github.com/Nihmar/cbzmanager#readme"
+              >Read the README</a
+            >
+            <a class="btn btn-ghost" href="#cli">Try the CLI</a>
+          </div>
+        </div>
+        <div class="hero-art">
+          <img src="assets/cbzmanager.svg" alt="cbzmanager application icon" />
+        </div>
+      </div>
+    </div>
+
+    <main class="wrap">
+      <section id="apps">
+        <h2>Two front-ends, one toolkit</h2>
+        <p class="sub">
+          The Lazarus application is the reference implementation; the Flutter
+          port reuses the same documented behaviour and ships to mobile. Both
+          expose the same commands in headless mode.
+        </p>
+        <div class="grid cols-2">
+          <div class="card">
+            <span class="tag">Desktop</span>
+            <h3>Lazarus (Qt6) application</h3>
+            <p>
+              The original comic manager: a two-pane browser with thumbnails,
+              an in-place page editor with staged changes, a volume sequence
+              builder, a job monitor and internet cover search.
+            </p>
+            <ul>
+              <li>Linux and Windows builds from one codebase</li>
+              <li>ZIP operations entirely in RAM — no temp files</li>
+              <li>CLI mode inside the same binary</li>
+            </ul>
+          </div>
+          <div class="card">
+            <span class="tag">Mobile &amp; desktop</span>
+            <h3>Flutter port</h3>
+            <p>
+              A mobile-first rewrite with the same engine semantics, plus SMB
+              share browsing so a library can live on a NAS and be edited from
+              a phone or tablet.
+            </p>
+            <ul>
+              <li>Android, Linux and Windows</li>
+              <li>SMB2/3 shares with safe replace-on-write</li>
+              <li>Batch edit, page editor, merge, convert, validate</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="features">
+        <h2>What it does</h2>
+        <p class="sub">
+          Every operation is per-file safe: one broken archive never aborts a
+          batch, failures are reported per file, and originals are kept as
+          <code>*_OLD.cbz</code> unless deletion is requested.
+        </p>
+        <div class="grid cols-3">
+          <div class="card feature">
+            <div class="ico" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 3l7 3v6c0 4.2-2.9 7.6-7 9-4.1-1.4-7-4.8-7-9V6l7-3z" />
+                <path d="M9 12l2 2 4-4" />
+              </svg>
+            </div>
+            <div>
+              <h3>Validate</h3>
+              <p>
+                A deep check: the archive must be a valid ZIP and every image
+                entry must decode. Pages are checked in parallel with identical
+                results at any thread count.
+              </p>
+            </div>
+          </div>
+
+          <div class="card feature">
+            <div class="ico" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="4" width="18" height="16" rx="2" />
+                <circle cx="9" cy="10" r="2" />
+                <path d="M4 18l5-5 4 4 3-3 4 4" />
+              </svg>
+            </div>
+            <div>
+              <h3>Convert to WebP</h3>
+              <p>
+                Re-encode at quality 75, keeping the WebP version only when it
+                is smaller. Existing WebP pages stay byte-identical, pages are
+                renumbered, ComicInfo.xml is handled explicitly.
+              </p>
+            </div>
+          </div>
+
+          <div class="card feature">
+            <div class="ico" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M4 7l8-4 8 4v10l-8 4-8-4z" />
+                <path d="M4 7l8 4 8-4M12 21V11" />
+              </svg>
+            </div>
+            <div>
+              <h3>CBR&nbsp;→&nbsp;CBZ</h3>
+              <p>
+                RAR archives are read through libarchive and rewritten as CBZ
+                entirely in memory. Sources are kept unless you ask for them to
+                be deleted; .cbr previews are read-only.
+              </p>
+            </div>
+          </div>
+
+          <div class="card feature">
+            <div class="ico" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 3l9 5-9 5-9-5 9-5z" />
+                <path d="M3 13l9 5 9-5" />
+              </svg>
+            </div>
+            <div>
+              <h3>Merge chapters into volumes</h3>
+              <p>
+                <code>Series - 0001.cbz</code> becomes
+                <code>Series V001.cbz</code>, with chapters-per-volume derived
+                from the existing volumes or set by hand. Volumes build in
+                parallel; a failed run rolls its own output back and never
+                touches files that predate it.
+              </p>
+            </div>
+          </div>
+
+          <div class="card feature">
+            <div class="ico" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M4 6h16M4 12h16M4 18h10" />
+                <circle cx="18" cy="18" r="3" />
+              </svg>
+            </div>
+            <div>
+              <h3>Page editor</h3>
+              <p>
+                Resize, adjust colours (invert, grayscale, sepia, RGB gains,
+                saturation, contrast, brightness, gamma) and split pages —
+                staged in memory and written only when you save.
+              </p>
+            </div>
+          </div>
+
+          <div class="card feature">
+            <div class="ico" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="7" height="7" rx="1" />
+                <rect x="14" y="3" width="7" height="7" rx="1" />
+                <rect x="3" y="14" width="7" height="7" rx="1" />
+                <rect x="14" y="14" width="7" height="7" rx="1" />
+              </svg>
+            </div>
+            <div>
+              <h3>Batch page edit</h3>
+              <p>
+                Apply the same resize, colour pipeline and split to a whole
+                selection of archives, one worker per core, with a live preview
+                of the first page.
+              </p>
+            </div>
+          </div>
+
+          <div class="card feature">
+            <div class="ico" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z" />
+                <path d="M14 3v5h5M9 13h6M9 17h6" />
+              </svg>
+            </div>
+            <div>
+              <h3>ComicInfo.xml</h3>
+              <p>
+                View, edit, remove or generate the metadata embedded in an
+                archive, per file or across a selection.
+              </p>
+            </div>
+          </div>
+
+          <div class="card feature">
+            <div class="ico" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="7" />
+                <path d="M20 20l-4-4" />
+              </svg>
+            </div>
+            <div>
+              <h3>Internet image search</h3>
+              <p>
+                Search key-less sources (Openverse, Wikimedia Commons, museum
+                collections, and more) for a cover and stage it as a new first
+                page. Nothing is written until you save.
+              </p>
+            </div>
+          </div>
+
+          <div class="card feature">
+            <div class="ico" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="4" width="18" height="16" rx="2" />
+                <path d="M7 9l3 3-3 3M12 15h5" />
+              </svg>
+            </div>
+            <div>
+              <h3>Headless CLI</h3>
+              <p>
+                <code>validate</code>, <code>convert-webp</code>,
+                <code>merge</code> and <code>cbr-to-cbz</code> with a strict
+                exit-code contract (0 success, 1 runtime error, 2 usage error)
+                for scripting and cron jobs.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="install">
+        <h2>Install</h2>
+        <p class="sub">
+          Prebuilt binaries come from the release workflow; the Arch package and
+          source builds cover the rest. Optional runtime dependencies
+          (libwebp, libarchive, OpenSSL) are loaded dynamically and only needed
+          by the features that use them.
+        </p>
+        <div class="grid cols-3">
+          <div class="card">
+            <span class="tag">Binaries</span>
+            <h3>From the releases page</h3>
+            <p>Lazarus build for Linux and the Flutter port for Linux, Windows and Android.</p>
+            <pre><span class="c"># Linux tarball</span>
+tar xf cbzmanager-*-linux-x86_64.tar.gz
+sudo cp -r usr /
+cbzmanager --version</pre>
+          </div>
+          <div class="card">
+            <span class="tag warm">Arch Linux</span>
+            <h3>Build a package</h3>
+            <p>Uses the PKGBUILD in <code>pkg/</code>.</p>
+            <pre><span class="c"># from the repository root</span>
+<span class="w">make pkg</span>
+sudo pacman -U cbzmanager-*.pkg.tar.zst</pre>
+          </div>
+          <div class="card">
+            <span class="tag">Source</span>
+            <h3>Build it yourself</h3>
+            <p>Lazarus 2.2+/FPC 3.2+ for the desktop app, Flutter for the port.</p>
+            <pre><span class="w">make release</span>   <span class="c"># Lazarus, Linux</span>
+<span class="w">make test</span>      <span class="c"># FPCUnit suite</span>
+
+cd flutter/app &amp;&amp; flutter build apk</pre>
+          </div>
+        </div>
+      </section>
+
+      <section id="cli">
+        <h2>Command line</h2>
+        <p class="sub">
+          The same operations without a GUI. Flags may precede or follow the
+          directory; <code>--threads 0</code> means automatic.
+        </p>
+        <pre>$ cbzmanager validate "/library/Saga"
+Checking 12 CBZ file(s)...
+  OK   Saga - 0001.cbz (24 image(s))
+  FAIL Saga - 0007.cbz: 23/24 images valid
+Valid: 11  Invalid: 1  Total: 12
+
+$ cbzmanager convert-webp "/library/Saga" --delete
+Found 12 CBZ file(s)
+  Saga - 0001.cbz: 24 page(s) converted
+Summary: Converted: 12  Skipped: 0
+
+$ cbzmanager merge "/library/Saga" --chapters-per-volume 7
+Writing volume 1/3
+Writing volume 2/3
+Writing volume 3/3
+Saga: 3 volume(s) created
+
+$ cbzmanager cbr-to-cbz /library/old --delete
+Found 2 CBR file(s)
+  old - 01.cbr: 20 page(s) -> .cbz
+Summary: Converted: 2  Skipped: 0</pre>
+        <p class="sub after">
+          The Flutter port exposes the same four commands through
+          <code>dart run bin/cbzmanager.dart &lt;command&gt;</code> with the same
+          exit codes; run it with <code>--help</code> for the port's own
+          summary.
+        </p>
+      </section>
+
+      <section id="quality">
+        <h2>Built to be trusted with a library</h2>
+        <div class="grid cols-2">
+          <div class="card">
+            <h3>In RAM, always</h3>
+            <p>
+              Archives are read, transformed and rewritten in memory; the only
+              disk writes are the final file and the optional
+              <code>*_OLD.cbz</code> backup. Failures restore the original
+              instead of leaving a half-written book.
+            </p>
+          </div>
+          <div class="card">
+            <h3>Deterministic parallelism</h3>
+            <p>
+              Workers claim inputs and fill their own result slots, so the
+              output is byte-identical whether you run one thread or eight. The
+              test suites assert exactly that.
+            </p>
+          </div>
+          <div class="card">
+            <h3>Documented parity</h3>
+            <p>
+              Behaviour follows a Python reference CLI and the Lazarus
+              application, including the intentional divergences — all recorded
+              in <a href="https://github.com/Nihmar/cbzmanager/blob/main/flutter/PARITY.md">PARITY.md</a>.
+            </p>
+          </div>
+          <div class="card">
+            <h3>Tested on every push</h3>
+            <p>
+              FPCUnit for the Lazarus side and the Flutter suite (unit, service,
+              widget and CLI integration tests, with live-SMB tests behind a
+              flag) run in CI, together with formatting and static analysis.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section id="docs">
+        <h2>Documentation</h2>
+        <ul class="doclist">
+          <li>
+            <a href="https://github.com/Nihmar/cbzmanager#readme"
+              >README<span>Features, dependencies and build instructions</span></a
+            >
+          </li>
+          <li>
+            <a href="https://github.com/Nihmar/cbzmanager/blob/main/flutter/README.md"
+              >Flutter port<span>How to run, build and test the port</span></a
+            >
+          </li>
+          <li>
+            <a href="https://github.com/Nihmar/cbzmanager/blob/main/flutter/PARITY.md"
+              >Parity matrix<span>What is ported, what diverges and why</span></a
+            >
+          </li>
+          <li>
+            <a href="https://github.com/Nihmar/cbzmanager/blob/main/AGENTS.md"
+              >Architecture notes<span>Module map, behaviours and invariants</span></a
+            >
+          </li>
+          <li>
+            <a href="https://github.com/Nihmar/cbzmanager/blob/main/man/cbzmanager.1"
+              >Man page<span>Every command and option, with exit codes</span></a
+            >
+          </li>
+          <li>
+            <a href="https://github.com/Nihmar/cbzmanager/issues"
+              >Issues<span>Bug reports and feature requests</span></a
+            >
+          </li>
+        </ul>
+      </section>
+    </main>
+
+    <footer class="wrap">
+      <span
+        >MIT licensed —
+        <a href="https://github.com/Nihmar/cbzmanager/blob/main/LICENSE"
+          >LICENSE</a
+        ></span
+      >
+      <span
+        ><a href="https://github.com/Nihmar/cbzmanager">github.com/Nihmar/cbzmanager</a></span
+      >
+    </footer>
+  </body>
+</html>

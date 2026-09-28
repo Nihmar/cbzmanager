@@ -6,6 +6,8 @@
 
 A FreePascal / Lazarus desktop application for managing CBZ (Comic Book ZIP) files.
 
+Project site: <https://nihmar.github.io/cbzmanager/> (features, install and CLI overview).
+
 ## Features
 
 - **Validate** — verify CBZ archives are valid ZIPs with non-corrupted images (JPEG, PNG, BMP, GIF, WebP)

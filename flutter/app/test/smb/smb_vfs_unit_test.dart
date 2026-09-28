@@ -72,7 +72,12 @@ class _FakeBackend implements SmbBackend {
   @override
   Future<void> write(String path, Uint8List bytes) async {
     calls.add('write:$path');
-    if (failWrites) throw const VfsException('write failed');
+    if (failWrites) {
+      // Model a real backend: bytes may already have landed (or the transfer
+      // may have been cut short) before the failure surfaces.
+      files[path] = bytes.sublist(0, bytes.length ~/ 2);
+      throw const VfsException('write failed');
+    }
     files[path] = bytes;
   }
 
@@ -181,7 +186,33 @@ void main() {
       throwsA(isA<VfsException>()),
     );
     expect(backend.files['dir/book.cbz'], Uint8List.fromList([1, 2, 3]));
-    expect(backend.files.containsKey('dir/book.cbz.new'), isFalse);
+    expect(
+      backend.files.containsKey('dir/book.cbz.new'),
+      isFalse,
+      reason: 'a failed write must not leave a temp file on the share',
+    );
+  });
+
+  test('a failed connect does not poison the vfs forever', () async {
+    var attempts = 0;
+    final backend = _FakeBackend();
+    backend.files['a'] = Uint8List.fromList([7]);
+    final vfs = SmbVfs(
+      const SmbConfig(host: 'h', share: 's'),
+      connect: (_) async {
+        attempts++;
+        if (attempts == 1) throw const VfsException('share offline');
+        return backend;
+      },
+    );
+
+    await expectLater(vfs.exists('a'), throwsA(isA<VfsException>()));
+    expect(
+      await vfs.exists('a'),
+      isTrue,
+      reason: 'a later call retries the connect instead of replaying the error',
+    );
+    expect(attempts, 2);
   });
 
   test('paths are normalized to share-relative form', () async {

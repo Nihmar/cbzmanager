@@ -36,13 +36,27 @@ class Workspace {
     Uint8List bytes, {
     bool backup = true,
   }) async {
-    if (backup && await vfs.exists(path)) {
-      final old = backupPath(path);
-      if (await vfs.exists(old)) {
-        await vfs.delete(old);
-      }
-      await vfs.rename(path, old);
+    if (!backup || !await vfs.exists(path)) {
+      await vfs.writeAll(path, bytes);
+      return;
     }
-    await vfs.writeAll(path, bytes);
+    final old = backupPath(path);
+    if (await vfs.exists(old)) {
+      await vfs.delete(old);
+    }
+    await vfs.rename(path, old);
+    try {
+      await vfs.writeAll(path, bytes);
+    } catch (_) {
+      // Put the original back: a failed write must not make the archive
+      // disappear from its folder (its content would only live in _OLD).
+      try {
+        if (await vfs.exists(path)) await vfs.delete(path);
+        await vfs.rename(old, path);
+      } catch (_) {
+        // Best-effort restore; the _OLD copy still holds the original.
+      }
+      rethrow;
+    }
   }
 }

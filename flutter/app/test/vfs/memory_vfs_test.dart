@@ -42,6 +42,19 @@ void main() {
     expect(await vfs.exists('/b.cbz'), isFalse);
   });
 
+  test('deleting a directory removes its children', () async {
+    // LocalVfs.delete recurses; the memory backend used to remove only the
+    // directory node, leaving its files readable under a "deleted" folder.
+    await vfs.writeAll('/books/a.cbz', [1]);
+    await vfs.writeAll('/books/sub/b.cbz', [2]);
+
+    await vfs.delete('/books');
+
+    expect(await vfs.exists('/books'), isFalse);
+    expect(await vfs.exists('/books/a.cbz'), isFalse);
+    expect(await vfs.exists('/books/sub/b.cbz'), isFalse);
+  });
+
   test('listing a missing directory throws', () {
     expect(() => vfs.list('/missing'), throwsA(isA<VfsException>()));
   });

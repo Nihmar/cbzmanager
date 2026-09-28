@@ -144,6 +144,29 @@ void main() {
     );
   });
 
+  test('rollback keeps a volume that already existed before the run', () async {
+    // The pre-existing volume was overwritten by this run, but rollback must
+    // not delete it: PARITY.md — "never a pre-existing file".
+    final vfs = _FailingWriteVfs();
+    await putChapters(vfs, 4);
+    vfs.shadowExists.add('/Test V001.cbz'); // appeared after the listing
+    vfs.fail = true;
+    vfs.failPath = '/Test V002.cbz';
+
+    final outcome = await const MergeService().merge(
+      vfs,
+      '/',
+      const MergeOptions(seriesName: 'Test', chaptersPerVolume: 2),
+    );
+
+    expect(outcome.success, isFalse);
+    expect(
+      await vfs.exists('/Test V001.cbz'),
+      isTrue,
+      reason: 'a pre-existing volume is never deleted by rollback',
+    );
+  });
+
   test('delete mode removes sources with no backup', () async {
     final vfs = MemoryVfs();
     await putChapters(vfs, 4);

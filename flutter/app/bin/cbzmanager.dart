@@ -14,6 +14,7 @@ import 'package:cbzmanager/src/features/convert/convert_service.dart';
 import 'package:cbzmanager/src/features/merge/merge_service.dart';
 import 'package:cbzmanager/src/features/validate/validate_service.dart';
 import 'package:cbzmanager/src/engine/dart_engine.dart';
+import 'package:cbzmanager/src/native/cbr_reader.dart';
 import 'package:cbzmanager/src/vfs/local_vfs.dart';
 import 'package:cbzmanager/src/vfs/vfs.dart';
 
@@ -65,6 +66,18 @@ Future<void> main(List<String> args) async {
   }
 
   final vfs = const LocalVfs();
+
+  // Only merge has --force/--chapters/--chapters-per-volume; the reference
+  // rejects them with exit 2 for every other command.
+  if (command != 'merge' &&
+      (options.force ||
+          options.chapters != null ||
+          options.chaptersPerVolume > 0)) {
+    stderr.writeln("Error: option not valid for '$command'");
+    stderr.writeln("Try 'cbzmanager --help' for usage.");
+    exit(_exitUsage);
+  }
+
   try {
     switch (command) {
       case 'validate':
@@ -110,7 +123,8 @@ _Options _parseOptions(List<String> args) {
         }
         final v = int.tryParse(args[++i]);
         if (v == null || v < 0) {
-          options.error = '--threads expects a positive integer';
+          options.error =
+              '--threads expects a non-negative integer (0 = automatic)';
           return options;
         }
         options.threads = v;
@@ -177,13 +191,6 @@ Future<List<ArchiveItem>> _archives(
 }
 
 Future<int> _validate(Vfs vfs, String dir, _Options options) async {
-  if (options.force ||
-      options.chapters != null ||
-      options.chaptersPerVolume > 0) {
-    stderr.writeln("Error: option not valid for 'validate'");
-    stderr.writeln("Try 'cbzmanager --help' for usage.");
-    return _exitUsage;
-  }
   final items = await _archives(vfs, dir, extension: '.cbz');
   if (items.isEmpty) {
     stdout.writeln('No chapter files found');
@@ -234,7 +241,6 @@ Future<int> _convert(Vfs vfs, String dir, _Options options) async {
     onProgress: (done, total, message) =>
         stdout.writeln('[$done/$total] $message'),
   );
-  var failed = 0;
   for (final outcome in outcomes) {
     if (outcome.success) {
       stdout.writeln(
@@ -242,14 +248,16 @@ Future<int> _convert(Vfs vfs, String dir, _Options options) async {
         '(${outcome.converted} converted, ${outcome.kept} kept)',
       );
     } else if (outcome.skipped) {
-      // No image pages: a benign no-op (the reference exits 0 for it).
-      stdout.writeln('SKIP ${outcome.item.name} (no images)');
+      // Nothing to convert (no image pages, or every page already up to
+      // date): a benign no-op (the reference exits 0 for it).
+      stdout.writeln('SKIP ${outcome.item.name} (nothing to convert)');
     } else {
-      failed++;
-      stderr.writeln('FAIL ${outcome.item.name}: ${outcome.error}');
+      stdout.writeln('FAIL ${outcome.item.name}: ${outcome.error}');
     }
   }
-  return failed == 0 ? _exitOk : _exitError;
+  // man/cbzmanager.1: per-file failures are reported and skipped; the exit
+  // status is always 0 (the reference returns EXIT_OK unconditionally).
+  return _exitOk;
 }
 
 Future<int> _merge(Vfs vfs, String dir, _Options options) async {
@@ -310,6 +318,14 @@ Future<int> _merge(Vfs vfs, String dir, _Options options) async {
 }
 
 Future<int> _cbrToCbz(Vfs vfs, String dir, _Options options) async {
+  // The documented precondition: libarchive missing is a runtime error even
+  // when the folder holds no .cbr files.
+  if (!CbrReader.isSupported) {
+    stderr.writeln(
+      'Error: CBR support requires libarchive (libarchive.so / archive.dll)',
+    );
+    return _exitError;
+  }
   final items = await _archives(vfs, dir, extension: '.cbr');
   if (items.isEmpty) {
     stdout.writeln('No CBR files found');

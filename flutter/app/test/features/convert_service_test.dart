@@ -125,4 +125,45 @@ void main() {
     expect(await vfs.exists('/empty_OLD.cbz'), isFalse);
     expectSameArchive(await vfs.readAll('/empty.cbz'), original);
   });
+
+  test('a conversion that changes nothing leaves the archive alone', () async {
+    // Regression: the engine always returns a rewritten archive, so a run
+    // with zero converted pages (every page already WebP) still replaced the
+    // file and left a spurious _OLD backup.  The reference only writes when
+    // at least one page was converted.
+    final vfs = MemoryVfs();
+    final original = makeZip({'page_0001.webp': makeNoisePng(64, 64)});
+    await vfs.writeAll('book.cbz', original);
+
+    final outcomes = await const ConvertService().convertMany(vfs, [
+      item('book.cbz'),
+    ], backup: true);
+
+    expect(outcomes.single.converted, 0);
+    expect(outcomes.single.error, isNull);
+    expect(
+      await vfs.exists('/book_OLD.cbz'),
+      isFalse,
+      reason: 'nothing changed: no backup, no rewrite',
+    );
+    expectSameArchive(await vfs.readAll('/book.cbz'), original);
+  });
+
+  test('a cancelled item is not reported as a no-images skip', () async {
+    // Cancellation used to be stored as skipped:true, the same status as an
+    // archive with no images (and done was not incremented, so the counts
+    // diverged).
+    final vfs = MemoryVfs();
+    await vfs.writeAll('book.cbz', makeZip({'a.png': makeNoisePng(64, 64)}));
+
+    final outcomes = await const ConvertService().convertMany(
+      vfs,
+      [item('book.cbz')],
+      backup: true,
+      isCancelled: () => true,
+    );
+
+    expect(outcomes, isEmpty, reason: 'a cancelled file is not an outcome');
+    expect(await vfs.exists('/book_OLD.cbz'), isFalse);
+  });
 }

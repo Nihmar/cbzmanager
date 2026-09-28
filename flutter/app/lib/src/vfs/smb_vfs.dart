@@ -37,11 +37,24 @@ class SmbVfs extends Vfs {
   @override
   String get scheme => 'smb';
 
+  @override
+  String get sourceId => 'smb://${config.host}/${config.share}';
+
   Future<SmbBackend> _ensureBackend() {
     final existing = _backendFuture;
     if (existing != null) return existing;
     final future = _connect(config);
     _backendFuture = future;
+    // A failed connect must not stay cached, or every later operation would
+    // replay the same error and the share could never be retried.
+    unawaited(
+      future.then<void>(
+        (_) {},
+        onError: (Object _) {
+          if (identical(_backendFuture, future)) _backendFuture = null;
+        },
+      ),
+    );
     return future;
   }
 
@@ -147,37 +160,43 @@ class SmbVfs extends Vfs {
   ) async {
     final tmp = '$rel.new';
     final old = '$rel.old';
-    await backend.write(tmp, Uint8List.fromList(bytes));
-    final hadTarget = await backend.exists(rel);
-    if (hadTarget) {
-      if (await backend.exists(old)) await backend.deleteFile(old);
-      await backend.rename(rel, old);
-    }
     try {
-      await backend.rename(tmp, rel);
-    } catch (_) {
-      // Restore the original before reporting the failure; its copy was
-      // never deleted, so the worst case leaves <rel>.old on the share.
+      await backend.write(tmp, Uint8List.fromList(bytes));
+      final hadTarget = await backend.exists(rel);
+      if (hadTarget) {
+        if (await backend.exists(old)) await backend.deleteFile(old);
+        await backend.rename(rel, old);
+      }
+      try {
+        await backend.rename(tmp, rel);
+      } catch (_) {
+        // Restore the original before reporting the failure; its copy was
+        // never deleted, so the worst case leaves <rel>.old on the share.
+        if (hadTarget) {
+          try {
+            await backend.rename(old, rel);
+          } catch (_) {
+            // Best-effort restore; keep the .old copy for manual recovery.
+          }
+        }
+        rethrow;
+      }
       if (hadTarget) {
         try {
-          await backend.rename(old, rel);
+          await backend.deleteFile(old);
         } catch (_) {
-          // Best-effort restore; keep the .old copy for manual recovery.
+          // The destination is already the new file; a stale .old is harmless.
         }
       }
+    } catch (_) {
+      // A failed transfer or probe can leave a partial <rel>.new behind: drop
+      // it so the share is not littered (the target is untouched).
       try {
         if (await backend.exists(tmp)) await backend.deleteFile(tmp);
       } catch (_) {
         // Best-effort cleanup; the original error is the one to report.
       }
       rethrow;
-    }
-    if (hadTarget) {
-      try {
-        await backend.deleteFile(old);
-      } catch (_) {
-        // The destination is already the new file; a stale .old is harmless.
-      }
     }
   }
 

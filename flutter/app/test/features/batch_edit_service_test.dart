@@ -69,6 +69,27 @@ void main() {
     expect(await vfs.exists('/book_OLD.cbz'), isFalse);
   });
 
+  test(
+    'an archive with no images is a per-file error, not a success',
+    () async {
+      // The isolate always returned bytes, so the service's "No images found"
+      // branch was dead: an archive holding only ComicInfo.xml was reported as
+      // a successful edit with 0 pages (and rewritten with a backup).
+      final vfs = MemoryVfs();
+      final original = makeZip({'ComicInfo.xml': '<ComicInfo/>'.codeUnits});
+      await vfs.writeAll('/book.cbz', original);
+
+      final outcomes = await const BatchEditService().applyMany(vfs, [
+        item('book.cbz'),
+      ], const BatchEditParams(percent: 50));
+
+      expect(outcomes.single.success, isFalse);
+      expect(outcomes.single.error, 'No images found');
+      expect(await vfs.readAll('/book.cbz'), equals(original));
+      expect(await vfs.exists('/book_OLD.cbz'), isFalse);
+    },
+  );
+
   test('fails the file instead of silently dropping a bad page', () async {
     final vfs = MemoryVfs();
     final original = makeZip({

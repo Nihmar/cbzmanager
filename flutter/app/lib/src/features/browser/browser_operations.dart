@@ -33,6 +33,7 @@ import '../validate/validate_service.dart';
 import 'archive_item.dart';
 import 'browser_controller.dart';
 import 'selection_controller.dart';
+import 'thumbnail_service.dart';
 
 /// Shows a transient message.  Exposed for the browser shell and the tiles.
 void snack(BuildContext context, String message) {
@@ -215,6 +216,7 @@ class BrowserOperations {
       );
       job.finish();
       if (!context.mounted) return;
+      _invalidateThumbnails(ref, editable);
       final ok = outcomes.where((o) => o.success).length;
       snack(context, l10n.editedFiles(ok, outcomes.length));
       await ref.read(browserProvider.notifier).load(source.vfs, cwd(ref));
@@ -281,7 +283,12 @@ class BrowserOperations {
         isCancelled: () => job.cancelRequested,
       );
       job.finish();
-      if (context.mounted) await showConvertResultsDialog(context, outcomes);
+      if (!context.mounted) return;
+      _invalidateThumbnails(ref, editable);
+      await showConvertResultsDialog(context, outcomes);
+      if (context.mounted) {
+        await ref.read(browserProvider.notifier).load(source.vfs, cwd(ref));
+      }
     } catch (e) {
       job.finish();
       if (context.mounted) snack(context, l10n.conversionFailed('$e'));
@@ -383,6 +390,8 @@ class BrowserOperations {
                   result.errors.length,
                 ),
         );
+        _invalidateThumbnails(ref, editable);
+        await ref.read(browserProvider.notifier).load(source.vfs, cwd(ref));
       }
     } catch (e) {
       job.finish();
@@ -408,11 +417,13 @@ class BrowserOperations {
       ),
     );
     if (context.mounted) {
+      ref.read(thumbnailServiceProvider).invalidate(item.path);
       await ref.read(browserProvider.notifier).load(source.vfs, cwd(ref));
     }
   }
 
-  /// Opens the ComicInfo viewer/editor for one archive.
+  /// Opens the ComicInfo viewer/editor for one archive.  CBR archives are
+  /// read-only, so the editor is CBZ-only.
   static Future<void> editComicInfo(
     BuildContext context,
     WidgetRef ref,
@@ -420,6 +431,10 @@ class BrowserOperations {
     ArchiveItem item,
   ) async {
     final l10n = AppLocalizations.of(context);
+    if (item.isCbr) {
+      snack(context, l10n.cbrReadOnlyConvertFirst);
+      return;
+    }
     final service = ComicInfoService(ref.read(cbzEngineProvider));
     final job = ref.read(jobProvider.notifier);
     job.start(l10n.jobComicInfo, message: l10n.readingName(item.name));
@@ -446,11 +461,21 @@ class BrowserOperations {
       );
       if (context.mounted) {
         snack(context, l10n.comicInfoSaved(item.name));
+        ref.read(thumbnailServiceProvider).invalidate(item.path);
+        await ref.read(browserProvider.notifier).load(source.vfs, cwd(ref));
       }
     } catch (e) {
       if (context.mounted) snack(context, l10n.saveFailed('$e'));
     } finally {
       job.finish();
+    }
+  }
+
+  /// Drops the cached covers of every archive an in-place operation rewrote.
+  static void _invalidateThumbnails(WidgetRef ref, List<ArchiveItem> items) {
+    final thumbnails = ref.read(thumbnailServiceProvider);
+    for (final item in items) {
+      thumbnails.invalidate(item.path);
     }
   }
 

@@ -11,7 +11,8 @@ import '../../engine/zip_ops.dart';
 /// Applies a uniform batch edit to every image of an archive, synchronously.
 ///
 /// [params] holds only primitives so the call is isolate-safe (a custom params
-/// object could not be sent). Returns `[outputBytes, pageCount]`.
+/// object could not be sent). Returns `[outputBytes, pageCount]`, or
+/// `[null, 0]` when the archive has no image pages.
 List<Object?> batchEditArchiveIsolate(
   Uint8List bytes,
   Map<String, Object?> params,
@@ -69,6 +70,12 @@ List<Object?> batchEditArchiveIsolate(
       pageNum++;
       output.add(ZipEntryData(formatPageName(pageNum, targetExt), piece));
     }
+  }
+
+  if (pageNum == 0) {
+    // No image page: report it explicitly (the service turns this into a
+    // per-file error) instead of publishing a rewrite with nothing in it.
+    return <Object?>[null, 0];
   }
 
   // Preserve non-image entries (e.g. ComicInfo.xml).

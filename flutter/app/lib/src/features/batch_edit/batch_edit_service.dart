@@ -62,6 +62,11 @@ class BatchEditOutcome {
   final String? error;
 }
 
+/// Domain errors (`StateError`) carry a user-facing message; `toString()`
+/// would prefix it with "Bad state: ", which the l10n mapping does not know.
+String _errorText(Object error) =>
+    error is StateError ? error.message : '$error';
+
 /// Applies a [BatchEditParams] to each selected archive (resize → colours →
 /// split), renumbers pages and publishes through the [Vfs]. Files are processed
 /// concurrently on isolates; each file is independent, so the result is
@@ -128,7 +133,7 @@ class BatchEditService {
               slots[i] = BatchEditOutcome(
                 item: item,
                 success: false,
-                error: '$e',
+                error: _errorText(e),
               );
             }
             done++;

@@ -67,4 +67,34 @@ void main() {
     expect(result.exitCode, 0);
     expect(result.stdout, contains('SKIP empty.cbz'));
   });
+
+  test('convert-webp rejects merge-only flags with exit 2', () async {
+    final result = await run(['convert-webp', tmp.path, '--force']);
+    expect(result.exitCode, 2);
+    expect(result.stderr, contains("not valid for 'convert-webp'"));
+  });
+
+  test('cbr-to-cbz rejects merge-only flags with exit 2', () async {
+    final result = await run(['cbr-to-cbz', tmp.path, '--chapters', '2']);
+    expect(result.exitCode, 2);
+    expect(result.stderr, contains("not valid for 'cbr-to-cbz'"));
+  });
+
+  test('convert-webp reports a bad file and still exits 0', () async {
+    // man/cbzmanager.1: "Per-file failures are reported and skipped; the exit
+    // status is always 0" (the reference returns EXIT_OK unconditionally).
+    File('${tmp.path}/bad.cbz').writeAsBytesSync([1, 2, 3, 4]);
+    final result = await run(['convert-webp', tmp.path]);
+    expect(result.exitCode, 0);
+    expect(result.stdout, contains('FAIL bad.cbz'));
+  });
+
+  test('--threads accepts 0 (automatic) and words its error correctly', () async {
+    final ok = await run(['validate', tmp.path, '--threads', '0']);
+    expect(ok.exitCode, 0, reason: '0 means automatic, not an error');
+
+    final bad = await run(['validate', tmp.path, '--threads', 'x']);
+    expect(bad.exitCode, 2);
+    expect(bad.stderr, contains('non-negative'));
+  });
 }

@@ -61,6 +61,12 @@ abstract class Vfs {
   /// Scheme identifier: `file`, `memory`, `content`, `smb`, ...
   String get scheme;
 
+  /// Identity of the concrete source, used as a cache-key prefix by the
+  /// callers.  The scheme alone is enough for backends with absolute paths;
+  /// a backend whose paths are relative to a remote mount (SMB) overrides it
+  /// with its authority so two shares never share a cache entry.
+  String get sourceId => scheme;
+
   /// Non-recursive directory listing.
   Future<List<VfsEntry>> list(String dir);
 

@@ -39,7 +39,7 @@ class _PreviewScreenState extends ConsumerState<PreviewScreen> {
   bool _loading = true;
   String? _error;
 
-  String get _keyBase => '${widget.vfs.scheme}:${widget.item.path}';
+  String get _keyBase => '${widget.vfs.sourceId}:${widget.item.path}';
 
   @override
   void initState() {

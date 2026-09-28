@@ -31,10 +31,10 @@ class ThumbnailService {
     int maxWidth = 320,
     int maxHeight = 400,
   }) {
-    // The requested size is part of the key: the same archive can be asked
-    // for thumbnails at different sizes and a size-less key served the first
-    // one for all of them.
-    final key = 'archive:${vfs.scheme}:${item.path}:$maxWidth:$maxHeight';
+    // The source identity and the requested size are part of the key: two
+    // shares can hold the same relative path, and the same archive can be
+    // asked for thumbnails at different sizes.
+    final key = 'archive:${vfs.sourceId}:${item.path}:$maxWidth:$maxHeight';
     return _cached(
       key,
       () => _readPool.withResource(() async {
@@ -126,6 +126,13 @@ class ThumbnailService {
       ),
     );
     return future;
+  }
+
+  /// Drops every cached entry that references [path], so an archive rewritten
+  /// in place (convert, batch edit, ComicInfo save, page editor) shows its new
+  /// cover instead of the pre-edit one.
+  void invalidate(String path) {
+    _cache.removeWhere((key, _) => key.contains(path));
   }
 
   void dispose() {

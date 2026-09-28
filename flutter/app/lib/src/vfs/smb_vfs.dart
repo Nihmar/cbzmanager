@@ -37,6 +37,9 @@ class SmbVfs extends Vfs {
   @override
   String get scheme => 'smb';
 
+  @override
+  String get sourceId => 'smb://${config.host}/${config.share}';
+
   Future<SmbBackend> _ensureBackend() {
     final existing = _backendFuture;
     if (existing != null) return existing;

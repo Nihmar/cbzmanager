@@ -62,6 +62,7 @@ class MergeService {
     }
 
     final wrote = List<bool>.filled(total, false);
+    final existedBefore = List<bool>.filled(total, false);
     final errors = List<String?>.filled(total, null);
     var done = 0;
     final requested = options.threads <= 0 ? onlineCpuCount() : options.threads;
@@ -83,7 +84,8 @@ class MergeService {
               // pre-existing file leaves it alone (the reference's LocalVfs
               // write is atomic; a direct SMB write cannot be restored
               // anyway).
-              final existedBefore = await vfs.exists(target);
+              final hadTarget = await vfs.exists(target);
+              existedBefore[i] = hadTarget;
               final archives = <Uint8List>[];
               final numbers = <int>[];
               for (final file in batch.files) {
@@ -103,7 +105,7 @@ class MergeService {
                 // volume is marked after success (never delete it on
                 // failure).  An empty batch (bytes == null) writes nothing
                 // and stays unmarked.
-                if (!existedBefore) wrote[i] = true;
+                if (!hadTarget) wrote[i] = true;
                 await vfs.writeAll(target, bytes);
                 wrote[i] = true;
               }
@@ -126,7 +128,9 @@ class MergeService {
     final firstError = errors.firstWhere((e) => e != null, orElse: () => null);
     if (firstError != null) {
       for (var i = 0; i < total; i++) {
-        if (!wrote[i]) continue;
+        // A pre-existing volume was not created by this run: overwriting it
+        // is not a reason to delete it.
+        if (!wrote[i] || existedBefore[i]) continue;
         try {
           await vfs.delete(p.join(dir, plan.batches[i].fileName));
         } catch (_) {

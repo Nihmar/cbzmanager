@@ -89,8 +89,16 @@ class MemoryVfs extends Vfs {
   @override
   Future<void> delete(String path) async {
     final p = _norm(path);
+    if (p == '/') return;
+    // Directories delete recursively, like LocalVfs: leaving the children
+    // behind made a "deleted" folder still readable.
+    if (_dirs.contains(p)) {
+      final prefix = '$p/';
+      _files.removeWhere((key, _) => key.startsWith(prefix));
+      _dirs.removeWhere((dir) => dir == p || dir.startsWith(prefix));
+      return;
+    }
     _files.remove(p);
-    _dirs.remove(p);
   }
 
   @override

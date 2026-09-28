@@ -109,37 +109,43 @@ SmbVfs _share(String host, SmbBackend backend) => SmbVfs(
 );
 
 void _sourceIdentityTests() {
-  test('two shares with the same relative path get their own thumbnail', () async {
-    // Regression: the cache key was scheme + share-relative path, so every
-    // SMB share shared one entry and the second share showed the first
-    // share's cover art.
-    final shareA = _FakeSmbBackend(
-      makeZip({'cover.png': makeNoisePng(32, 32, 1)}),
-    );
-    final shareB = _FakeSmbBackend(
-      makeZip({'cover.png': makeNoisePng(32, 32, 2)}),
-    );
-    final service = ThumbnailService(readConcurrency: 1, decodeConcurrency: 1);
-    addTearDown(service.dispose);
-    const item = ArchiveItem(
-      name: 'book.cbz',
-      path: 'Manga/book.cbz',
-      size: 0,
-      isCbr: false,
-    );
+  test(
+    'two shares with the same relative path get their own thumbnail',
+    () async {
+      // Regression: the cache key was scheme + share-relative path, so every
+      // SMB share shared one entry and the second share showed the first
+      // share's cover art.
+      final shareA = _FakeSmbBackend(
+        makeZip({'cover.png': makeNoisePng(32, 32, 1)}),
+      );
+      final shareB = _FakeSmbBackend(
+        makeZip({'cover.png': makeNoisePng(32, 32, 2)}),
+      );
+      final service = ThumbnailService(
+        readConcurrency: 1,
+        decodeConcurrency: 1,
+      );
+      addTearDown(service.dispose);
+      const item = ArchiveItem(
+        name: 'book.cbz',
+        path: 'Manga/book.cbz',
+        size: 0,
+        isCbr: false,
+      );
 
-    final a = await service.archiveThumbnail(_share('hostA', shareA), item);
-    final b = await service.archiveThumbnail(_share('hostB', shareB), item);
+      final a = await service.archiveThumbnail(_share('hostA', shareA), item);
+      final b = await service.archiveThumbnail(_share('hostB', shareB), item);
 
-    expect(a, isNotNull);
-    expect(b, isNotNull);
-    expect(
-      shareB.reads,
-      1,
-      reason: 'a different share must not be served from the cache',
-    );
-    expect(listEquals(a!, b!), isFalse);
-  });
+      expect(a, isNotNull);
+      expect(b, isNotNull);
+      expect(
+        shareB.reads,
+        1,
+        reason: 'a different share must not be served from the cache',
+      );
+      expect(listEquals(a!, b!), isFalse);
+    },
+  );
 }
 
 /// [MemoryVfs] counting whole-file reads, to observe cache hits.

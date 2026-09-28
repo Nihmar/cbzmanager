@@ -53,7 +53,10 @@ void main() {
     );
 
     expect(await failing.exists('/books/a.cbz'), isTrue);
-    expect(await failing.readAll('/books/a.cbz'), Uint8List.fromList([1, 1, 1]));
+    expect(
+      await failing.readAll('/books/a.cbz'),
+      Uint8List.fromList([1, 1, 1]),
+    );
   });
 }
 

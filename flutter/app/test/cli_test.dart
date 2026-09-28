@@ -89,12 +89,15 @@ void main() {
     expect(result.stdout, contains('FAIL bad.cbz'));
   });
 
-  test('--threads accepts 0 (automatic) and words its error correctly', () async {
-    final ok = await run(['validate', tmp.path, '--threads', '0']);
-    expect(ok.exitCode, 0, reason: '0 means automatic, not an error');
+  test(
+    '--threads accepts 0 (automatic) and words its error correctly',
+    () async {
+      final ok = await run(['validate', tmp.path, '--threads', '0']);
+      expect(ok.exitCode, 0, reason: '0 means automatic, not an error');
 
-    final bad = await run(['validate', tmp.path, '--threads', 'x']);
-    expect(bad.exitCode, 2);
-    expect(bad.stderr, contains('non-negative'));
-  });
+      final bad = await run(['validate', tmp.path, '--threads', 'x']);
+      expect(bad.exitCode, 2);
+      expect(bad.stderr, contains('non-negative'));
+    },
+  );
 }
